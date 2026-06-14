@@ -1,0 +1,25 @@
+# Environment variables — never commit these
+.env
+.env.local
+.env.*
+!.env.example
+
+# Google OAuth credentials and tokens
+credentials.json
+token.json
+
+# Robinhood session cache
+.robinhood-session.json
+pickle/
+
+# Python venv
+venv/
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Runtime data
+*.log

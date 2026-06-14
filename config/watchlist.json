@@ -1,0 +1,14 @@
+{
+  "description": "Starter watchlist for the daily quant scan. Edit freely — replace/extend with your actual Robinhood holdings once holdings-sync.js is running. SPY is tracked separately as the S&P 500 benchmark and is not scored.",
+  "benchmark": "SPY",
+  "tickers": [
+    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA",
+    "AVGO", "AMD", "CRM",
+    "JPM", "V", "MA", "BRK-B",
+    "UNH", "LLY", "JNJ",
+    "XOM", "CVX",
+    "COST", "WMT", "HD",
+    "PG", "KO",
+    "CAT", "LIN"
+  ]
+}
