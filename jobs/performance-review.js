@@ -5,6 +5,7 @@ import {
   getServiceAccountClients,
   getOrCreateSpreadsheet,
   getSheetIds,
+  ensureTabs,
   readRecommendationsForReview,
   applyOutcomeUpdates,
   writeTrackRecordTab,
@@ -33,6 +34,11 @@ export async function runPerformanceReview() {
   if (!spreadsheetId) {
     spreadsheetId = await getOrCreateSpreadsheet(sheets, drive, redis);
     await setCachedSpreadsheetId(spreadsheetId);
+  } else {
+    // getOrCreateSpreadsheet's ensureTabs only runs on a cache miss; run it
+    // explicitly here too so newly-added tabs (e.g. Track Record) get created
+    // on a spreadsheet that was already cached before this job existed.
+    await ensureTabs(sheets, spreadsheetId);
   }
   const sheetIds = await getSheetIds(sheets, spreadsheetId);
 
