@@ -1,7 +1,8 @@
+import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { fetchFundamentalsBatch, fetchHistoricalCloses, percentChange } from "../lib/yahoo.js";
+import { fetchFundamentalsBatch, fetchHistoricalCloses, fetchQuotes, percentChange } from "../lib/yahoo.js";
 import { scoreCandidates } from "../lib/quant-scorer.js";
 import { tavilySearch } from "../lib/tavily.js";
 import { getAIRecommendation } from "../lib/ai-overlay.js";
@@ -73,6 +74,9 @@ export async function runResearchScan() {
   }
 
   console.log(`[Research] Running AI overlay for ${toReview.size} tickers...`);
+  const spyQuote = await fetchQuotes([watchlist.benchmark]);
+  const spyEntryPrice = spyQuote[watchlist.benchmark]?.regularMarketPrice ?? null;
+
   const recommendations = [];
   for (const c of toReview.values()) {
     let news = await getCachedNews(c.ticker);
@@ -104,9 +108,18 @@ export async function runResearchScan() {
       rationale: rec.rationale,
       newsLinks: news.map((n) => n.url).join(", "),
       status: "pending",
+      entryPrice: c.raw?.price?.regularMarketPrice ?? null,
+      spyEntryPrice,
     });
   }
 
   await appendRecommendations(sheets, spreadsheetId, sheetIds["Recommendations"], recommendations);
   console.log(`[Research] Done — wrote ${recommendations.length} recommendations.`);
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  runResearchScan().catch((e) => {
+    console.error("[Research] Scan error:", e.message);
+    process.exit(1);
+  });
 }
