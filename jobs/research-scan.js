@@ -2,16 +2,18 @@ import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { fetchFundamentalsBatch, fetchHistoricalCloses, fetchQuotes, percentChange } from "../lib/yahoo.js";
+import { fetchFundamentals, fetchFundamentalsBatch, fetchHistoricalCloses, fetchQuotes, percentChange } from "../lib/yahoo.js";
 import { scoreCandidates } from "../lib/quant-scorer.js";
 import { tavilySearch } from "../lib/tavily.js";
 import { getAIRecommendation } from "../lib/ai-overlay.js";
+import { applyRiskChecks } from "../lib/risk-engine.js";
 import { getRedis, getCachedSpreadsheetId, setCachedSpreadsheetId, getCachedNews, setCachedNews } from "../lib/redis.js";
 import {
   getServiceAccountClients,
   getOrCreateSpreadsheet,
   getSheetIds,
   readHoldingsTickers,
+  readHoldingsAllocation,
   readStrategyNotes,
   appendRecommendations,
 } from "../lib/sheets.js";
@@ -19,6 +21,7 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const watchlist = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "config", "watchlist.json"), "utf8"));
 const weightsConfig = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "config", "weights.json"), "utf8"));
+const riskLimits = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "config", "risk-limits.json"), "utf8"));
 
 const TOP_N = 5;
 
@@ -77,6 +80,20 @@ export async function runResearchScan() {
   const spyQuote = await fetchQuotes([watchlist.benchmark]);
   const spyEntryPrice = spyQuote[watchlist.benchmark]?.regularMarketPrice ?? null;
 
+  // Current sector exposure (% of invested capital), for the risk engine's sector-concentration check.
+  const heldAllocation = await readHoldingsAllocation(sheets, spreadsheetId);
+  const investedTotal = heldAllocation.reduce((sum, h) => sum + (h.marketValue ?? 0), 0);
+  const tickerWeightPct = {};
+  const sectorWeightPct = {};
+  for (const h of heldAllocation) {
+    if (!h.marketValue || !investedTotal) continue;
+    const weightPct = (h.marketValue / investedTotal) * 100;
+    tickerWeightPct[h.ticker] = weightPct;
+    const known = candidates.find((c) => c.ticker === h.ticker)?.sector;
+    const sector = known ?? (await fetchFundamentals(h.ticker)).sector;
+    if (sector) sectorWeightPct[sector] = (sectorWeightPct[sector] ?? 0) + weightPct;
+  }
+
   const recommendations = [];
   for (const c of toReview.values()) {
     let news = await getCachedNews(c.ticker);
@@ -90,7 +107,7 @@ export async function runResearchScan() {
       }
     }
 
-    const rec = await getAIRecommendation({
+    const proposal = await getAIRecommendation({
       ticker: c.ticker,
       name: c.name,
       quantScore: c.quantScore,
@@ -100,16 +117,37 @@ export async function runResearchScan() {
       isHeld: holdingTickers.includes(c.ticker),
     });
 
+    const rec = applyRiskChecks(
+      proposal,
+      {
+        sector: c.sector,
+        currentSectorWeightPct: sectorWeightPct[c.sector] ?? 0,
+        currentPositionWeightPct: tickerWeightPct[c.ticker] ?? 0,
+      },
+      riskLimits
+    );
+
+    const rationale = [
+      rec.thesis,
+      rec.risks.length ? `Risks: ${rec.risks.join("; ")}` : null,
+      rec.killCriteria.length ? `Kill criteria: ${rec.killCriteria.join("; ")}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
     recommendations.push({
       date: new Date().toISOString().slice(0, 10),
       ticker: c.ticker,
       action: rec.action,
       quantScore: c.quantScore,
-      rationale: rec.rationale,
+      rationale,
       newsLinks: news.map((n) => n.url).join(", "),
       status: "pending",
       entryPrice: c.raw?.price?.regularMarketPrice ?? null,
       spyEntryPrice,
+      targetWeight: rec.targetWeight,
+      confidence: rec.confidence,
+      ruleCheck: rec.overrideNotes.length ? rec.overrideNotes.join("; ") : "OK",
     });
   }
 
