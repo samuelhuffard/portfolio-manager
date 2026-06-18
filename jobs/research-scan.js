@@ -9,33 +9,50 @@ import { fetchRecentFilings } from "../lib/edgar.js";
 import { fetchMacroSnapshot, formatMacroSnapshot } from "../lib/fred.js";
 import { getAIRecommendation } from "../lib/ai-overlay.js";
 import { applyRiskChecks } from "../lib/risk-engine.js";
-import { getRedis, getCachedSpreadsheetId, setCachedSpreadsheetId, getCachedNews, setCachedNews, getCachedMacro, setCachedMacro } from "../lib/redis.js";
+import { getCachedSpreadsheetId, setCachedSpreadsheetId, getCachedNews, setCachedNews, getCachedMacro, setCachedMacro } from "../lib/redis.js";
 import {
   getServiceAccountClients,
   getOrCreateSpreadsheet,
+  ensureTabs,
   getSheetIds,
   readHoldingsTickers,
   readHoldingsAllocation,
   readStrategyNotes,
   appendRecommendations,
 } from "../lib/sheets.js";
+import { AGENTS } from "../config/agents.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const watchlist = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "config", "watchlist.json"), "utf8"));
-const weightsConfig = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "config", "weights.json"), "utf8"));
-const riskLimits = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "config", "risk-limits.json"), "utf8"));
-
 const TOP_N = 5;
 
-export async function runResearchScan() {
-  console.log(`[Research] Scanning ${watchlist.tickers.length} tickers...`);
+function loadAgentConfig(agentId) {
+  const dir = path.join(__dirname, "..", "config", "agents", agentId);
+  return {
+    watchlist: JSON.parse(fs.readFileSync(path.join(dir, "watchlist.json"), "utf8")),
+    weights: JSON.parse(fs.readFileSync(path.join(dir, "weights.json"), "utf8")),
+    riskLimits: JSON.parse(fs.readFileSync(path.join(dir, "risk-limits.json"), "utf8")),
+    personality: fs.readFileSync(path.join(dir, "personality.md"), "utf8").trim(),
+  };
+}
 
-  const redis = getRedis();
+/** Runs one agent's full scan (quant score -> AI overlay -> risk engine -> write) against its own watchlist and spreadsheet, fully independent of the other agents. */
+async function runResearchScanForAgent(agent) {
+  const configuredSpreadsheetId = process.env[agent.spreadsheetEnvVar]?.trim();
+  if (!configuredSpreadsheetId) {
+    console.log(`[Research] ${agent.id}: ${agent.spreadsheetEnvVar} not set, skipping (not provisioned yet).`);
+    return;
+  }
+
+  const { watchlist, weights: weightsConfig, riskLimits, personality } = loadAgentConfig(agent.id);
+  console.log(`[Research] ${agent.id}: scanning ${watchlist.tickers.length} tickers...`);
+
   const { sheets, drive } = getServiceAccountClients();
-  let spreadsheetId = await getCachedSpreadsheetId();
+  let spreadsheetId = await getCachedSpreadsheetId(agent.id);
   if (!spreadsheetId) {
-    spreadsheetId = await getOrCreateSpreadsheet(sheets, drive, redis);
-    await setCachedSpreadsheetId(spreadsheetId);
+    spreadsheetId = await getOrCreateSpreadsheet(sheets, drive, configuredSpreadsheetId);
+    await setCachedSpreadsheetId(agent.id, spreadsheetId);
+  } else {
+    await ensureTabs(sheets, spreadsheetId);
   }
   const sheetIds = await getSheetIds(sheets, spreadsheetId);
 
@@ -54,7 +71,7 @@ export async function runResearchScan() {
   const candidates = [];
   for (const f of fundamentals) {
     if (f.error) {
-      console.warn(`[Research] Skipping ${f.ticker}: ${f.error}`);
+      console.warn(`[Research] ${agent.id}: skipping ${f.ticker}: ${f.error}`);
       continue;
     }
     const [closes3m, closes1m] = await Promise.all([
@@ -78,7 +95,7 @@ export async function runResearchScan() {
     if (c) toReview.set(ticker, c);
   }
 
-  console.log(`[Research] Running AI overlay for ${toReview.size} tickers...`);
+  console.log(`[Research] ${agent.id}: running AI overlay for ${toReview.size} tickers...`);
   const spyQuote = await fetchQuotes([watchlist.benchmark]);
   const spyEntryPrice = spyQuote[watchlist.benchmark]?.regularMarketPrice ?? null;
 
@@ -96,7 +113,7 @@ export async function runResearchScan() {
     if (sector) sectorWeightPct[sector] = (sectorWeightPct[sector] ?? 0) + weightPct;
   }
 
-  // Macro backdrop is shared across every ticker this run — fetch/cache once, not per-ticker.
+  // Macro backdrop is a shared market fact (not agent memory/opinion) — fetch/cache once globally, not per-agent.
   let macroSnapshot = await getCachedMacro();
   if (!macroSnapshot) {
     macroSnapshot = await fetchMacroSnapshot();
@@ -106,13 +123,14 @@ export async function runResearchScan() {
 
   const recommendations = [];
   for (const c of toReview.values()) {
+    // News is a market fact too — shared cache by ticker is fine and saves Tavily quota across agents.
     let news = await getCachedNews(c.ticker);
     if (!news) {
       try {
         news = await tavilySearch(`${c.ticker} ${c.name} stock news`, { maxResults: 3, days: 7 });
         await setCachedNews(c.ticker, news);
       } catch (err) {
-        console.warn(`[Research] Tavily search failed for ${c.ticker}:`, err.message);
+        console.warn(`[Research] ${agent.id}: Tavily search failed for ${c.ticker}:`, err.message);
         news = []; // don't cache — let the next ticker/run retry instead of masking an outage for 12h
       }
     }
@@ -132,6 +150,7 @@ export async function runResearchScan() {
       insiderActivity: c.insiderActivity,
       recentFilings,
       macro: macroText,
+      personality,
     });
 
     const rec = applyRiskChecks(
@@ -169,7 +188,18 @@ export async function runResearchScan() {
   }
 
   await appendRecommendations(sheets, spreadsheetId, sheetIds["Recommendations"], recommendations);
-  console.log(`[Research] Done — wrote ${recommendations.length} recommendations.`);
+  console.log(`[Research] ${agent.id}: done — wrote ${recommendations.length} recommendations.`);
+}
+
+/** Runs every configured agent's scan in sequence — fully independent watchlists, spreadsheets, and risk limits. One agent's failure doesn't block the others. */
+export async function runResearchScan() {
+  for (const agent of AGENTS) {
+    try {
+      await runResearchScanForAgent(agent);
+    } catch (err) {
+      console.error(`[Research] ${agent.id} failed:`, err.message);
+    }
+  }
 }
 
 if (fileURLToPath(import.meta.url) === process.argv[1]) {

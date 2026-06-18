@@ -1,0 +1,14 @@
+{
+  "description": "Quant scoring weights. Each metric is normalized 0-100 cross-sectionally across the watchlist (best in group = 100, worst = 0), then combined by these weights into a composite quant score (0-100). Weights must sum to 1.0. research-scan.js reads this on every run — edit here to change scoring emphasis.",
+  "quant_weights": {
+    "momentum_3m": 0.15,
+    "momentum_1m": 0.10,
+    "revenueGrowth": 0.12,
+    "earningsGrowth": 0.12,
+    "profitMargins": 0.12,
+    "returnOnEquity": 0.13,
+    "trailingPE": 0.10,
+    "debtToEquity": 0.08,
+    "pegRatio": 0.08
+  }
+}

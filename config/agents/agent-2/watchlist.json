@@ -1,0 +1,5 @@
+{
+  "description": "Agent 2's watchlist slice — research-only/paper until Sam provisions a spreadsheet (SPREADSHEET_ID_AGENT_2). No personality assigned yet; this slice is just a structural split of the original 26-ticker starter list so the three agents aren't all researching identical names. Edit freely once a philosophy is assigned.",
+  "benchmark": "SPY",
+  "tickers": ["CRM", "JPM", "V", "MA", "BRK-B", "UNH", "LLY", "JNJ", "XOM"]
+}

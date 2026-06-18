@@ -1,0 +1,3 @@
+Each subdirectory is one independent research agent: own `watchlist.json`, `weights.json`, `risk-limits.json`, and `personality.md`.
+
+`personality.md` is intentionally empty for all three agents right now. It's read verbatim and appended to the AI overlay's system context only if non-empty — so until Sam writes one, each agent reasons with no personality/philosophy framing at all, just its quant score + research signals. When Sam names an agent after its investment philosophy, write that mandate (universe, time horizon, buy/sell criteria, risk posture — see the "Strategy Spec" shape in the vault's `jordan.md` future-direction notes) into its `personality.md` and it takes effect on the next scan, independently of the other two agents.

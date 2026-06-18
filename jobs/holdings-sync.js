@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { fetchQuotes } from "../lib/yahoo.js";
-import { getRedis, getCachedSpreadsheetId, setCachedSpreadsheetId } from "../lib/redis.js";
+import { getCachedSpreadsheetId, setCachedSpreadsheetId } from "../lib/redis.js";
 import {
   getServiceAccountClients,
   getOrCreateSpreadsheet,
@@ -20,6 +20,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PYTHON_BIN = process.env.ROBINHOOD_PYTHON?.trim() || path.join(__dirname, "..", "venv", "bin", "python3");
 const SCRIPT_PATH = path.join(__dirname, "..", "lib", "robinhood-sync.py");
+
+// Sam has one real Robinhood account, so this job stays single-agent — it always
+// writes to agent-1's spreadsheet (see config/agents.js). agent-2/agent-3 are
+// research-only/paper until Sam allocates real capital to them.
+const AGENT_ID = "agent-1";
 
 export async function syncHoldings() {
   console.log("[Holdings] Running robinhood-sync.py...");
@@ -62,12 +67,11 @@ export async function syncHoldings() {
     };
   });
 
-  const redis = getRedis();
   const { sheets, drive } = getServiceAccountClients();
-  let spreadsheetId = await getCachedSpreadsheetId();
+  let spreadsheetId = await getCachedSpreadsheetId(AGENT_ID);
   if (!spreadsheetId) {
-    spreadsheetId = await getOrCreateSpreadsheet(sheets, drive, redis);
-    await setCachedSpreadsheetId(spreadsheetId);
+    spreadsheetId = await getOrCreateSpreadsheet(sheets, drive, process.env.SPREADSHEET_ID?.trim());
+    await setCachedSpreadsheetId(AGENT_ID, spreadsheetId);
   }
   const sheetIds = await getSheetIds(sheets, spreadsheetId);
 

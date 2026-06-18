@@ -1,0 +1,5 @@
+{
+  "description": "Agent 1's watchlist slice — also the real, holdings-synced Robinhood account. No personality assigned yet; this slice is just a structural split of the original 26-ticker starter list so the three agents aren't all researching identical names. Edit freely once a philosophy is assigned.",
+  "benchmark": "SPY",
+  "tickers": ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "AVGO", "AMD"]
+}

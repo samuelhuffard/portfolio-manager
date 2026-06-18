@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { fileURLToPath } from "node:url";
 import { fetchQuotes } from "../lib/yahoo.js";
-import { getRedis, getCachedSpreadsheetId, setCachedSpreadsheetId } from "../lib/redis.js";
+import { getCachedSpreadsheetId, setCachedSpreadsheetId } from "../lib/redis.js";
 import {
   getServiceAccountClients,
   getOrCreateSpreadsheet,
@@ -11,6 +11,7 @@ import {
   applyOutcomeUpdates,
   writeTrackRecordTab,
 } from "../lib/sheets.js";
+import { AGENTS } from "../config/agents.js";
 
 const HORIZONS = [30, 90, 180]; // calendar days since the recommendation date
 
@@ -19,22 +20,26 @@ function daysSince(dateStr) {
 }
 
 /**
- * Reviews past recommendations whose 30/90/180-day forward-return windows have
- * elapsed: pulls current prices, computes return + alpha vs SPY using the entry
- * prices captured at recommendation time, and locks in a directional hit/miss
- * (BUY followed by a gain, or SELL followed by a loss). Each horizon is written
- * once and never recomputed, so later price drift doesn't retroactively change
- * a past outcome. Also refreshes the Track Record tab's aggregate hit-rate stats.
+ * Reviews one agent's past recommendations whose 30/90/180-day forward-return
+ * windows have elapsed: pulls current prices, computes return + alpha vs SPY
+ * using the entry prices captured at recommendation time, and locks in a
+ * directional hit/miss (BUY followed by a gain, or SELL followed by a loss).
+ * Each horizon is written once and never recomputed, so later price drift
+ * doesn't retroactively change a past outcome. Also refreshes that agent's
+ * own Track Record tab — fully independent of the other agents' track records.
  */
-export async function runPerformanceReview() {
-  console.log("[Performance] Reviewing past recommendations...");
+async function runPerformanceReviewForAgent(agent) {
+  const configuredSpreadsheetId = process.env[agent.spreadsheetEnvVar]?.trim();
+  if (!configuredSpreadsheetId) {
+    console.log(`[Performance] ${agent.id}: ${agent.spreadsheetEnvVar} not set, skipping (not provisioned yet).`);
+    return;
+  }
 
-  const redis = getRedis();
   const { sheets, drive } = getServiceAccountClients();
-  let spreadsheetId = await getCachedSpreadsheetId();
+  let spreadsheetId = await getCachedSpreadsheetId(agent.id);
   if (!spreadsheetId) {
-    spreadsheetId = await getOrCreateSpreadsheet(sheets, drive, redis);
-    await setCachedSpreadsheetId(spreadsheetId);
+    spreadsheetId = await getOrCreateSpreadsheet(sheets, drive, configuredSpreadsheetId);
+    await setCachedSpreadsheetId(agent.id, spreadsheetId);
   } else {
     // getOrCreateSpreadsheet's ensureTabs only runs on a cache miss; run it
     // explicitly here too so newly-added tabs (e.g. Track Record) get created
@@ -49,7 +54,7 @@ export async function runPerformanceReview() {
   );
 
   if (!due.length) {
-    console.log("[Performance] No recommendations due for review.");
+    console.log(`[Performance] ${agent.id}: no recommendations due for review.`);
     await writeTrackRecordTab(sheets, spreadsheetId, sheetIds["Track Record"]);
     return;
   }
@@ -79,7 +84,18 @@ export async function runPerformanceReview() {
 
   await applyOutcomeUpdates(sheets, spreadsheetId, sheetIds["Recommendations"], updates);
   await writeTrackRecordTab(sheets, spreadsheetId, sheetIds["Track Record"]);
-  console.log(`[Performance] Updated ${updates.length} recommendation rows; track record refreshed.`);
+  console.log(`[Performance] ${agent.id}: updated ${updates.length} recommendation rows; track record refreshed.`);
+}
+
+/** Runs every configured agent's performance review in sequence — fully independent track records. One agent's failure doesn't block the others. */
+export async function runPerformanceReview() {
+  for (const agent of AGENTS) {
+    try {
+      await runPerformanceReviewForAgent(agent);
+    } catch (err) {
+      console.error(`[Performance] ${agent.id} failed:`, err.message);
+    }
+  }
 }
 
 if (fileURLToPath(import.meta.url) === process.argv[1]) {
