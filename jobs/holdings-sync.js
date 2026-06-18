@@ -47,7 +47,7 @@ export async function syncHoldings() {
   }
 
   const { holdings, cash, portfolioValue } = data;
-  console.log(`[Holdings] Synced ${holdings.length} positions — portfolio value $${portfolioValue}`);
+  console.log(`[Holdings] Synced ${holdings.length} positions from Robinhood.`);
 
   const tickers = holdings.map((h) => h.ticker);
   const quotes = await fetchQuotes([...tickers, "SPY"]);
@@ -147,7 +147,7 @@ export async function syncHoldings() {
     isSample: false,
   });
 
-  console.log(`[Holdings] Done — ${timestamp}. Total value: $${totalValue.toFixed(2)}`);
+  console.log(`[Holdings] Done - ${timestamp}.`);
 }
 
 if (fileURLToPath(import.meta.url) === process.argv[1]) {

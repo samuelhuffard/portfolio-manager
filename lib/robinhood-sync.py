@@ -25,7 +25,8 @@ def main():
 
     try:
         totp = pyotp.TOTP(totp_secret).now()
-        rh.login(username, password, mfa_code=totp, store_session=True)
+        store_session = os.environ.get("ROBINHOOD_STORE_SESSION", "").strip().lower() in {"1", "true", "yes"}
+        rh.login(username, password, mfa_code=totp, store_session=store_session)
     except Exception as e:
         print(json.dumps({"error": f"Login failed (may need manual re-auth): {e}"}))
         sys.exit(1)

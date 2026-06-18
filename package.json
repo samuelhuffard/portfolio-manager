@@ -6,7 +6,8 @@
     "start": "node scheduler.js",
     "holdings:sync": "node jobs/holdings-sync.js",
     "research:scan": "node jobs/research-scan.js",
-    "performance:review": "node jobs/performance-review.js"
+    "performance:review": "node jobs/performance-review.js",
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

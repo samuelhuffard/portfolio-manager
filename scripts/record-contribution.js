@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { getCachedSpreadsheetId, setCachedSpreadsheetId } from "../lib/redis.js";
 import { getServiceAccountClients, getOrCreateSpreadsheet, ensureTabs, getSheetIds, readPerformanceHistory, readInvestorLedger, appendInvestorLedgerEntry } from "../lib/sheets.js";
+import { calculateInvestorLedgerEntry, getInvestorLedgerSecret, getTodayInNewYork } from "../lib/investor-ledger.js";
 import { AGENTS } from "../config/agents.js";
 
 // Records a real contribution or withdrawal into one agent's capital ledger —
@@ -8,7 +9,7 @@ import { AGENTS } from "../config/agents.js";
 // moves money itself, only records what already happened, same as every other
 // manual-execution boundary in this system).
 //
-//   node scripts/record-contribution.js <agentId> <email> "<name>" <amount> [--withdraw|--seed-owner]
+//   node scripts/record-contribution.js <agentId> <email> "<name>" <amount> [--withdraw] [--seed-owner] [--investor-id=user_xxx] [--nav-date=YYYY-MM-DD] [--allow-stale-nav]
 //
 // Units are issued/burned at the agent's current NAV per unit (computed from the
 // latest Performance row's portfolioValue/unitsOutstanding). The very first-ever
@@ -20,10 +21,10 @@ import { AGENTS } from "../config/agents.js";
 // investor would otherwise silently hand them a free claim on capital that isn't
 // theirs. Record the true owner of that pre-existing value first.
 
-const [, , agentId, email, name, amountStr, flag] = process.argv;
+const [, , agentId, email, name, amountStr, ...flags] = process.argv;
 
 if (!agentId || !email || !name || !amountStr) {
-  console.error('Usage: node scripts/record-contribution.js <agentId> <email> "<name>" <amount> [--withdraw|--seed-owner]');
+  console.error('Usage: node scripts/record-contribution.js <agentId> <email> "<name>" <amount> [--withdraw] [--seed-owner] [--investor-id=user_xxx] [--nav-date=YYYY-MM-DD] [--allow-stale-nav]');
   process.exit(1);
 }
 
@@ -39,8 +40,15 @@ if (!Number.isFinite(amount) || amount <= 0) {
   process.exit(1);
 }
 
-const isWithdrawal = flag === "--withdraw";
-const isSeedOwner = flag === "--seed-owner";
+const isWithdrawal = flags.includes("--withdraw");
+const isSeedOwner = flags.includes("--seed-owner");
+const allowStaleNav = flags.includes("--allow-stale-nav");
+const investorId = flags.find((f) => f.startsWith("--investor-id="))?.slice("--investor-id=".length);
+const navDate = flags.find((f) => f.startsWith("--nav-date="))?.slice("--nav-date=".length);
+if (navDate && !/^\d{4}-\d{2}-\d{2}$/.test(navDate)) {
+  console.error("--nav-date must be YYYY-MM-DD.");
+  process.exit(1);
+}
 
 const configuredSpreadsheetId = process.env[agent.spreadsheetEnvVar]?.trim();
 if (!configuredSpreadsheetId) {
@@ -59,60 +67,48 @@ if (!spreadsheetId) {
 const sheetIds = await getSheetIds(sheets, spreadsheetId);
 
 const ledger = await readInvestorLedger(sheets, spreadsheetId);
-const unitsOutstandingBefore = ledger.reduce((sum, e) => sum + e.units, 0);
-
-let navPerUnit;
-if (unitsOutstandingBefore <= 0) {
-  if (!isSeedOwner) {
-    const history = await readPerformanceHistory(sheets, spreadsheetId);
-    const existingValue = history[history.length - 1]?.portfolioValue ?? 0;
-    if (existingValue > 1) {
-      console.error(
-        `[${agentId}] This agent already holds $${existingValue.toFixed(2)} of value with no investor ledger yet. ` +
-        `Seeding NAV at $1.00/unit now would give ${name} a free claim on that pre-existing capital. ` +
-        `Record who actually owns it first:\n  node scripts/record-contribution.js ${agentId} <owner-email> "<owner-name>" ${existingValue.toFixed(2)} --seed-owner`
-      );
-      process.exit(1);
-    }
-  }
-  navPerUnit = 1.0;
-  console.log(`[${agentId}] First-ever ledger entry — seeding NAV at $1.0000/unit.`);
-} else {
-  const history = await readPerformanceHistory(sheets, spreadsheetId);
-  const latest = history[history.length - 1];
-  if (latest?.navPerUnit != null) {
-    navPerUnit = latest.navPerUnit;
-  } else if (latest?.portfolioValue != null) {
-    navPerUnit = latest.portfolioValue / unitsOutstandingBefore;
-  } else {
-    console.error(`[${agentId}] No Performance history with a portfolio value yet — can't price units. Run holdings-sync first.`);
-    process.exit(1);
-  }
+const history = await readPerformanceHistory(sheets, spreadsheetId);
+let secret;
+try {
+  secret = getInvestorLedgerSecret();
+} catch (err) {
+  console.error(err instanceof Error ? err.message : err);
+  process.exit(1);
 }
 
-const units = (isWithdrawal ? -1 : 1) * (amount / navPerUnit);
-if (isWithdrawal) {
-  const existingUnits = ledger.filter((e) => e.email.toLowerCase() === email.toLowerCase()).reduce((sum, e) => sum + e.units, 0);
-  if (Math.abs(units) > existingUnits + 1e-6) {
-    console.error(`[${agentId}] ${email} only holds ${existingUnits.toFixed(4)} units (~$${(existingUnits * navPerUnit).toFixed(2)}) — can't withdraw $${amount}.`);
-    process.exit(1);
+let result;
+try {
+  result = calculateInvestorLedgerEntry({
+    agentId,
+    ledger,
+    performanceHistory: history,
+    email,
+    name,
+    amount,
+    isWithdrawal,
+    isSeedOwner,
+    investorId,
+    navDate,
+    allowStaleNav,
+    secret,
+  });
+} catch (err) {
+  console.error(err instanceof Error ? err.message : err);
+  if (err instanceof Error && err.message.includes("true owner")) {
+    const existingValue = history[history.length - 1]?.portfolioValue ?? amount;
+    console.error(`Record who actually owns it first:\n  node scripts/record-contribution.js ${agentId} <owner-email> "<owner-name>" ${existingValue.toFixed(2)} --seed-owner --investor-id=<clerk-user-id>`);
   }
+  process.exit(1);
 }
 
-await appendInvestorLedgerEntry(sheets, spreadsheetId, sheetIds["Investors"], {
-  date: new Date().toISOString().slice(0, 10),
-  email,
-  name,
-  type: isWithdrawal ? "Withdrawal" : "Contribution",
-  amount,
-  navPerUnit: Math.round(navPerUnit * 10000) / 10000,
-  units: Math.round(units * 10000) / 10000,
-});
+if (result.seeded) {
+  console.log(`[${agentId}] First-ever ledger entry - seeding NAV at $1.0000/unit.`);
+}
 
-const unitsOutstandingAfter = unitsOutstandingBefore + units;
-const investorUnitsAfter = ledger.filter((e) => e.email.toLowerCase() === email.toLowerCase()).reduce((sum, e) => sum + e.units, 0) + units;
-const ownershipPct = unitsOutstandingAfter > 0 ? (investorUnitsAfter / unitsOutstandingAfter) * 100 : 0;
+await appendInvestorLedgerEntry(sheets, spreadsheetId, sheetIds["Investors"], result.entry);
 
 console.log(
-  `[${agentId}] ${isWithdrawal ? "Withdrew" : "Recorded"} $${amount.toFixed(2)} for ${name} (${email}) at $${navPerUnit.toFixed(4)}/unit → ${units.toFixed(4)} units. ${name} now holds ${investorUnitsAfter.toFixed(4)} units (${ownershipPct.toFixed(2)}% of the fund).`
+  `[${agentId}] ${isWithdrawal ? "Withdrew" : "Recorded"} investor ledger entry for ${name}. ` +
+    `NAV date ${navDate || getTodayInNewYork()}, amount $${amount.toFixed(2)}, ` +
+    `${result.entry.units.toFixed(4)} units, ownership ${result.ownershipPct.toFixed(2)}%.`
 );
