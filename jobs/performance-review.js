@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { fileURLToPath } from "node:url";
 import { fetchQuotes } from "../lib/yahoo.js";
 import { getRedis, getCachedSpreadsheetId, setCachedSpreadsheetId } from "../lib/redis.js";
 import {
@@ -81,7 +82,7 @@ export async function runPerformanceReview() {
   console.log(`[Performance] Updated ${updates.length} recommendation rows; track record refreshed.`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (fileURLToPath(import.meta.url) === process.argv[1]) {
   runPerformanceReview().catch((e) => {
     console.error("[Performance] Review error:", e.message);
     process.exit(1);

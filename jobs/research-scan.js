@@ -5,9 +5,11 @@ import { fileURLToPath } from "node:url";
 import { fetchFundamentals, fetchFundamentalsBatch, fetchHistoricalCloses, fetchQuotes, percentChange } from "../lib/yahoo.js";
 import { scoreCandidates } from "../lib/quant-scorer.js";
 import { tavilySearch } from "../lib/tavily.js";
+import { fetchRecentFilings } from "../lib/edgar.js";
+import { fetchMacroSnapshot, formatMacroSnapshot } from "../lib/fred.js";
 import { getAIRecommendation } from "../lib/ai-overlay.js";
 import { applyRiskChecks } from "../lib/risk-engine.js";
-import { getRedis, getCachedSpreadsheetId, setCachedSpreadsheetId, getCachedNews, setCachedNews } from "../lib/redis.js";
+import { getRedis, getCachedSpreadsheetId, setCachedSpreadsheetId, getCachedNews, setCachedNews, getCachedMacro, setCachedMacro } from "../lib/redis.js";
 import {
   getServiceAccountClients,
   getOrCreateSpreadsheet,
@@ -94,6 +96,14 @@ export async function runResearchScan() {
     if (sector) sectorWeightPct[sector] = (sectorWeightPct[sector] ?? 0) + weightPct;
   }
 
+  // Macro backdrop is shared across every ticker this run — fetch/cache once, not per-ticker.
+  let macroSnapshot = await getCachedMacro();
+  if (!macroSnapshot) {
+    macroSnapshot = await fetchMacroSnapshot();
+    if (macroSnapshot) await setCachedMacro(macroSnapshot);
+  }
+  const macroText = formatMacroSnapshot(macroSnapshot);
+
   const recommendations = [];
   for (const c of toReview.values()) {
     let news = await getCachedNews(c.ticker);
@@ -107,6 +117,8 @@ export async function runResearchScan() {
       }
     }
 
+    const recentFilings = await fetchRecentFilings(c.ticker, { limit: 3 });
+
     const proposal = await getAIRecommendation({
       ticker: c.ticker,
       name: c.name,
@@ -115,6 +127,11 @@ export async function runResearchScan() {
       news,
       strategyNotes,
       isHeld: holdingTickers.includes(c.ticker),
+      nextEarningsDate: c.nextEarningsDate,
+      analystTrend: c.analystTrend,
+      insiderActivity: c.insiderActivity,
+      recentFilings,
+      macro: macroText,
     });
 
     const rec = applyRiskChecks(
@@ -155,7 +172,7 @@ export async function runResearchScan() {
   console.log(`[Research] Done — wrote ${recommendations.length} recommendations.`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (fileURLToPath(import.meta.url) === process.argv[1]) {
   runResearchScan().catch((e) => {
     console.error("[Research] Scan error:", e.message);
     process.exit(1);

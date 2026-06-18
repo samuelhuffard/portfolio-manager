@@ -134,7 +134,7 @@ export async function syncHoldings() {
   console.log(`[Holdings] Done — ${timestamp}. Total value: $${totalValue.toFixed(2)}`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (fileURLToPath(import.meta.url) === process.argv[1]) {
   syncHoldings().catch((e) => {
     console.error("[Holdings] Sync error:", e.message);
     process.exit(1);
