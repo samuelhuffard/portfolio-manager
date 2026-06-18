@@ -8,10 +8,12 @@ import { getCachedSpreadsheetId, setCachedSpreadsheetId } from "../lib/redis.js"
 import {
   getServiceAccountClients,
   getOrCreateSpreadsheet,
+  ensureTabs,
   getSheetIds,
   writeHoldingsTab,
   appendPerformanceRow,
   readPerformanceHistory,
+  readInvestorLedger,
   writeOverviewTab,
 } from "../lib/sheets.js";
 
@@ -72,6 +74,8 @@ export async function syncHoldings() {
   if (!spreadsheetId) {
     spreadsheetId = await getOrCreateSpreadsheet(sheets, drive, process.env.SPREADSHEET_ID?.trim());
     await setCachedSpreadsheetId(AGENT_ID, spreadsheetId);
+  } else {
+    await ensureTabs(sheets, spreadsheetId);
   }
   const sheetIds = await getSheetIds(sheets, spreadsheetId);
 
@@ -85,10 +89,18 @@ export async function syncHoldings() {
   // Read history before appending today's row so "first" reflects prior tracking start.
   const history = await readPerformanceHistory(sheets, spreadsheetId);
 
+  // NAV per unit for the investor capital ledger — units outstanding are whatever the
+  // ledger says they are; no investors yet means no NAV/unit to compute.
+  const ledger = await readInvestorLedger(sheets, spreadsheetId);
+  const unitsOutstanding = ledger.reduce((sum, e) => sum + e.units, 0);
+  const navPerUnit = unitsOutstanding > 0 ? totalValue / unitsOutstanding : null;
+
   await appendPerformanceRow(sheets, spreadsheetId, sheetIds["Performance"], {
     date: new Date().toISOString().slice(0, 10),
     portfolioValue: Math.round(totalValue * 100) / 100,
     spyPrice,
+    unitsOutstanding: unitsOutstanding > 0 ? Math.round(unitsOutstanding * 10000) / 10000 : null,
+    navPerUnit: navPerUnit != null ? Math.round(navPerUnit * 10000) / 10000 : null,
   });
 
   let portfolioReturnPct = null;
