@@ -83,11 +83,11 @@ export async function runResearchScan() {
     if (!news) {
       try {
         news = await tavilySearch(`${c.ticker} ${c.name} stock news`, { maxResults: 3, days: 7 });
+        await setCachedNews(c.ticker, news);
       } catch (err) {
         console.warn(`[Research] Tavily search failed for ${c.ticker}:`, err.message);
-        news = [];
+        news = []; // don't cache — let the next ticker/run retry instead of masking an outage for 12h
       }
-      await setCachedNews(c.ticker, news);
     }
 
     const rec = await getAIRecommendation({
