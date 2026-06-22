@@ -27,11 +27,19 @@ def main():
         store_session = os.environ.get("ROBINHOOD_STORE_SESSION", "").strip().lower() in {"1", "true", "yes"}
         if totp_secret:
             mfa_code = pyotp.TOTP(totp_secret).now()
-            rh.login(username, password, mfa_code=mfa_code, store_session=store_session)
+            login_result = rh.login(username, password, mfa_code=mfa_code, store_session=store_session)
         else:
-            rh.login(username, password, store_session=store_session)
+            login_result = rh.login(username, password, store_session=store_session)
     except Exception as e:
         print(json.dumps({"error": f"Login failed (may need manual re-auth): {e}"}))
+        sys.exit(1)
+
+    # robin_stocks' login() can fail silently (prints a message, returns a
+    # falsy/error dict) instead of raising — without this check a failed
+    # login proceeds to fetch from an unauthenticated session and reports
+    # an empty portfolio as if it were real data.
+    if not login_result or not isinstance(login_result, dict) or "access_token" not in login_result:
+        print(json.dumps({"error": "Login failed: no access token returned (check credentials / device verification)"}))
         sys.exit(1)
 
     try:
