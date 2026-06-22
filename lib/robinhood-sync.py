@@ -13,26 +13,40 @@ import sys
 import pyotp
 import robin_stocks.robinhood as rh
 
+# robin_stocks 3.4.0's login() only returns the auth data from inside its
+# `if store_session:` branch — with store_session=False a successful login
+# still falls through to "Login failed" and returns None, even though the
+# session is actually authenticated. Always store the session pickle to get
+# a real return value, then delete it ourselves if persistence wasn't asked
+# for, so nothing lingers on disk.
+PICKLE_PATH = os.path.join(os.path.expanduser("~"), ".tokens", "robinhood.pickle")
+
 
 def main():
     username = os.environ.get("ROBINHOOD_USERNAME", "").strip()
     password = os.environ.get("ROBINHOOD_PASSWORD", "").strip()
     totp_secret = os.environ.get("ROBINHOOD_TOTP_SECRET", "").strip()
+    persist_session = os.environ.get("ROBINHOOD_STORE_SESSION", "").strip().lower() in {"1", "true", "yes"}
 
     if not username or not password:
         print(json.dumps({"error": "Missing ROBINHOOD_USERNAME/ROBINHOOD_PASSWORD env vars"}))
         sys.exit(1)
 
     try:
-        store_session = os.environ.get("ROBINHOOD_STORE_SESSION", "").strip().lower() in {"1", "true", "yes"}
         if totp_secret:
             mfa_code = pyotp.TOTP(totp_secret).now()
-            login_result = rh.login(username, password, mfa_code=mfa_code, store_session=store_session)
+            login_result = rh.login(username, password, mfa_code=mfa_code, store_session=True)
         else:
-            login_result = rh.login(username, password, store_session=store_session)
+            login_result = rh.login(username, password, store_session=True)
     except Exception as e:
         print(json.dumps({"error": f"Login failed (may need manual re-auth): {e}"}))
         sys.exit(1)
+    finally:
+        if not persist_session:
+            try:
+                os.remove(PICKLE_PATH)
+            except OSError:
+                pass
 
     # robin_stocks' login() can fail silently (prints a message, returns a
     # falsy/error dict) instead of raising — without this check a failed
