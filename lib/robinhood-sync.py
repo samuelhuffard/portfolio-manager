@@ -19,14 +19,17 @@ def main():
     password = os.environ.get("ROBINHOOD_PASSWORD", "").strip()
     totp_secret = os.environ.get("ROBINHOOD_TOTP_SECRET", "").strip()
 
-    if not username or not password or not totp_secret:
-        print(json.dumps({"error": "Missing ROBINHOOD_USERNAME/ROBINHOOD_PASSWORD/ROBINHOOD_TOTP_SECRET env vars"}))
+    if not username or not password:
+        print(json.dumps({"error": "Missing ROBINHOOD_USERNAME/ROBINHOOD_PASSWORD env vars"}))
         sys.exit(1)
 
     try:
-        totp = pyotp.TOTP(totp_secret).now()
         store_session = os.environ.get("ROBINHOOD_STORE_SESSION", "").strip().lower() in {"1", "true", "yes"}
-        rh.login(username, password, mfa_code=totp, store_session=store_session)
+        if totp_secret:
+            mfa_code = pyotp.TOTP(totp_secret).now()
+            rh.login(username, password, mfa_code=mfa_code, store_session=store_session)
+        else:
+            rh.login(username, password, store_session=store_session)
     except Exception as e:
         print(json.dumps({"error": f"Login failed (may need manual re-auth): {e}"}))
         sys.exit(1)
