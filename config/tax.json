@@ -1,0 +1,4 @@
+{
+  "_comment": "reserveRatePct is a flat estimate of Sam's tax rate on realized capital gains in the Robinhood account, used only to inform withdrawal payout math (lib/tax-lots.js + scripts/process-withdrawal.js). Edit this to Sam's real effective rate — this default is a placeholder, not advice.",
+  "reserveRatePct": 0.2
+}

@@ -1,15 +1,14 @@
 import "dotenv/config";
 import { fileURLToPath } from "node:url";
 import { fetchQuotes } from "../lib/yahoo.js";
-import { getCachedSpreadsheetId, setCachedSpreadsheetId } from "../lib/redis.js";
 import {
   getServiceAccountClients,
-  getOrCreateSpreadsheet,
+  resolveSharedSpreadsheetId,
   getSheetIds,
-  ensureTabs,
-  readRecommendationsForReview,
-  applyOutcomeUpdates,
-  writeTrackRecordTab,
+  readAgentRecommendationsForReview,
+  applyAgentOutcomeUpdates,
+  writeAgentTrackRecordBlock,
+  agentTabName,
 } from "../lib/sheets.js";
 import { AGENTS } from "../config/agents.js";
 
@@ -28,34 +27,15 @@ function daysSince(dateStr) {
  * doesn't retroactively change a past outcome. Also refreshes that agent's
  * own Track Record tab — fully independent of the other agents' track records.
  */
-async function runPerformanceReviewForAgent(agent) {
-  const configuredSpreadsheetId = process.env[agent.spreadsheetEnvVar]?.trim();
-  if (!configuredSpreadsheetId) {
-    console.log(`[Performance] ${agent.id}: ${agent.spreadsheetEnvVar} not set, skipping (not provisioned yet).`);
-    return;
-  }
-
-  const { sheets, drive } = getServiceAccountClients();
-  let spreadsheetId = await getCachedSpreadsheetId(agent.id);
-  if (!spreadsheetId) {
-    spreadsheetId = await getOrCreateSpreadsheet(sheets, drive, configuredSpreadsheetId);
-    await setCachedSpreadsheetId(agent.id, spreadsheetId);
-  } else {
-    // getOrCreateSpreadsheet's ensureTabs only runs on a cache miss; run it
-    // explicitly here too so newly-added tabs (e.g. Track Record) get created
-    // on a spreadsheet that was already cached before this job existed.
-    await ensureTabs(sheets, spreadsheetId);
-  }
-  const sheetIds = await getSheetIds(sheets, spreadsheetId);
-
-  const rows = await readRecommendationsForReview(sheets, spreadsheetId);
+async function runPerformanceReviewForAgent(agent, sheets, spreadsheetId, sheetIds) {
+  const rows = await readAgentRecommendationsForReview(sheets, spreadsheetId, agent.id);
   const due = rows.filter(
     (r) => r.entryPrice != null && HORIZONS.some((h) => !r.horizonsDone[h] && daysSince(r.date) >= h)
   );
 
   if (!due.length) {
     console.log(`[Performance] ${agent.id}: no recommendations due for review.`);
-    await writeTrackRecordTab(sheets, spreadsheetId, sheetIds["Track Record"]);
+    await writeAgentTrackRecordBlock(sheets, spreadsheetId, agent.id);
     return;
   }
 
@@ -82,16 +62,20 @@ async function runPerformanceReviewForAgent(agent) {
     if (Object.keys(patch).length) updates.push({ rowIndex: row.rowIndex, patch });
   }
 
-  await applyOutcomeUpdates(sheets, spreadsheetId, sheetIds["Recommendations"], updates);
-  await writeTrackRecordTab(sheets, spreadsheetId, sheetIds["Track Record"]);
+  await applyAgentOutcomeUpdates(sheets, spreadsheetId, sheetIds[agentTabName(agent.id)], agent.id, updates);
+  await writeAgentTrackRecordBlock(sheets, spreadsheetId, agent.id);
   console.log(`[Performance] ${agent.id}: updated ${updates.length} recommendation rows; track record refreshed.`);
 }
 
-/** Runs every configured agent's performance review in sequence — fully independent track records. One agent's failure doesn't block the others. */
+/** Runs every agent's performance review against the shared portfolio's recommendation history. One agent's failure doesn't block the others. */
 export async function runPerformanceReview() {
+  const { sheets, drive } = getServiceAccountClients();
+  const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
+  const sheetIds = await getSheetIds(sheets, spreadsheetId);
+
   for (const agent of AGENTS) {
     try {
-      await runPerformanceReviewForAgent(agent);
+      await runPerformanceReviewForAgent(agent, sheets, spreadsheetId, sheetIds);
     } catch (err) {
       console.error(`[Performance] ${agent.id} failed:`, err.message);
     }

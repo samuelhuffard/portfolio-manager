@@ -1,16 +1,18 @@
 import "dotenv/config";
 import {
   getServiceAccountClients,
-  getOrCreateSpreadsheet,
+  resolveSharedSpreadsheetId,
   getSheetIds,
   writeHoldingsTab,
   appendPerformanceRow,
-  appendRecommendations,
+  appendAgentRecommendations,
   writeOverviewTab,
+  agentTabName,
 } from "../lib/sheets.js";
 import { AGENTS } from "../config/agents.js";
 
-// `node scripts/seed-sample-data.js [agentId]` (defaults to agent-1).
+// `node scripts/seed-sample-data.js [agentId]` (defaults to agent-1). Seeds the
+// shared portfolio's Holdings/Performance/Overview plus one agent's Recommendations.
 const agentId = process.argv[2] || "agent-1";
 const agent = AGENTS.find((a) => a.id === agentId);
 if (!agent) {
@@ -19,7 +21,7 @@ if (!agent) {
 }
 
 const { sheets, drive } = getServiceAccountClients();
-const spreadsheetId = await getOrCreateSpreadsheet(sheets, drive, process.env[agent.spreadsheetEnvVar]?.trim());
+const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
 const sheetIds = await getSheetIds(sheets, spreadsheetId);
 
 const timestamp = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
@@ -74,15 +76,13 @@ for (let i = days - 1; i >= 0; i--) {
 }
 console.log(`[Seed] Wrote ${days} sample Performance rows.`);
 
-// ── Sample recommendations ──────────────────────────────────────────────────
-await sheets.spreadsheets.values.clear({ spreadsheetId, range: "Recommendations" });
-
+// ── Sample recommendations (one agent's tab) ────────────────────────────────
 const todayStr = today.toISOString().slice(0, 10);
-await appendRecommendations(sheets, spreadsheetId, sheetIds["Recommendations"], [
+await appendAgentRecommendations(sheets, spreadsheetId, sheetIds[agentTabName(agentId)], agentId, [
   {
     date: todayStr,
     ticker: "NVDA",
-    action: "Buy",
+    action: "BUY",
     quantScore: 82,
     rationale:
       "Strong momentum and best-in-class margins keep NVDA at the top of the quant rankings. (Sample rationale — replaced by real AI analysis after the next research scan.)",
@@ -92,7 +92,7 @@ await appendRecommendations(sheets, spreadsheetId, sheetIds["Recommendations"], 
   {
     date: todayStr,
     ticker: "JPM",
-    action: "Hold",
+    action: "HOLD",
     quantScore: 64,
     rationale: "Solid fundamentals but momentum has cooled — holding steady looks reasonable for now. (Sample rationale.)",
     newsLinks: "",
@@ -101,14 +101,14 @@ await appendRecommendations(sheets, spreadsheetId, sheetIds["Recommendations"], 
   {
     date: todayStr,
     ticker: "XOM",
-    action: "Sell",
+    action: "SELL",
     quantScore: 41,
     rationale: "Weak quant score versus energy-sector peers — consider trimming this position. (Sample rationale.)",
     newsLinks: "",
     status: "pending",
   },
 ]);
-console.log("[Seed] Wrote 3 sample Recommendations rows.");
+console.log(`[Seed] Wrote 3 sample recommendations into ${agentTabName(agentId)}.`);
 
 // ── Overview ─────────────────────────────────────────────────────────────
 const totalCostBasis = holdings.reduce((sum, h) => sum + h.costBasis, 0);

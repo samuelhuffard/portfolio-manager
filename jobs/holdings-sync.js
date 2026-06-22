@@ -1,21 +1,33 @@
 import "dotenv/config";
 import { execFile } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { fetchQuotes } from "../lib/yahoo.js";
-import { getCachedSpreadsheetId, setCachedSpreadsheetId } from "../lib/redis.js";
+import {
+  getLastFillSyncAt,
+  setLastFillSyncAt,
+  listOpenApprovedProposals,
+  markProposalFulfilled,
+  setCachedTaxReserveRatePct,
+} from "../lib/redis.js";
 import {
   getServiceAccountClients,
-  getOrCreateSpreadsheet,
-  ensureTabs,
+  resolveSharedSpreadsheetId,
   getSheetIds,
   writeHoldingsTab,
   appendPerformanceRow,
   readPerformanceHistory,
   readInvestorLedger,
   writeOverviewTab,
+  appendTradeLedgerEntries,
+  readAllLots,
+  appendLots,
+  applyLotUpdatesToSheet,
 } from "../lib/sheets.js";
+import { matchTradeToApprovedProposal } from "../lib/agent-attribution.js";
+import { openLot, consumeLotsFIFO, applyLotUpdates } from "../lib/tax-lots.js";
 
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -23,17 +35,85 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PYTHON_BIN = process.env.ROBINHOOD_PYTHON?.trim() || path.join(__dirname, "..", "venv", "bin", "python3");
 const SCRIPT_PATH = path.join(__dirname, "..", "lib", "robinhood-sync.py");
 
-// Sam has one real Robinhood account, so this job stays single-agent — it always
-// writes to agent-1's spreadsheet (see config/agents.js). agent-2/agent-3 are
-// research-only/paper until Sam allocates real capital to them.
-const AGENT_ID = "agent-1";
+/**
+ * Processes detected Robinhood fills since the last sync: matches each to the
+ * approved proposal it most likely fulfills (or "unattributed" if none), then
+ * runs it through the FIFO lot ledger (buys open new lots, sells consume the
+ * oldest open lots and realize a gain/loss). Writes Trade Ledger + Lots tabs.
+ */
+async function processFills(sheets, spreadsheetId, sheetIds, fills) {
+  if (!fills.length) return;
+
+  const [openProposals, allLots] = await Promise.all([
+    listOpenApprovedProposals(),
+    readAllLots(sheets, spreadsheetId),
+  ]);
+
+  let lots = allLots;
+  const newLots = [];
+  const tradeRows = [];
+  const lotUpdatesByRowIndex = new Map();
+
+  for (const fill of fills) {
+    const trade = { ticker: fill.ticker, side: fill.side, shares: fill.shares, price: fill.price, amount: fill.amount, date: fill.date };
+    const { agentId, proposalId } = matchTradeToApprovedProposal(trade, openProposals);
+
+    let realizedGain = null;
+    if (fill.side === "BUY") {
+      const lot = openLot({ ticker: fill.ticker, shares: fill.shares, costPerShare: fill.price, date: fill.date, agentId });
+      newLots.push(lot);
+      lots = [...lots, lot];
+    } else if (fill.side === "SELL") {
+      try {
+        const { realizedGain: gain, updatedLots } = consumeLotsFIFO(lots, fill.ticker, fill.shares, fill.price);
+        realizedGain = gain;
+        lots = applyLotUpdates(lots, updatedLots);
+        for (const updated of updatedLots) lotUpdatesByRowIndex.set(updated.lotId, updated);
+      } catch (err) {
+        console.warn(`[Holdings] Could not apply FIFO consumption for SELL ${fill.ticker}: ${err.message}`);
+      }
+    }
+
+    tradeRows.push({
+      date: fill.date,
+      ticker: fill.ticker,
+      side: fill.side,
+      shares: fill.shares,
+      price: fill.price,
+      amount: fill.amount,
+      orderId: fill.orderId,
+      agentId,
+      proposalId,
+      realizedGain,
+    });
+
+    if (proposalId) await markProposalFulfilled(proposalId, fill.orderId ?? null);
+  }
+
+  await appendTradeLedgerEntries(sheets, spreadsheetId, sheetIds["Trade Ledger"], tradeRows);
+  if (newLots.length) await appendLots(sheets, spreadsheetId, sheetIds["Lots"], newLots);
+  const lotUpdates = [...lotUpdatesByRowIndex.values()].filter((l) => l.rowIndex != null);
+  if (lotUpdates.length) await applyLotUpdatesToSheet(sheets, spreadsheetId, lotUpdates);
+
+  console.log(`[Holdings] Processed ${fills.length} fill(s): ${newLots.length} new lot(s), ${lotUpdates.length} lot(s) updated by sells.`);
+}
 
 export async function syncHoldings() {
   console.log("[Holdings] Running robinhood-sync.py...");
 
+  try {
+    const taxConfigPath = path.join(__dirname, "..", "config", "tax.json");
+    const { reserveRatePct } = JSON.parse(fs.readFileSync(taxConfigPath, "utf8"));
+    await setCachedTaxReserveRatePct(reserveRatePct);
+  } catch (err) {
+    console.warn("[Holdings] Could not read/cache config/tax.json:", err.message);
+  }
+
+  const sinceIso = (await getLastFillSyncAt()) || "1970-01-01T00:00:00Z";
+
   let data;
   try {
-    const { stdout } = await execFileAsync(PYTHON_BIN, [SCRIPT_PATH], { timeout: 60000 });
+    const { stdout } = await execFileAsync(PYTHON_BIN, [SCRIPT_PATH, sinceIso], { timeout: 60000 });
     // robin_stocks prints its own status lines to stdout (e.g. "Logged out
     // successfully.") around our JSON output, so scan from the end for the
     // line that's actually valid JSON instead of assuming it's the last one.
@@ -57,8 +137,9 @@ export async function syncHoldings() {
     return;
   }
 
-  const { holdings, cash, portfolioValue } = data;
+  const { holdings, cash, fills = [], fillsError, syncedAt } = data;
   console.log(`[Holdings] Synced ${holdings.length} positions from Robinhood.`);
+  if (fillsError) console.warn(`[Holdings] Fills fetch failed (continuing without them): ${fillsError}`);
 
   const tickers = holdings.map((h) => h.ticker);
   const quotes = await fetchQuotes([...tickers, "SPY"]);
@@ -81,14 +162,11 @@ export async function syncHoldings() {
   });
 
   const { sheets, drive } = getServiceAccountClients();
-  let spreadsheetId = await getCachedSpreadsheetId(AGENT_ID);
-  if (!spreadsheetId) {
-    spreadsheetId = await getOrCreateSpreadsheet(sheets, drive, process.env.SPREADSHEET_ID?.trim());
-    await setCachedSpreadsheetId(AGENT_ID, spreadsheetId);
-  } else {
-    await ensureTabs(sheets, spreadsheetId);
-  }
+  const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
   const sheetIds = await getSheetIds(sheets, spreadsheetId);
+
+  await processFills(sheets, spreadsheetId, sheetIds, fills);
+  if (syncedAt) await setLastFillSyncAt(syncedAt);
 
   const timestamp = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
   await writeHoldingsTab(sheets, spreadsheetId, sheetIds["Holdings"], enriched, cash, timestamp);

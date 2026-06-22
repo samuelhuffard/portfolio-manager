@@ -9,16 +9,16 @@ import { fetchRecentFilings } from "../lib/edgar.js";
 import { fetchMacroSnapshot, formatMacroSnapshot } from "../lib/fred.js";
 import { getAIRecommendation } from "../lib/ai-overlay.js";
 import { applyRiskChecks } from "../lib/risk-engine.js";
-import { getCachedSpreadsheetId, setCachedSpreadsheetId, getCachedNews, setCachedNews, getCachedMacro, setCachedMacro } from "../lib/redis.js";
+import { getCachedNews, setCachedNews, getCachedMacro, setCachedMacro } from "../lib/redis.js";
 import {
   getServiceAccountClients,
-  getOrCreateSpreadsheet,
-  ensureTabs,
+  resolveSharedSpreadsheetId,
   getSheetIds,
   readHoldingsTickers,
   readHoldingsAllocation,
-  readStrategyNotes,
-  appendRecommendations,
+  readAgentStrategyNotes,
+  appendAgentRecommendations,
+  agentTabName,
 } from "../lib/sheets.js";
 import { AGENTS } from "../config/agents.js";
 
@@ -35,31 +35,21 @@ function loadAgentConfig(agentId) {
   };
 }
 
-/** Runs one agent's full scan (quant score -> AI overlay -> risk engine -> write) against its own watchlist and spreadsheet, fully independent of the other agents. */
-async function runResearchScanForAgent(agent) {
-  const configuredSpreadsheetId = process.env[agent.spreadsheetEnvVar]?.trim();
-  if (!configuredSpreadsheetId) {
-    console.log(`[Research] ${agent.id}: ${agent.spreadsheetEnvVar} not set, skipping (not provisioned yet).`);
-    return;
-  }
-
+/**
+ * Runs one agent's full scan (quant score -> AI overlay -> risk engine -> write) against
+ * its own watchlist, but the SAME shared portfolio/spreadsheet as the other two agents —
+ * so risk checks (sector/position-size limits) see real combined exposure across all
+ * three agents, and one agent's proposal can be downgraded because of another agent's
+ * existing position. One agent's failure doesn't block the others (see runResearchScan).
+ */
+async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
   const { watchlist, weights: weightsConfig, riskLimits, personality } = loadAgentConfig(agent.id);
   console.log(`[Research] ${agent.id}: scanning ${watchlist.tickers.length} tickers...`);
-
-  const { sheets, drive } = getServiceAccountClients();
-  let spreadsheetId = await getCachedSpreadsheetId(agent.id);
-  if (!spreadsheetId) {
-    spreadsheetId = await getOrCreateSpreadsheet(sheets, drive, configuredSpreadsheetId);
-    await setCachedSpreadsheetId(agent.id, spreadsheetId);
-  } else {
-    await ensureTabs(sheets, spreadsheetId);
-  }
-  const sheetIds = await getSheetIds(sheets, spreadsheetId);
 
   const [fundamentals, holdingTickers, strategyNotes] = await Promise.all([
     fetchFundamentalsBatch(watchlist.tickers),
     readHoldingsTickers(sheets, spreadsheetId),
-    readStrategyNotes(sheets, spreadsheetId),
+    readAgentStrategyNotes(sheets, spreadsheetId, agent.id),
   ]);
 
   const now = new Date();
@@ -187,15 +177,19 @@ async function runResearchScanForAgent(agent) {
     });
   }
 
-  await appendRecommendations(sheets, spreadsheetId, sheetIds["Recommendations"], recommendations);
+  await appendAgentRecommendations(sheets, spreadsheetId, sheetIds[agentTabName(agent.id)], agent.id, recommendations);
   console.log(`[Research] ${agent.id}: done — wrote ${recommendations.length} recommendations.`);
 }
 
-/** Runs every configured agent's scan in sequence — fully independent watchlists, spreadsheets, and risk limits. One agent's failure doesn't block the others. */
+/** Runs every agent's scan against the shared portfolio in sequence. One agent's failure doesn't block the others. */
 export async function runResearchScan() {
+  const { sheets, drive } = getServiceAccountClients();
+  const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
+  const sheetIds = await getSheetIds(sheets, spreadsheetId);
+
   for (const agent of AGENTS) {
     try {
-      await runResearchScanForAgent(agent);
+      await runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds);
     } catch (err) {
       console.error(`[Research] ${agent.id} failed:`, err.message);
     }

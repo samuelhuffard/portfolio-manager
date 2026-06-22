@@ -1,18 +1,16 @@
 /**
  * Registry of independent research agents. Each agent has its own watchlist,
- * quant weights, risk limits, personality (empty until named), and spreadsheet
- * (own Holdings/Recommendations/Strategy/Track Record tabs) — no shared state
- * between agents except market-data caches (news, macro) that are facts, not
- * agent memory or opinion.
+ * quant weights, risk limits, personality (empty until named), and internal
+ * tab (Agent-1/Agent-2/Agent-3 in lib/sheets.js) for its own recommendation
+ * history, strategy notes, and track record.
  *
- * agent-1 is Sam's real Robinhood account (synced by jobs/holdings-sync.js,
- * which stays single-agent). agent-2/agent-3 are research-only/paper until
- * Sam provisions a spreadsheet for each (create a blank Sheet, share it with
- * the service account as Editor, set the env var below) — until then they're
- * skipped with a log line, not an error.
+ * All three agents propose trades against the SAME shared portfolio (one real
+ * Robinhood account, one spreadsheet — see lib/redis.js getCachedSharedSpreadsheetId).
+ * Risk limits are checked against that real shared portfolio's actual position/
+ * sector sizes, so agents can downgrade/block each other's proposals.
  */
 export const AGENTS = [
-  { id: "agent-1", name: "", spreadsheetEnvVar: "SPREADSHEET_ID" },
-  { id: "agent-2", name: "", spreadsheetEnvVar: "SPREADSHEET_ID_AGENT_2" },
-  { id: "agent-3", name: "", spreadsheetEnvVar: "SPREADSHEET_ID_AGENT_3" },
+  { id: "agent-1", name: "" },
+  { id: "agent-2", name: "" },
+  { id: "agent-3", name: "" },
 ];
