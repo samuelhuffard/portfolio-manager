@@ -34,8 +34,19 @@ export async function syncHoldings() {
   let data;
   try {
     const { stdout } = await execFileAsync(PYTHON_BIN, [SCRIPT_PATH], { timeout: 60000 });
-    const lastLine = stdout.trim().split("\n").pop();
-    data = JSON.parse(lastLine);
+    // robin_stocks prints its own status lines to stdout (e.g. "Logged out
+    // successfully.") around our JSON output, so scan from the end for the
+    // line that's actually valid JSON instead of assuming it's the last one.
+    const lines = stdout.trim().split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        data = JSON.parse(lines[i]);
+        break;
+      } catch {
+        continue;
+      }
+    }
+    if (data === undefined) throw new Error(`No JSON line found in output: ${stdout}`);
   } catch (err) {
     console.error("[Holdings] robinhood-sync.py failed to run — manual re-auth may be needed:", err.message);
     return;
