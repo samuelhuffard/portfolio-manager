@@ -11,6 +11,7 @@ import {
   listOpenApprovedProposals,
   markProposalFulfilled,
   setCachedTaxReserveRatePct,
+  setCachedPortfolioTotalValue,
 } from "../lib/redis.js";
 import {
   getServiceAccountClients,
@@ -173,6 +174,7 @@ export async function syncHoldings() {
 
   const investedValue = enriched.reduce((sum, h) => sum + (h.marketValue ?? 0), 0);
   const totalValue = investedValue + (cash ?? 0);
+  await setCachedPortfolioTotalValue(totalValue); // research-scan.js sizes new BUY proposals off this
   const spyPrice = quotes["SPY"]?.regularMarketPrice ?? null;
 
   // Read history before appending today's row so "first" reflects prior tracking start.

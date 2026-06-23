@@ -9,7 +9,16 @@ import { fetchRecentFilings } from "../lib/edgar.js";
 import { fetchMacroSnapshot, formatMacroSnapshot } from "../lib/fred.js";
 import { getAIRecommendation } from "../lib/ai-overlay.js";
 import { applyRiskChecks } from "../lib/risk-engine.js";
-import { getCachedNews, setCachedNews, getCachedMacro, setCachedMacro } from "../lib/redis.js";
+import {
+  getCachedNews,
+  setCachedNews,
+  getCachedMacro,
+  setCachedMacro,
+  getCachedPortfolioTotalValue,
+  listAllProposals,
+  createProposal,
+} from "../lib/redis.js";
+import { sizeProposalAmount, hasOpenProposal } from "../lib/proposal-sizing.js";
 import {
   getServiceAccountClients,
   resolveSharedSpreadsheetId,
@@ -111,6 +120,12 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
   }
   const macroText = formatMacroSnapshot(macroSnapshot);
 
+  // Sizing/dedup context for auto-queueing risk-gated BUY/SELL calls into the approval
+  // queue. openProposals is mutated as we queue within this loop so a later ticker (or
+  // the next agent's run) doesn't double-queue against a list fetched before this run started.
+  const totalPortfolioValue = await getCachedPortfolioTotalValue();
+  const openProposals = await listAllProposals();
+
   const recommendations = [];
   for (const c of toReview.values()) {
     // News is a market fact too — shared cache by ticker is fine and saves Tavily quota across agents.
@@ -161,6 +176,45 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
       .filter(Boolean)
       .join("\n");
 
+    const entryPrice = c.raw?.price?.regularMarketPrice ?? null;
+
+    // Risk-gated BUY/SELL calls go straight into Sam's approval queue instead of
+    // waiting for him to read the Sheet and re-type a proposal by hand. He still
+    // approves or rejects every one in the dashboard before anything is placed.
+    if (rec.action !== "HOLD" && !hasOpenProposal(openProposals, { agentId: agent.id, ticker: c.ticker, side: rec.action })) {
+      const sized = sizeProposalAmount({
+        action: rec.action,
+        targetWeightPct: rec.targetWeight,
+        totalPortfolioValue,
+        currentPositionWeightPct: tickerWeightPct[c.ticker] ?? 0,
+      });
+
+      if (sized) {
+        const maxPrice = rec.action === "BUY" && entryPrice ? Math.round(entryPrice * 1.02 * 100) / 100 : null;
+        const riskSummary = `Quant score ${c.quantScore}/100. Confidence ${rec.confidence ?? "n/a"}. Risk checks: ${
+          rec.overrideNotes.length ? rec.overrideNotes.join("; ") : "all passed"
+        }.${sized.clamped ? " Sized amount clamped to the $10,000 proposal cap." : ""}`;
+
+        try {
+          const created = await createProposal({
+            agentId: agent.id,
+            ticker: c.ticker,
+            side: rec.action,
+            amountDollars: sized.amountDollars,
+            maxPrice,
+            rationale,
+            riskSummary,
+          });
+          if (created) {
+            openProposals.push(created);
+            console.log(`[Research] ${agent.id}: queued ${rec.action} ${c.ticker} proposal ($${sized.amountDollars}).`);
+          }
+        } catch (err) {
+          console.warn(`[Research] ${agent.id}: failed to queue proposal for ${c.ticker}:`, err.message);
+        }
+      }
+    }
+
     recommendations.push({
       date: new Date().toISOString().slice(0, 10),
       ticker: c.ticker,
@@ -169,7 +223,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
       rationale,
       newsLinks: news.map((n) => n.url).join(", "),
       status: "pending",
-      entryPrice: c.raw?.price?.regularMarketPrice ?? null,
+      entryPrice,
       spyEntryPrice,
       targetWeight: rec.targetWeight,
       confidence: rec.confidence,
