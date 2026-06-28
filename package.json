@@ -6,8 +6,10 @@
     "start": "node scheduler.js",
     "holdings:sync": "node jobs/holdings-sync.js",
     "research:scan": "node jobs/research-scan.js",
+    "exit:monitor": "node jobs/monitor-positions.js",
     "performance:review": "node jobs/performance-review.js",
     "tavily:check": "node scripts/check-tavily.js",
+    "proposals:approved": "node scripts/list-approved-proposals.js",
     "test": "node --test tests/*.test.js"
   },
   "dependencies": {

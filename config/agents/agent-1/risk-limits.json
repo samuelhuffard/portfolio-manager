@@ -1,7 +1,15 @@
 {
-  "description": "Deterministic risk engine limits enforced on every AI recommendation before it's written to the Sheet — the AI proposes, this engine decides admissibility (downgrading to HOLD when a check fails). Edit here to change risk posture; see config/weights.json for quant scoring weights.",
-  "maxPositionPct": 8,
-  "maxSectorPct": 25,
+  "description": "Deterministic risk-engine limits enforced on every AI recommendation before it's written to the Sheet — the AI proposes, this engine decides admissibility (downgrading to HOLD / clamping when a check fails). Agent One values follow the friend's Agent One Investment Memo v2 (see AGENT-ONE-PLAN.md). Edit here to change risk posture; see weights.json for quant scoring weights.",
+  "maxPositionPct": 15,
+  "minPositionPct": 2,
+  "maxSectorPct": 75,
+  "rebalanceFlagPct": 18,
+  "minCashReservePct": 5,
+  "maxCashReservePct": 10,
+  "microCapMinAvgDollarVolume": 3000000,
   "minConfidence": 0.4,
-  "requireBearCase": true
+  "requireBearCase": true,
+  "prohibitAveragingDown": true,
+  "prohibitLossToHold": true,
+  "blockOnStaleData": true
 }

@@ -2,8 +2,12 @@ import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { fetchFundamentals, fetchFundamentalsBatch, fetchHistoricalCloses, fetchQuotes, percentChange } from "../lib/yahoo.js";
+import { fetchFundamentals, fetchFundamentalsBatch, fetchDailyBars, fetchQuotes, percentChange } from "../lib/yahoo.js";
 import { scoreCandidates } from "../lib/quant-scorer.js";
+import { rsi, atr, avgDailyDollarVolume, weeklyVolatility, classifySubVertical } from "../lib/indicators.js";
+import { evaluateDataGates } from "../lib/data-gates.js";
+import { screenUniverse } from "../lib/screener.js";
+import { assembleEntrySignals, assessConviction } from "../lib/conviction.js";
 import { tavilySearch } from "../lib/tavily.js";
 import { fetchRecentFilings } from "../lib/edgar.js";
 import { fetchMacroSnapshot, formatMacroSnapshot } from "../lib/fred.js";
@@ -25,6 +29,7 @@ import {
   getSheetIds,
   readHoldingsTickers,
   readHoldingsAllocation,
+  readHoldingsReturnPct,
   readAgentStrategyNotes,
   appendAgentRecommendations,
   agentTabName,
@@ -55,10 +60,11 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
   const { watchlist, weights: weightsConfig, riskLimits, personality } = loadAgentConfig(agent.id);
   console.log(`[Research] ${agent.id}: scanning ${watchlist.tickers.length} tickers...`);
 
-  const [fundamentals, holdingTickers, strategyNotes] = await Promise.all([
+  const [fundamentals, holdingTickers, strategyNotes, heldReturnPct] = await Promise.all([
     fetchFundamentalsBatch(watchlist.tickers),
     readHoldingsTickers(sheets, spreadsheetId),
     readAgentStrategyNotes(sheets, spreadsheetId, agent.id),
+    readHoldingsReturnPct(sheets, spreadsheetId),
   ]);
 
   const now = new Date();
@@ -66,6 +72,8 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
   threeMonthsAgo.setMonth(now.getMonth() - 3);
   const oneMonthAgo = new Date(now);
   oneMonthAgo.setMonth(now.getMonth() - 1);
+  const eightMonthsAgo = new Date(now);
+  eightMonthsAgo.setMonth(now.getMonth() - 8);
 
   const candidates = [];
   for (const f of fundamentals) {
@@ -73,18 +81,57 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
       console.warn(`[Research] ${agent.id}: skipping ${f.ticker}: ${f.error}`);
       continue;
     }
-    const [closes3m, closes1m] = await Promise.all([
-      fetchHistoricalCloses(f.ticker, { period1: threeMonthsAgo, period2: now }),
-      fetchHistoricalCloses(f.ticker, { period1: oneMonthAgo, period2: now }),
-    ]);
+    // One daily-bar fetch covers momentum, RSI, ATR, weekly vol, and ADDV (replaces the
+    // prior two close-only fetches and feeds lib/indicators.js + the data gates).
+    const bars = await fetchDailyBars(f.ticker, { period1: eightMonthsAgo, period2: now });
+    const closes = bars.map((b) => b.close);
+    const closesSince = (cutoff) => bars.filter((b) => new Date(b.date) >= cutoff).map((b) => ({ close: b.close }));
+    const lastBarDate = bars.length ? bars[bars.length - 1].date : null;
+    const addv = avgDailyDollarVolume(bars, 30);
+    const marketCap = f.raw?.price?.marketCap ?? f.raw?.summaryDetail?.marketCap ?? null;
+
+    const dataGate = evaluateDataGates(
+      {
+        price: f.raw?.price?.regularMarketPrice ?? null,
+        trailingEps: f.raw?.defaultKeyStatistics?.trailingEps ?? null,
+        forwardEps: f.raw?.defaultKeyStatistics?.forwardEps ?? null,
+        grossMargins: f.raw?.financialData?.grossMargins ?? null,
+        profitMargins: f.raw?.financialData?.profitMargins ?? null,
+        rsi: rsi(closes, 14),
+        lastBarDate,
+        marketCap,
+        avgDollarVolume: addv,
+      },
+      riskLimits,
+      { now }
+    );
+
     candidates.push({
       ...f,
-      momentum3m: percentChange(closes3m),
-      momentum1m: percentChange(closes1m),
+      subVertical: classifySubVertical(f),
+      momentum3m: percentChange(closesSince(threeMonthsAgo)),
+      momentum1m: percentChange(closesSince(oneMonthAgo)),
+      rsi: rsi(closes, 14),
+      atr: atr(bars, 14),
+      weeklyVol: weeklyVolatility(closes),
+      avgDollarVolume: addv,
+      marketCap,
+      lastBarDate,
+      dataGate,
     });
   }
 
-  const scored = scoreCandidates(candidates, weightsConfig.quant_weights);
+  // Universe screen (agent-1's memo-specific mandate): drop names outside the SaaS/Semis
+  // sub-verticals + market-cap band + micro-cap liquidity floor before scoring, so quant
+  // normalization only ranks eligible names. Other agents keep their own universes for now.
+  let eligible = candidates;
+  if (agent.id === "agent-1") {
+    const { passed, rejected } = screenUniverse(candidates, riskLimits);
+    for (const r of rejected) console.log(`[Research] ${agent.id}: screened out ${r.ticker} — ${r.reason}`);
+    eligible = passed.length ? passed : candidates; // never starve the scan to zero on a bad data day
+  }
+
+  const scored = scoreCandidates(eligible, weightsConfig.quant_weights);
 
   // AI overlay: top quant movers + any current holdings (so held positions get reviewed too)
   const toReview = new Map();
@@ -128,6 +175,29 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
 
   const recommendations = [];
   for (const c of toReview.values()) {
+    // Data-availability gate runs BEFORE the (expensive) AI overlay. Per the memo, missing
+    // or stale required inputs are an automatic NO_TRADE — we never ask Claude to reason
+    // over a candidate we can't fully see, and we never queue a proposal off it.
+    if (c.dataGate && !c.dataGate.ok) {
+      const reason = c.dataGate.reasons.join("; ") || "incomplete data";
+      console.log(`[Research] ${agent.id}: NO_TRADE ${c.ticker} — ${reason}`);
+      recommendations.push({
+        date: new Date().toISOString().slice(0, 10),
+        ticker: c.ticker,
+        action: "HOLD",
+        quantScore: c.quantScore ?? null,
+        rationale: `NO_TRADE (data gate): ${reason}`,
+        newsLinks: "",
+        status: "pending",
+        entryPrice: c.raw?.price?.regularMarketPrice ?? null,
+        spyEntryPrice,
+        targetWeight: 0,
+        confidence: null,
+        ruleCheck: `data_gate_blocked: ${reason}`,
+      });
+      continue;
+    }
+
     // News is a market fact too — shared cache by ticker is fine and saves Tavily quota across agents.
     let news = await getCachedNews(c.ticker);
     if (!news) {
@@ -164,9 +234,34 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
         sector: c.sector,
         currentSectorWeightPct: sectorWeightPct[c.sector] ?? 0,
         currentPositionWeightPct: tickerWeightPct[c.ticker] ?? 0,
+        // Friend's rule: never average down into a losing held position, and never let a
+        // stale-data read slip past the AI overlay into a live proposal.
+        isHeldAtLoss: (heldReturnPct[c.ticker] ?? 0) < 0,
+        dataStale: c.dataGate ? c.dataGate.stale : false,
       },
       riskLimits
     );
+
+    // Conviction discipline (agent-1 memo): the AI overlay may size aggressively, but a
+    // BUY can never exceed the position cap its strong-signal evidence earns. A single-
+    // strong-signal "Speculative" name is clamped to 5% even if the model wanted 15%, and
+    // an unqualified name (no strong signal) is downgraded to HOLD outright.
+    let conviction = null;
+    if (agent.id === "agent-1" && rec.action === "BUY") {
+      const entrySignals = assembleEntrySignals(c);
+      conviction = assessConviction(entrySignals, riskLimits);
+      if (!conviction.qualified) {
+        rec.action = "HOLD";
+        rec.targetWeight = 0;
+        rec.overrideNotes = [...(rec.overrideNotes ?? []), "conviction: unqualified (no strong signal) — downgraded to HOLD"];
+      } else if (rec.targetWeight > conviction.maxWeightPct) {
+        rec.overrideNotes = [
+          ...(rec.overrideNotes ?? []),
+          `conviction ${conviction.tier}: clamped ${rec.targetWeight}%→${conviction.maxWeightPct}%`,
+        ];
+        rec.targetWeight = conviction.maxWeightPct;
+      }
+    }
 
     const rationale = [
       rec.thesis,
