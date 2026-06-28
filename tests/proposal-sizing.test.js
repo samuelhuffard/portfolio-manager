@@ -7,6 +7,36 @@ test("sizes a BUY off total portfolio value", () => {
   assert.deepEqual(result, { amountDollars: 1000, clamped: false });
 });
 
+test("uses concentrated starter sizing for a tiny new account", () => {
+  const result = sizeProposalAmount({
+    action: "BUY",
+    targetWeightPct: 15,
+    totalPortfolioValue: 50,
+    currentPositionWeightPct: 0,
+    limits: {
+      percentageSizingMinPortfolioValue: 500,
+      starterPortfolioMaxPositions: 2,
+      starterPortfolioCashReservePct: 10,
+    },
+  });
+  assert.deepEqual(result, { amountDollars: 22.5, clamped: false, starterSized: true });
+});
+
+test("uses percentage sizing for adds to existing positions even in a tiny account", () => {
+  const result = sizeProposalAmount({
+    action: "BUY",
+    targetWeightPct: 15,
+    totalPortfolioValue: 50,
+    currentPositionWeightPct: 40,
+    limits: {
+      percentageSizingMinPortfolioValue: 500,
+      starterPortfolioMaxPositions: 2,
+      starterPortfolioCashReservePct: 10,
+    },
+  });
+  assert.deepEqual(result, { amountDollars: 7.5, clamped: false });
+});
+
 test("returns null for a BUY before the account has any value", () => {
   assert.equal(sizeProposalAmount({ action: "BUY", targetWeightPct: 5, totalPortfolioValue: 0 }), null);
 });

@@ -283,13 +283,33 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
         targetWeightPct: rec.targetWeight,
         totalPortfolioValue,
         currentPositionWeightPct: tickerWeightPct[c.ticker] ?? 0,
+        limits: riskLimits,
       });
 
       if (sized) {
+        if (sized.starterSized) {
+          const slots = Math.max(1, riskLimits.starterPortfolioMaxPositions ?? 2);
+          const currentPositions = heldAllocation.filter((h) => (h.marketValue ?? 0) > 0).length;
+          const openStarterBuys = openProposals.filter(
+            (p) =>
+              p.agentId === agent.id &&
+              p.side === "BUY" &&
+              (p.status === "Pending" || (p.status === "ApprovedForBrokerReview" && !p.fulfilledAt))
+          ).length;
+          if (currentPositions + openStarterBuys >= slots) {
+            console.log(
+              `[Research] ${agent.id}: starter slots full (${currentPositions} positions + ${openStarterBuys} open BUYs / ${slots}) — skipping ${c.ticker} proposal.`
+            );
+            continue;
+          }
+        }
+
         const maxPrice = rec.action === "BUY" && entryPrice ? Math.round(entryPrice * 1.02 * 100) / 100 : null;
         const riskSummary = `Quant score ${c.quantScore}/100. Confidence ${rec.confidence ?? "n/a"}. Risk checks: ${
           rec.overrideNotes.length ? rec.overrideNotes.join("; ") : "all passed"
-        }.${sized.clamped ? " Sized amount clamped to the $10,000 proposal cap." : ""}`;
+        }.${sized.starterSized ? " Small-account starter sizing used instead of strict target-weight sizing." : ""}${
+          sized.clamped ? " Sized amount clamped to the $10,000 proposal cap." : ""
+        }`;
 
         try {
           const created = await createProposal({

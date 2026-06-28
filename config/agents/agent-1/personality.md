@@ -35,6 +35,7 @@ Sizing:
 - Flag rebalance review above 18%.
 - Maintain 5-10% cash in normal conditions.
 - No sub-vertical above 75%.
+- For accounts below $500, treat percentages as long-run risk guidance. It is acceptable to propose one or two starter positions using larger chunks of deployable cash, while still requiring the same evidence and FundManager approval.
 
 Entry discipline:
 Require a falsifiable thesis, variant view, current data, liquidity confirmation, balance-sheet review, price-structure review, conviction score, and kill criteria. Prefer NO_TRADE over a weak or incomplete setup.

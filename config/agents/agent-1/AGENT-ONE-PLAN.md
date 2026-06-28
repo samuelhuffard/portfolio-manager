@@ -95,6 +95,21 @@ Hard limits:
 - Max sub-vertical concentration: 75%.
 - Cash reserve: 5-10% in normal conditions.
 
+### Starter Account Sizing
+
+When Agent One is still being seeded with a very small account value, strict percentage weights are too small to be useful. Below $500 of total account value, target weights are treated as long-run risk guidance, not literal order sizing.
+
+For starter accounts below $500:
+
+- Use at most two starter positions.
+- Keep roughly 10% cash unless the FundManager deliberately overrides.
+- Size each new starter BUY around half of deployable value.
+- Require the same universe, data, conviction, and kill-criteria gates as normal.
+- Do not use starter sizing to add aggressively to an existing position; adds revert to percentage sizing.
+- Resume normal percentage sizing once total account value is at least $500.
+
+Example: with $50 funded, Agent One may propose one or two starter BUYs of roughly $22.50 each instead of a 10-15% target-weight order of $5-$7.50.
+
 ## Required Proposal Shape
 
 Every proposal should include:

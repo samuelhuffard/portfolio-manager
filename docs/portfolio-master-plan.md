@@ -172,6 +172,14 @@ Do not rely on the LLM to police itself. After an agent recommends something, co
 
 Risk checks should be allowed to downgrade, reject, or require human review. They should not silently expand the agent's authority.
 
+## Capital Scale
+
+Target weights are risk limits and long-run allocation goals. They should not force tiny fractional proposals when the account is still being seeded.
+
+At very small account values, the system may use starter-position sizing instead of strict percentage sizing. For example, a $50 account can reasonably buy one or two approved starter positions rather than treating a 10% target as a $5 order. The agent still needs to clear its normal proposal gates, and the FundManager still approves every trade.
+
+Once the account reaches the configured threshold for an agent, percentage weights become the normal sizing mechanism again. This keeps small-account deployment practical without weakening the larger-account risk framework.
+
 ## Agent Memory
 
 Each agent should have its own private memory namespace. Shared market data can be reused across agents, but lessons about behavior and mistakes should belong to one agent unless deliberately promoted to a shared rule.
