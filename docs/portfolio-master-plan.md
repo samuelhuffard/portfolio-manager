@@ -178,6 +178,8 @@ Target weights are risk limits and long-run allocation goals. They should not fo
 
 At very small account values, the system may use starter-position sizing instead of strict percentage sizing. For example, a $50 account can reasonably buy one or two approved starter positions rather than treating a 10% target as a $5 order. The agent still needs to clear its normal proposal gates, and the FundManager still approves every trade.
 
+Starter sizing should not become a mechanical rule that each deposit must be split into fixed percentages. It is an operational convenience for tiny accounts. Unless an agent's strategy explicitly requires one, there is no mandatory cash reserve; uninvested cash can exist temporarily while waiting for approved opportunities, but the system should not hold cash just to satisfy a fixed reserve percentage.
+
 Once the account reaches the configured threshold for an agent, percentage weights become the normal sizing mechanism again. This keeps small-account deployment practical without weakening the larger-account risk framework.
 
 ## Agent Memory

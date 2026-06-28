@@ -93,7 +93,7 @@ Hard limits:
 - Rebalance review flag: 18%.
 - Minimum position: 2%; below that, close rather than maintain dust.
 - Max sub-vertical concentration: 75%.
-- Cash reserve: 5-10% in normal conditions.
+- No mandatory cash reserve. Cash may exist temporarily while waiting for approved opportunities or settlement, but the system should not hold a fixed cash percentage by rule.
 
 ### Starter Account Sizing
 
@@ -102,13 +102,14 @@ When Agent One is still being seeded with a very small account value, strict per
 For starter accounts below $500:
 
 - Use at most two starter positions.
-- Keep roughly 10% cash unless the FundManager deliberately overrides.
-- Size each new starter BUY around half of deployable value.
+- No required cash reserve.
+- Do not mechanically allocate each deposit by strict percentages.
+- Use one or two starter BUYs when the evidence is strong enough, with proposal size treated as an operational suggestion rather than a rigid allocation formula.
 - Require the same universe, data, conviction, and kill-criteria gates as normal.
 - Do not use starter sizing to add aggressively to an existing position; adds revert to percentage sizing.
 - Resume normal percentage sizing once total account value is at least $500.
 
-Example: with $50 funded, Agent One may propose one or two starter BUYs of roughly $22.50 each instead of a 10-15% target-weight order of $5-$7.50.
+Example: with $50 funded, Agent One may propose one or two starter BUYs of roughly $25 each instead of a 10-15% target-weight order of $5-$7.50. If only one opportunity clears the bar, one starter BUY is acceptable.
 
 ## Required Proposal Shape
 
@@ -216,7 +217,7 @@ Implemented now:
 - Large-cap permission.
 - 15% max entry cap.
 - 75% sub-vertical concentration cap.
-- 5-10% normal cash reserve config.
+- No mandatory cash reserve config.
 - Stale/missing data NO_TRADE gate for new entries.
 - No averaging down.
 - Basic conviction sizing clamp.
