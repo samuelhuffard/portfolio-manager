@@ -1,9 +1,10 @@
 /**
- * Write Robinhood Agentic account positions to the Holdings tab.
+ * Write Robinhood Agentic account positions to the portfolio tracking sheet.
  *
- * Replaces jobs/holdings-sync.js (which used robin_stocks/Python) for the
- * Agentic sub-account. Called by a Claude agent session after it reads
- * positions via the robinhood-trading MCP tool.
+ * Replaces jobs/holdings-sync.js (which used robin_stocks/Python) for the Agentic
+ * sub-account. Called by a Claude agent session after it reads positions via the
+ * robinhood-trading MCP tool. Updates Holdings, Performance/NAV, Overview, cached
+ * portfolio value, tax reserve, and the SPY benchmark.
  *
  * Usage: node scripts/sync-holdings-from-mcp.js < positions.json
  *
@@ -29,7 +30,9 @@
  * coerced to numbers here.
  */
 import "dotenv/config";
-import { getServiceAccountClients, resolveSharedSpreadsheetId, writeHoldingsTab, ensureTabs } from "../lib/sheets.js";
+import { fetchQuotes } from "../lib/yahoo.js";
+import { writePortfolioSnapshot } from "../lib/portfolio-snapshot.js";
+import { getServiceAccountClients, getSheetIds, resolveSharedSpreadsheetId } from "../lib/sheets.js";
 
 const raw = await new Promise((resolve, reject) => {
   let buf = "";
@@ -85,16 +88,20 @@ const timestamp = new Date().toISOString();
 
 const { sheets, drive } = getServiceAccountClients();
 const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
-const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets.properties" });
-const sheetMeta = meta.data.sheets.find((s) => s.properties.title === "Holdings");
+const sheetIds = await getSheetIds(sheets, spreadsheetId);
+const quotes = await fetchQuotes(["SPY"]);
+const spyPrice = quotes.SPY?.regularMarketPrice ?? null;
 
-if (!sheetMeta) {
-  await ensureTabs(sheets, drive, spreadsheetId);
-  throw new Error("Holdings tab was missing — ensureTabs just ran, retry now.");
-}
+const snapshot = await writePortfolioSnapshot({
+  sheets,
+  spreadsheetId,
+  sheetIds,
+  holdings,
+  cash,
+  spyPrice,
+  timestamp,
+  holdingsNote: "Synced via Robinhood Agentic MCP",
+});
 
-const sheetId = sheetMeta.properties.sheetId;
-await writeHoldingsTab(sheets, spreadsheetId, sheetId, holdings, cash, timestamp, "Synced via Robinhood Agentic MCP");
-
-console.log(`Holdings synced: ${holdings.length} position(s), cash $${cash.toFixed(2)}`);
+console.log(`Portfolio synced: ${holdings.length} position(s), cash $${cash.toFixed(2)}, total $${snapshot.totalValue.toFixed(2)}`);
 holdings.forEach((h) => console.log(`  ${h.ticker}: ${h.shares} shares @ $${h.avgCost} avg cost`));

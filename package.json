@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "start": "node scheduler.js",
-    "holdings:sync": "node jobs/holdings-sync.js",
+    "holdings:sync": "node scripts/sync-holdings-from-mcp.js",
+    "holdings:sync:legacy": "node jobs/holdings-sync.js",
     "research:scan": "node jobs/research-scan.js",
     "exit:monitor": "node jobs/monitor-positions.js",
     "performance:review": "node jobs/performance-review.js",

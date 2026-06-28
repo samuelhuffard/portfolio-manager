@@ -9,9 +9,9 @@ Inspect the Robinhood Agentic Trading MCP tools, then walk Sam through the first
 - Full execution layer is built and pushed (`0a740be`):
   - `EXECUTION-GUIDE.md` — Claude agent playbook; read this before executing anything
   - `scripts/list-approved-proposals.js` — lists dashboard-approved proposals ready for execution
-  - `scripts/mark-fulfilled.js <proposalId> <tradeId>` — marks a proposal executed in Redis
-  - `scripts/record-trade.js --proposalId ... --orderId ... --ticker ... --side ... --shares ... --price ... --agentId agent-1` — appends to Trade Ledger tab in Google Sheet
-  - `scripts/sync-holdings-from-mcp.js` — reads normalized position JSON from stdin, writes to Holdings tab
+  - `scripts/record-trade.js --proposalId ... --orderId ... --ticker ... --side ... --shares ... --price ... --agentId agent-1` — validates the approved proposal, appends Trade Ledger, updates FIFO Lots, then marks fulfilled in Redis
+  - `scripts/mark-fulfilled.js <proposalId> <tradeId>` — repair-only helper if fulfillment marking needs to be rerun
+  - `scripts/sync-holdings-from-mcp.js` — reads normalized position JSON from stdin and updates Holdings, Performance/NAV, Overview, cached portfolio value, tax reserve, and SPY benchmark
 - Jetson is up to date (`0a740be` confirmed), PM2 online. Research/exit/performance jobs run nightly — they don't need Robinhood credentials, they read from the Sheet.
 - 71/71 tests pass.
 

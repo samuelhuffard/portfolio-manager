@@ -57,9 +57,10 @@ present the estimated cost and any alerts, wait for Sam's "go", then place.
 
 Capture the order ID returned by the MCP.
 
-**e. Record the trade and mark fulfilled**
-Run both commands — order matters (record first so the ledger is written even if mark-fulfilled
-has a transient error):
+**e. Record the trade**
+Run the recording command. It validates the fill against the approved proposal, writes the
+Trade Ledger, opens/consumes FIFO Lots, and marks the proposal fulfilled only after the
+spreadsheet writes succeed:
 
 ```bash
 node scripts/record-trade.js \
@@ -70,10 +71,6 @@ node scripts/record-trade.js \
   --shares      <shares> \
   --price       <executionPrice> \
   --agentId     agent-1
-```
-
-```bash
-node scripts/mark-fulfilled.js <proposal.id> <mcp-order-id>
 ```
 
 Repeat for each proposal. Never batch-execute without Sam's per-trade confirmation.
