@@ -1,21 +1,31 @@
 # Handoff
 
 ## Goal
-Get Robinhood's official "Agentic Trading" MCP server wired up so Claude can read Sam's portfolio and place approval-gated trades in his dedicated Agentic sub-account, eventually routed through the dashboard's `/approvals` queue.
+Inspect the Robinhood Agentic Trading MCP tools, then walk Sam through the first live holdings sync and trade execution on the Agentic sub-account.
 
 ## Current State
-- `robinhood-trading` MCP is registered correctly: scoped to **project** in this repo's `.mcp.json` (URL: `https://agent.robinhood.com/mcp/trading`), confirmed legitimate against Robinhood's own docs (https://robinhood.com/us/en/support/articles/agentic-trading-overview/) — official MCP server launched May 2026, not a third-party hack.
-- Sam ran `claude` from inside this directory, approved the connector via `/mcp`, completed OAuth + Robinhood mobile verification. `claude mcp list` now shows `robinhood-trading: ✔ Connected`.
-- **This is the open item**: the session that approved/connected it has accumulated unrelated conversation history (was being used for other things too). A *fresh* session started from this same directory should also load the MCP tools, since `.mcp.json` lives here and MCP load is project-path-based, not session-specific.
-- Underlying account: Robinhood Agentic sub-account just approved, 0 positions, needs funding (Robinhood UI was prompting "add funds" as of last check).
-- Robinhood-read-only sync (separate from the MCP) is fully working on the Jetson (`~/portfolio-manager`, PM2 process `portfolio-manager`); `holdings:sync` and `research:scan` run clean.
+- `robinhood-trading` MCP is registered in `.mcp.json` (`https://agent.robinhood.com/mcp/trading`). Sam completed OAuth + mobile verification in a prior session — should show Connected when this session starts.
+- Agentic sub-account is a **separate Robinhood sub-account** (not Sam's main account). Was at $0 / "add funds" as of last check. Sam is funding it now.
+- Full execution layer is built and pushed (`0a740be`):
+  - `EXECUTION-GUIDE.md` — Claude agent playbook; read this before executing anything
+  - `scripts/list-approved-proposals.js` — lists dashboard-approved proposals ready for execution
+  - `scripts/mark-fulfilled.js <proposalId> <tradeId>` — marks a proposal executed in Redis
+  - `scripts/record-trade.js --proposalId ... --orderId ... --ticker ... --side ... --shares ... --price ... --agentId agent-1` — appends to Trade Ledger tab in Google Sheet
+  - `scripts/sync-holdings-from-mcp.js` — reads normalized position JSON from stdin, writes to Holdings tab
+- Jetson is up to date (`0a740be` confirmed), PM2 online. Research/exit/performance jobs run nightly — they don't need Robinhood credentials, they read from the Sheet.
+- 71/71 tests pass.
 
 ## Files in Flight
-- `.mcp.json` (repo root) — contains the `robinhood-trading` server entry. Don't remove this — see Failed Attempts.
+- `EXECUTION-GUIDE.md` — Step 2 and Step 3d use placeholder tool names; update with real MCP tool names once inspected
+- `scripts/sync-holdings-from-mcp.js` — field mapping may need adjustment once real MCP position output format is known
 
 ## Failed Attempts
-- Assumed "Claude is connected" messaging on Robinhood's site meant the connection was claude.ai-account-level, unreachable from Claude Code CLI, and removed the `robinhood-trading` MCP entry based on that guess. **Wrong** — Robinhood's own support docs confirm this is a real, standard MCP server meant to be added exactly as originally done (`claude mcp add robinhood-trading --transport http https://agent.robinhood.com/mcp/trading`). Re-added it; don't re-litigate this, the URL/mechanism is verified correct.
-- Tried to inspect available Robinhood MCP tools via `ToolSearch` from a session launched in a *different* project directory (`aide-ai`) — got no results, because MCP servers load based on the project path the session started in. Must start fresh session from `/Users/samhuffard/All Claude Projects/portfolio-manager` for the tools to appear.
+- `robin_stocks` Python sync cannot work — Robinhood hangs waiting for interactive MFA. Do not attempt to revive it.
+- MCP does NOT load unless Claude starts from this exact directory. ToolSearch for "robinhood" from any other directory returns nothing.
+- Do not remove `.mcp.json` — a prior session made that mistake and had to re-add the entry manually.
 
 ## Next Step
-From a fresh session started in `/Users/samhuffard/All Claude Projects/portfolio-manager`, use `ToolSearch` (query "robinhood") to see the actual tool/verb surface (e.g. read positions, place_order, analyze_concentration). Then decide with Sam how the permission level (ask-every-time vs allow-all, set during OAuth) interacts with the dashboard's `/approvals` queue (`portfolio-dashboard/app/approvals`, `app/api/proposals`) before building anything further.
+1. Run `ToolSearch` query `"robinhood"` — note exact tool names for reading positions and placing orders
+2. Update `EXECUTION-GUIDE.md` Step 2 and Step 3d with the real tool names
+3. Run `node scripts/list-approved-proposals.js` — check if any proposals are already queued
+4. Once Sam has funded the account: call the positions tool → pipe to `sync-holdings-from-mcp.js` for the first live holdings sync

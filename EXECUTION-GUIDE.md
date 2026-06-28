@@ -19,9 +19,8 @@ If the output is an empty array (`[]`), nothing is pending — tell Sam and stop
 
 ### Step 2 — Check buying power
 
-Call the Robinhood MCP to get current buying power / cash available in the Agentic account.
-Use whatever tool returns account balance or buying power (e.g. `get_account`, `get_portfolio`,
-`get_buying_power`). Surface the amount to Sam before proceeding.
+Call `mcp__robinhood-trading__get_portfolio` with the Agentic account number to get current
+buying power / cash available. Surface the amount to Sam before proceeding.
 
 ### Step 3 — For each approved proposal
 
@@ -45,13 +44,18 @@ BUY 12 shares CRWD @ ~$218.50 = ~$2,622  (proposal: $2,500, agent-1)
 ```
 
 **d. Place the order**
-Call the Robinhood MCP order tool (e.g. `place_order`, `buy_stock`, `create_order`) with:
-- ticker / symbol
-- side: BUY or SELL
-- quantity: shares (or dollar amount if the MCP supports fractional dollar orders)
-- order type: market (unless Sam specifies limit)
+Call `mcp__robinhood-trading__place_equity_order` with:
+- `account_number`: Agentic sub-account number
+- `symbol`: ticker
+- `side`: `"buy"` or `"sell"`
+- `quantity`: shares (decimals allowed for market orders)
+- `type`: `"market"` (unless Sam specifies `"limit"`, in which case also pass `limit_price`)
+- `ref_id`: fresh UUID per order (re-send same UUID on retry)
 
-Capture the order ID / execution ID returned by the MCP.
+Always call `mcp__robinhood-trading__review_equity_order` first with the same params,
+present the estimated cost and any alerts, wait for Sam's "go", then place.
+
+Capture the order ID returned by the MCP.
 
 **e. Record the trade and mark fulfilled**
 Run both commands — order matters (record first so the ledger is written even if mark-fulfilled
@@ -78,8 +82,9 @@ Repeat for each proposal. Never batch-execute without Sam's per-trade confirmati
 
 ## When Sam says "sync holdings"
 
-Call the MCP tool that returns current positions (e.g. `get_positions`, `get_portfolio`,
-`list_holdings`). Map the output to this JSON shape and pipe it to the sync script:
+Call `mcp__robinhood-trading__get_equity_positions` with the Agentic account number.
+Also call `mcp__robinhood-trading__get_portfolio` for cash/buying power.
+Map the output to this JSON shape and pipe it to the sync script:
 
 ```json
 {
