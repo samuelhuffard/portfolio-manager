@@ -2,6 +2,8 @@
 
 This is the standalone master plan for the portfolio manager system. It is intentionally separate from the Agent One build plan, which blends this architecture with a specific strategy memo.
 
+This document governs the portfolio-manager architecture. Individual agent mandates live in their own strategy files and apply only to that agent unless this master plan explicitly promotes a rule to the system level.
+
 ## Goal
 
 Build a portfolio manager where multiple independent investing agents can research, propose, track, and evaluate investment decisions under written mandates.
@@ -22,6 +24,32 @@ The intended flow is:
 6. The accounting system records fills, tax lots, NAV, performance, and investor ownership.
 
 The agent proposes. The system validates. The human approves.
+
+## System Rules vs. Agent Rules
+
+The master plan defines the shared control plane:
+
+- No autonomous agent trading.
+- Structured proposals.
+- Deterministic risk validation.
+- Human approval before broker execution.
+- Fill matching before accounting.
+- Tax lots, NAV, performance, investor ledger, and audit records after execution.
+- Isolated prompts, strategy specs, memory, portfolio state, and evaluation history per agent.
+
+Agent-specific rules define only that agent's mandate:
+
+- Investment universe.
+- Preferred market caps.
+- Position sizing bands.
+- Sector or sub-vertical concentration limits.
+- Entry gates.
+- Exit triggers.
+- Research tools.
+- Benchmark selection.
+- Feedback criteria.
+
+Agent One's updated v5 technology-growth memo governs Agent One only. It should not constrain Agent Two or Agent Three unless those agents later adopt the same rules by explicit decision.
 
 ## Target Architecture
 
@@ -223,9 +251,9 @@ Do not give every agent every tool at first.
 
 Start with three agents:
 
-1. Value Agent: fundamentals, valuation, long horizon.
-2. Macro/ETF Agent: sector and asset-class rotation.
-3. Quality Growth Agent: durable growth, profitability, drawdown-aware.
+1. Agent One: aggressive technology growth across approved US-listed technology sub-verticals. This is the active strategy governed by `config/agents/agent-1/AGENT-ONE-PLAN.md`.
+2. Agent Two: reserved for a separate medium-term strategy, likely macro, regime-aware, ETF/sector rotation, or broader momentum. It should receive its own mandate before deployment.
+3. Agent Three: reserved for a separate longer-term strategy, likely structural compounder, valuation-disciplined, or quality-focused. It should receive its own mandate before deployment.
 
 Each gets:
 
@@ -236,6 +264,8 @@ Each gets:
 - One benchmark
 - One weekly review loop
 - No autonomous live trading permissions
+
+Agent One's v5 memo may use more aggressive concentration, sizing, and exit rules than Agents Two or Three. That is acceptable because those rules belong to Agent One's strategy contract, not to the master plan.
 
 After 60-90 days of decisions, compare:
 

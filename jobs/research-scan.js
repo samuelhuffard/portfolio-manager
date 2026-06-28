@@ -145,18 +145,19 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
   const spyQuote = await fetchQuotes([watchlist.benchmark]);
   const spyEntryPrice = spyQuote[watchlist.benchmark]?.regularMarketPrice ?? null;
 
-  // Current sector exposure (% of invested capital), for the risk engine's sector-concentration check.
+  // Current Agent One sub-vertical exposure (% of invested capital), for the v5
+  // concentration cap. The risk engine still uses legacy field names internally.
   const heldAllocation = await readHoldingsAllocation(sheets, spreadsheetId);
   const investedTotal = heldAllocation.reduce((sum, h) => sum + (h.marketValue ?? 0), 0);
   const tickerWeightPct = {};
-  const sectorWeightPct = {};
+  const subVerticalWeightPct = {};
   for (const h of heldAllocation) {
     if (!h.marketValue || !investedTotal) continue;
     const weightPct = (h.marketValue / investedTotal) * 100;
     tickerWeightPct[h.ticker] = weightPct;
-    const known = candidates.find((c) => c.ticker === h.ticker)?.sector;
-    const sector = known ?? (await fetchFundamentals(h.ticker)).sector;
-    if (sector) sectorWeightPct[sector] = (sectorWeightPct[sector] ?? 0) + weightPct;
+    const known = candidates.find((c) => c.ticker === h.ticker)?.subVertical;
+    const subVertical = known ?? classifySubVertical(await fetchFundamentals(h.ticker));
+    if (subVertical) subVerticalWeightPct[subVertical] = (subVerticalWeightPct[subVertical] ?? 0) + weightPct;
   }
 
   // Macro backdrop is a shared market fact (not agent memory/opinion) — fetch/cache once globally, not per-agent.
@@ -231,8 +232,8 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
     const rec = applyRiskChecks(
       proposal,
       {
-        sector: c.sector,
-        currentSectorWeightPct: sectorWeightPct[c.sector] ?? 0,
+        sector: c.subVertical,
+        currentSectorWeightPct: subVerticalWeightPct[c.subVertical] ?? 0,
         currentPositionWeightPct: tickerWeightPct[c.ticker] ?? 0,
         // Friend's rule: never average down into a losing held position, and never let a
         // stale-data read slip past the AI overlay into a live proposal.

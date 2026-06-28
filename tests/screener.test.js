@@ -28,9 +28,10 @@ test("rejects a non-tech name (outside sub-verticals)", () => {
   assert.match(rejected[0].reason, /sub-vertical/);
 });
 
-test("rejects a large-cap above the $10B ceiling", () => {
-  const { rejected } = screenUniverse([{ ...saasMid, ticker: "BIG", marketCap: 50_000_000_000 }], LIMITS);
-  assert.match(rejected[0].reason, /large-cap/);
+test("passes a large-cap when it is inside an approved v5 tech sub-vertical", () => {
+  const { passed, rejected } = screenUniverse([{ ...saasMid, ticker: "BIG", marketCap: 50_000_000_000 }], LIMITS);
+  assert.equal(passed.length, 1);
+  assert.equal(rejected.length, 0);
 });
 
 test("rejects a micro-cap below the ADDV floor", () => {
@@ -60,4 +61,19 @@ test("passes a semiconductor name", () => {
     LIMITS
   );
   assert.equal(passed[0].subVertical, "Semiconductors");
+});
+
+test("passes the broader v5 tech sub-verticals", () => {
+  const { passed } = screenUniverse(
+    [
+      { ticker: "NETW", sector: "Technology", industry: "Communication Equipment", marketCap: 3_000_000_000 },
+      { ticker: "CLOUD", sector: "Technology", industry: "Cloud Infrastructure", marketCap: 3_000_000_000 },
+      { ticker: "HLTH", sector: "Healthcare", industry: "Health Information Services", marketCap: 3_000_000_000 },
+    ],
+    LIMITS
+  );
+  assert.deepEqual(
+    passed.map((p) => p.subVertical),
+    ["Tech Hardware", "Tech Infrastructure", "Tech-Adjacent High-Growth"]
+  );
 });

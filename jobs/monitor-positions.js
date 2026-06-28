@@ -31,15 +31,18 @@ import { hasOpenProposal } from "../lib/proposal-sizing.js";
 const AGENT_ID = "agent-1";
 
 // Memo wants relative strength measured against the position's own sub-vertical benchmark,
-// not the broad market: software/SaaS vs IGV, semis vs SOXX. Fall back to SPY otherwise.
+// not the broad market. Use QQQ as the growth-tech fallback for v5's broader tech buckets.
 const SUBVERTICAL_BENCHMARK = {
   "Software/SaaS": "IGV",
   Semiconductors: "SOXX",
+  "Tech Infrastructure": "QQQ",
+  "Tech Hardware": "QQQ",
+  "Tech-Adjacent High-Growth": "QQQ",
 };
 
 const benchmarkCache = new Map();
 async function benchmarkClosesFor(subVertical, period1, period2) {
-  const ticker = SUBVERTICAL_BENCHMARK[subVertical] || "SPY";
+  const ticker = SUBVERTICAL_BENCHMARK[subVertical] || "QQQ";
   if (!benchmarkCache.has(ticker)) {
     const bars = await fetchDailyBars(ticker, { period1, period2 });
     benchmarkCache.set(ticker, bars.map((b) => b.close));

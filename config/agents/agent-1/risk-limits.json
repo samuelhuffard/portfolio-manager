@@ -1,7 +1,15 @@
 {
-  "description": "Deterministic risk-engine limits enforced on every AI recommendation before it's written to the Sheet — the AI proposes, this engine decides admissibility (downgrading to HOLD / clamping when a check fails). Agent One values follow the friend's Agent One Investment Memo v2 (see AGENT-ONE-PLAN.md). Edit here to change risk posture; see weights.json for quant scoring weights.",
+  "description": "Deterministic risk-engine limits enforced on every AI recommendation before it's written to the Sheet — the AI proposes, this engine decides admissibility. Agent One values follow Agent One Strategy Memorandum v5 (see AGENT-ONE-PLAN.md). Edit here to change risk posture; see weights.json for quant scoring weights.",
+  "allowedSubVerticals": [
+    "Software/SaaS",
+    "Semiconductors",
+    "Tech Infrastructure",
+    "Tech Hardware",
+    "Tech-Adjacent High-Growth"
+  ],
   "maxPositionPct": 15,
   "minPositionPct": 2,
+  "maxSubVerticalPct": 75,
   "maxSectorPct": 75,
   "rebalanceFlagPct": 18,
   "minCashReservePct": 5,

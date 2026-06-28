@@ -80,8 +80,11 @@ test("relativeStrength detects 3+ weeks of underperformance", () => {
   assert.equal(rs.weakening, true);
 });
 
-test("classifySubVertical maps semis and software, rejects the rest", () => {
+test("classifySubVertical maps Agent One v5 tech sub-verticals and rejects the rest", () => {
   assert.equal(classifySubVertical({ sector: "Technology", industry: "Semiconductors" }), "Semiconductors");
   assert.equal(classifySubVertical({ sector: "Technology", industry: "Software—Application" }), "Software/SaaS");
+  assert.equal(classifySubVertical({ sector: "Technology", industry: "Communication Equipment" }), "Tech Hardware");
+  assert.equal(classifySubVertical({ sector: "Technology", industry: "Cloud Infrastructure" }), "Tech Infrastructure");
+  assert.equal(classifySubVertical({ sector: "Healthcare", industry: "Health Information Services" }), "Tech-Adjacent High-Growth");
   assert.equal(classifySubVertical({ sector: "Consumer Cyclical", industry: "Apparel Retail" }), null);
 });
