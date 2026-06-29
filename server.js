@@ -78,7 +78,8 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && url.pathname === "/alerts") {
     try {
       const body = await readBody(req);
-      const { ticker, direction, targetPrice, note } = body;
+      const { agentId, ticker, direction, targetPrice, note } = body;
+      const validAgentId = ["agent-1", "agent-2", "agent-3"].includes(agentId) ? agentId : "agent-1";
       if (!ticker || !direction || targetPrice == null) {
         res.writeHead(400);
         res.end(JSON.stringify({ error: "ticker, direction, and targetPrice are required" }));
@@ -89,7 +90,7 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: "direction must be 'below' or 'above'" }));
         return;
       }
-      const alert = await addPriceAlert({ agentId: "agent-1", ticker, direction, targetPrice, note });
+      const alert = await addPriceAlert({ agentId: validAgentId, ticker, direction, targetPrice, note });
       res.writeHead(201);
       res.end(JSON.stringify({ alert }));
     } catch (e) {
