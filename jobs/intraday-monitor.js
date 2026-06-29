@@ -23,6 +23,7 @@ import { atr } from "../lib/indicators.js";
 import { listPriceAlerts, checkAlerts, removePriceAlert } from "../lib/price-alerts.js";
 import { listAllProposals, createProposal } from "../lib/redis.js";
 import { hasOpenProposal } from "../lib/proposal-sizing.js";
+import { sendMessage as sendTelegram } from "../lib/telegram.js";
 import {
   getServiceAccountClients,
   resolveSharedSpreadsheetId,
@@ -30,7 +31,7 @@ import {
   readHoldingsReturnPct,
 } from "../lib/sheets.js";
 
-const AGENT_ID = "agent-1";
+// AGENT_ID removed — each alert carries its own agentId
 // Tickers to watch for price alerts even when not held
 import fs from "node:fs";
 import path from "node:path";
@@ -79,12 +80,12 @@ export async function runIntradayMonitor({ context = "intraday" } = {}) {
     );
 
     const side = alert.direction === "below" ? "BUY" : "SELL";
-    if (!hasOpenProposal(openProposals, { agentId: AGENT_ID, ticker: alert.ticker, side })) {
-      // Size: for BUYs use a starter/small amount since we don't have full AI conviction here;
-      // for SELLs use the full position value.
+    const agentLabel = alert.agentId ? `Agent ${alert.agentId.split("-")[1]}` : "Agent";
+
+    if (!hasOpenProposal(openProposals, { agentId: alert.agentId, ticker: alert.ticker, side })) {
       let amountDollars;
       if (side === "BUY") {
-        amountDollars = 25; // starter alert-triggered BUY; full AI overlay will rescore at EOD
+        amountDollars = 25;
       } else {
         const pos = allocation.find((h) => h.ticker === alert.ticker);
         amountDollars = pos?.marketValue ?? 25;
@@ -97,7 +98,7 @@ export async function runIntradayMonitor({ context = "intraday" } = {}) {
 
       try {
         const created = await createProposal({
-          agentId: AGENT_ID,
+          agentId: alert.agentId,
           ticker: alert.ticker,
           side,
           amountDollars,
@@ -111,6 +112,20 @@ export async function runIntradayMonitor({ context = "intraday" } = {}) {
         }
       } catch (e) {
         console.warn(`[Intraday] Failed to queue alert proposal for ${alert.ticker}:`, e.message);
+      }
+
+      // Telegram notification
+      try {
+        const directionEmoji = alert.direction === "below" ? "📉" : "📈";
+        const msg =
+          `${directionEmoji} Price Alert Triggered\n` +
+          `${agentLabel} · ${alert.ticker}\n` +
+          `${alert.direction === "below" ? "Fell below" : "Rose above"} $${alert.targetPrice} → now $${price}\n` +
+          (alert.note ? `Note: ${alert.note}\n` : "") +
+          `→ ${side} proposal queued ($${amountDollars})`;
+        await sendTelegram(msg);
+      } catch (e) {
+        console.warn(`[Intraday] Telegram notification failed:`, e.message);
       }
     } else {
       console.log(`[Intraday] ${alert.ticker}: open proposal already exists, skipping alert.`);
