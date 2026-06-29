@@ -351,13 +351,18 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
   console.log(`[Research] ${agent.id}: done — wrote ${recommendations.length} recommendations.`);
 }
 
-/** Runs every agent's scan against the shared portfolio in sequence. One agent's failure doesn't block the others. */
-export async function runResearchScan() {
+/**
+ * Runs the research scan for one or more agents. Defaults to agent-1 only —
+ * agents 2 and 3 don't yet have funded mandates or defined philosophies.
+ * Pass agentIds to override (e.g. ["agent-1", "agent-2"] when agent-2 goes live).
+ */
+export async function runResearchScan({ agentIds = ["agent-1"] } = {}) {
   const { sheets, drive } = getServiceAccountClients();
   const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
   const sheetIds = await getSheetIds(sheets, spreadsheetId);
 
-  for (const agent of AGENTS) {
+  const activeAgents = AGENTS.filter((a) => agentIds.includes(a.id));
+  for (const agent of activeAgents) {
     try {
       await runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds);
     } catch (err) {
