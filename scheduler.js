@@ -3,6 +3,9 @@ import cron from "node-cron";
 import { runResearchScan } from "./jobs/research-scan.js";
 import { runExitMonitor } from "./jobs/monitor-positions.js";
 import { runPerformanceReview } from "./jobs/performance-review.js";
+import { startServer } from "./server.js";
+
+startServer();
 
 // Holdings sync is MCP-driven and on demand. A Claude session with the
 // robinhood-trading MCP reads positions, then runs scripts/sync-holdings-from-mcp.js.
