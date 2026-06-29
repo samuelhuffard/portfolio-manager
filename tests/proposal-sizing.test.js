@@ -46,6 +46,20 @@ test("clamps an oversized BUY to the $10,000 proposal cap", () => {
   assert.deepEqual(result, { amountDollars: 10000, clamped: true });
 });
 
+test("caps a BUY by currently available idle cash", () => {
+  const result = sizeProposalAmount({
+    action: "BUY",
+    targetWeightPct: 20,
+    totalPortfolioValue: 10000,
+    cashAvailable: 750,
+  });
+  assert.deepEqual(result, { amountDollars: 750, clamped: false, cashClamped: true });
+});
+
+test("returns null for a BUY when open proposals reserve all idle cash", () => {
+  assert.equal(sizeProposalAmount({ action: "BUY", targetWeightPct: 5, totalPortfolioValue: 10000, cashAvailable: 0 }), null);
+});
+
 test("sizes a SELL off the ticker's current position weight", () => {
   const result = sizeProposalAmount({ action: "SELL", totalPortfolioValue: 20000, currentPositionWeightPct: 10 });
   assert.deepEqual(result, { amountDollars: 2000, clamped: false });

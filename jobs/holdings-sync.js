@@ -241,6 +241,31 @@ export async function syncHoldings() {
   console.log(`[Holdings] Done - ${timestamp}.`);
 }
 
+/**
+ * Lightweight fill check: calls robinhood-sync.py to see if any new orders have
+ * filled since the last sync. If yes, runs the full syncHoldings(). If not,
+ * returns without touching Yahoo or Sheets — cheap enough to poll every 5 min.
+ */
+export async function checkForNewFills() {
+  const sinceIso = (await getLastFillSyncAt()) || "1970-01-01T00:00:00Z";
+  let data;
+  try {
+    const { stdout } = await execFileAsync(PYTHON_BIN, [SCRIPT_PATH, sinceIso], { timeout: 60000 });
+    const lines = stdout.trim().split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try { data = JSON.parse(lines[i]); break; } catch { continue; }
+    }
+    if (!data) return false;
+  } catch (err) {
+    console.warn("[Holdings] Fill check failed:", err.message);
+    return false;
+  }
+  if (data.error || !data.fills?.length) return false;
+  console.log(`[Holdings] ${data.fills.length} new fill(s) detected — triggering full sync.`);
+  await syncHoldings();
+  return true;
+}
+
 if (fileURLToPath(import.meta.url) === process.argv[1]) {
   syncHoldings().catch((e) => {
     console.error("[Holdings] Sync error:", e.message);

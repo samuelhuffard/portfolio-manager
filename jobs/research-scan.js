@@ -13,6 +13,7 @@ import { fetchRecentFilings } from "../lib/edgar.js";
 import { fetchMacroSnapshot, formatMacroSnapshot } from "../lib/fred.js";
 import { getAIRecommendation } from "../lib/ai-overlay.js";
 import { applyRiskChecks } from "../lib/risk-engine.js";
+import { formatAgentMemoriesForPrompt, listAgentMemories } from "../lib/agent-memory.js";
 import {
   getCachedNews,
   setCachedNews,
@@ -28,6 +29,7 @@ import {
   resolveSharedSpreadsheetId,
   getSheetIds,
   readHoldingsTickers,
+  readCashBalance,
   readHoldingsAllocation,
   readHoldingsReturnPct,
   readAgentStrategyNotes,
@@ -38,6 +40,7 @@ import { AGENTS } from "../config/agents.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOP_N = 5;
+const DEFAULT_AGENT_IDS = AGENTS.map((agent) => agent.id);
 
 function loadAgentConfig(agentId) {
   const dir = path.join(__dirname, "..", "config", "agents", agentId);
@@ -66,6 +69,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
     readAgentStrategyNotes(sheets, spreadsheetId, agent.id),
     readHoldingsReturnPct(sheets, spreadsheetId),
   ]);
+  const persistentMemory = formatAgentMemoriesForPrompt(await listAgentMemories(agent.id));
 
   const now = new Date();
   const threeMonthsAgo = new Date(now);
@@ -147,7 +151,10 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
 
   // Current Agent One sub-vertical exposure (% of invested capital), for the v5
   // concentration cap. The risk engine still uses legacy field names internally.
-  const heldAllocation = await readHoldingsAllocation(sheets, spreadsheetId);
+  const [heldAllocation, cashBalance] = await Promise.all([
+    readHoldingsAllocation(sheets, spreadsheetId),
+    readCashBalance(sheets, spreadsheetId),
+  ]);
   const investedTotal = heldAllocation.reduce((sum, h) => sum + (h.marketValue ?? 0), 0);
   const tickerWeightPct = {};
   const subVerticalWeightPct = {};
@@ -173,6 +180,12 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
   // the next agent's run) doesn't double-queue against a list fetched before this run started.
   const totalPortfolioValue = await getCachedPortfolioTotalValue();
   const openProposals = await listAllProposals();
+  let availableCashForBuys =
+    (cashBalance ?? 0) -
+    openProposals
+      .filter((p) => p.side === "BUY" && p.status === "ApprovedForBrokerReview" && !p.fulfilledAt)
+      .reduce((sum, p) => sum + (p.amountDollars ?? 0), 0);
+  availableCashForBuys = Math.max(0, Math.round(availableCashForBuys * 100) / 100);
 
   const recommendations = [];
   for (const c of toReview.values()) {
@@ -227,6 +240,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
       recentFilings,
       macro: macroText,
       personality,
+      persistentMemory,
     });
 
     const rec = applyRiskChecks(
@@ -283,6 +297,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
         targetWeightPct: rec.targetWeight,
         totalPortfolioValue,
         currentPositionWeightPct: tickerWeightPct[c.ticker] ?? 0,
+        cashAvailable: rec.action === "BUY" ? availableCashForBuys : undefined,
         limits: riskLimits,
       });
 
@@ -309,6 +324,8 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
           rec.overrideNotes.length ? rec.overrideNotes.join("; ") : "all passed"
         }.${sized.starterSized ? " Small-account starter sizing used instead of strict target-weight sizing." : ""}${
           sized.clamped ? " Sized amount clamped to the $10,000 proposal cap." : ""
+        }${sized.cashClamped ? ` Sized amount capped by idle cash available after accepted, unfilled BUY proposals ($${availableCashForBuys}).` : ""}${
+          rec.action === "BUY" ? ` Idle cash remaining before this proposal: $${availableCashForBuys}.` : ""
         }`;
 
         try {
@@ -323,6 +340,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
           });
           if (created) {
             openProposals.push(created);
+            if (created.side === "BUY") availableCashForBuys = Math.max(0, Math.round((availableCashForBuys - created.amountDollars) * 100) / 100);
             console.log(`[Research] ${agent.id}: queued ${rec.action} ${c.ticker} proposal ($${sized.amountDollars}).`);
           }
         } catch (err) {
@@ -352,11 +370,11 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
 }
 
 /**
- * Runs the research scan for one or more agents. Defaults to agent-1 only —
- * agents 2 and 3 don't yet have funded mandates or defined philosophies.
- * Pass agentIds to override (e.g. ["agent-1", "agent-2"] when agent-2 goes live).
+ * Runs the research scan for one or more agents. Defaults to all registered
+ * agents so newly-available cash can collect competing proposals from every desk.
+ * Pass agentIds to override for a targeted diagnostic scan.
  */
-export async function runResearchScan({ agentIds = ["agent-1"] } = {}) {
+export async function runResearchScan({ agentIds = DEFAULT_AGENT_IDS } = {}) {
   const { sheets, drive } = getServiceAccountClients();
   const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
   const sheetIds = await getSheetIds(sheets, spreadsheetId);
@@ -372,7 +390,8 @@ export async function runResearchScan({ agentIds = ["agent-1"] } = {}) {
 }
 
 if (fileURLToPath(import.meta.url) === process.argv[1]) {
-  runResearchScan().catch((e) => {
+  const cliAgentIds = process.argv.slice(2).filter((arg) => !arg.startsWith("--"));
+  runResearchScan(cliAgentIds.length ? { agentIds: cliAgentIds } : undefined).catch((e) => {
     console.error("[Research] Scan error:", e.message);
     process.exit(1);
   });

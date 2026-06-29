@@ -5,11 +5,22 @@ import { runExitMonitor } from "./jobs/monitor-positions.js";
 import { runPerformanceReview } from "./jobs/performance-review.js";
 import { runPremarketCheck } from "./jobs/premarket-check.js";
 import { runIntradayMonitor } from "./jobs/intraday-monitor.js";
+import { syncHoldings } from "./jobs/holdings-sync.js";
 import { startServer } from "./server.js";
 
 startServer();
 
 const TZ = { timezone: "America/New_York" };
+
+// ── Holdings sync (9:30 AM ET — market open) ────────────────────────────────
+cron.schedule("30 9 * * 1-5", async () => {
+  await syncHoldings().catch((e) => console.error("[Holdings] error:", e.message));
+}, TZ);
+
+// ── Holdings sync (4:30 PM ET — after close) ────────────────────────────────
+cron.schedule("30 16 * * 1-5", async () => {
+  await syncHoldings().catch((e) => console.error("[Holdings] error:", e.message));
+}, TZ);
 
 // ── Pre-market (8:30 AM ET) ──────────────────────────────────────────────────
 // Macro snapshot refresh, regime check, overnight news on held positions.
@@ -46,12 +57,11 @@ cron.schedule("45 16 * * 1-5", async () => {
   await runExitMonitor().catch((e) => console.error("[ExitMonitor] error:", e.message));
 }, TZ);
 
-// ── Research scan — agent-1 only (5:15 PM ET) ───────────────────────────────
+// ── Research scan — all agents (5:15 PM ET) ─────────────────────────────────
 // Full quant score → AI overlay → risk checks → queue proposals.
 // Runs after exit monitor so any SELL proposals are already queued first.
-// Agent-2 and agent-3 added here once they have funded mandates.
 cron.schedule("15 17 * * 1-5", async () => {
-  await runResearchScan({ agentIds: ["agent-1"] }).catch((e) => console.error("[Research] error:", e.message));
+  await runResearchScan().catch((e) => console.error("[Research] error:", e.message));
 }, TZ);
 
 // ── Performance review (5:45 PM ET) ─────────────────────────────────────────

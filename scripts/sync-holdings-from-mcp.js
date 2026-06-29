@@ -7,6 +7,7 @@
  * portfolio value, tax reserve, and the SPY benchmark.
  *
  * Usage: node scripts/sync-holdings-from-mcp.js < positions.json
+ *        node scripts/sync-holdings-from-mcp.js --scan < positions.json
  *
  * Input (JSON on stdin) — normalize MCP output to this shape before piping:
  * {
@@ -33,6 +34,9 @@ import "dotenv/config";
 import { fetchQuotes } from "../lib/yahoo.js";
 import { writePortfolioSnapshot } from "../lib/portfolio-snapshot.js";
 import { getServiceAccountClients, getSheetIds, resolveSharedSpreadsheetId } from "../lib/sheets.js";
+import { runResearchScan } from "../jobs/research-scan.js";
+
+const shouldRunScan = process.argv.includes("--scan");
 
 const raw = await new Promise((resolve, reject) => {
   let buf = "";
@@ -105,3 +109,9 @@ const snapshot = await writePortfolioSnapshot({
 
 console.log(`Portfolio synced: ${holdings.length} position(s), cash $${cash.toFixed(2)}, total $${snapshot.totalValue.toFixed(2)}`);
 holdings.forEach((h) => console.log(`  ${h.ticker}: ${h.shares} shares @ $${h.avgCost} avg cost`));
+
+if (shouldRunScan) {
+  console.log("Starting all-agent research scan against the updated cash balance...");
+  await runResearchScan();
+  console.log("All-agent research scan complete. BUY proposals were capped by available idle cash.");
+}

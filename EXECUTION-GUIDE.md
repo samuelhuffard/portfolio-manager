@@ -1,4 +1,4 @@
-# Agent One — Execution Guide
+# Portfolio Execution Guide
 
 This file is the playbook for a Claude agent session started from this directory.
 The `robinhood-trading` MCP loads automatically when Claude starts here.
@@ -70,7 +70,7 @@ node scripts/record-trade.js \
   --side        BUY \
   --shares      <shares> \
   --price       <executionPrice> \
-  --agentId     agent-1
+  --agentId     <proposal.agentId>
 ```
 
 Repeat for each proposal. Never batch-execute without Sam's per-trade confirmation.
@@ -112,6 +112,29 @@ EOF
 node scripts/sync-holdings-from-mcp.js < /tmp/positions.json
 ```
 
+Use `--scan` when the sync includes newly deposited cash that should be made available
+for agent proposals immediately:
+
+```bash
+node scripts/sync-holdings-from-mcp.js --scan < /tmp/positions.json
+```
+
+That writes the updated cash balance first, then runs all three research agents. BUY
+proposals are capped by idle cash after already accepted, unfilled BUY proposals.
+
+---
+
+## When Sam says "record new money"
+
+Record the investor ledger entry only after the money is actually received:
+
+```bash
+node scripts/record-contribution.js <email> "<name>" <amount> --investor-id=<clerk-user-id>
+```
+
+Then sync the Robinhood Agentic account cash/positions with `--scan` as shown above.
+Do not run the scan before the updated cash balance is reflected in Holdings.
+
 ---
 
 ## Hard rules (never override these)
@@ -121,5 +144,6 @@ node scripts/sync-holdings-from-mcp.js < /tmp/positions.json
 - Never execute a proposal that already has `fulfilledAt` set — it's already done.
 - If `currentPrice > proposal.maxPrice` (when maxPrice is set), stop and surface it.
 - If buying power is insufficient for any trade, surface that and let Sam decide order.
+- Record the fill with the proposal's actual `agentId` so the attributed agent book updates correctly.
 - This is the Robinhood **Agentic sub-account** — separate from Sam's main account.
 - If the MCP returns an error at any step, stop, surface the full error, and wait.

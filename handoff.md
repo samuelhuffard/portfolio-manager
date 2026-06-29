@@ -1,31 +1,38 @@
 # Handoff
 
 ## Goal
-Inspect the Robinhood Agentic Trading MCP tools, then walk Sam through the first live holdings sync and trade execution on the Agentic sub-account.
+Estimate the weekly Claude API cost (in API credits) for the portfolio-manager project.
 
 ## Current State
-- `robinhood-trading` MCP is registered in `.mcp.json` (`https://agent.robinhood.com/mcp/trading`). Sam completed OAuth + mobile verification in a prior session — should show Connected when this session starts.
-- Agentic sub-account is a **separate Robinhood sub-account** (not Sam's main account). Was at $0 / "add funds" as of last check. Sam is funding it now.
-- Full execution layer is built and pushed (`0a740be`):
-  - `EXECUTION-GUIDE.md` — Claude agent playbook; read this before executing anything
-  - `scripts/list-approved-proposals.js` — lists dashboard-approved proposals ready for execution
-  - `scripts/record-trade.js --proposalId ... --orderId ... --ticker ... --side ... --shares ... --price ... --agentId agent-1` — validates the approved proposal, appends Trade Ledger, updates FIFO Lots, then marks fulfilled in Redis
-  - `scripts/mark-fulfilled.js <proposalId> <tradeId>` — repair-only helper if fulfillment marking needs to be rerun
-  - `scripts/sync-holdings-from-mcp.js` — reads normalized position JSON from stdin and updates Holdings, Performance/NAV, Overview, cached portfolio value, tax reserve, and SPY benchmark
-- Jetson is up to date (`0a740be` confirmed), PM2 online. Research/exit/performance jobs run nightly — they don't need Robinhood credentials, they read from the Sheet.
-- 71/71 tests pass.
+Mid-analysis. Read the scheduler and several support files but have NOT yet read the actual AI-calling job files. No cost estimate produced yet.
 
 ## Files in Flight
-- `EXECUTION-GUIDE.md` — Step 2 and Step 3d use placeholder tool names; update with real MCP tool names once inspected
-- `scripts/sync-holdings-from-mcp.js` — field mapping may need adjustment once real MCP position output format is known
+None — read-only analysis session, no edits made.
 
-## Failed Attempts
-- `robin_stocks` Python sync cannot work — Robinhood hangs waiting for interactive MFA. Do not attempt to revive it.
-- MCP does NOT load unless Claude starts from this exact directory. ToolSearch for "robinhood" from any other directory returns nothing.
-- Do not remove `.mcp.json` — a prior session made that mistake and had to re-add the entry manually.
+## What I Read
+- `scheduler.js` — full job schedule documented below
+- `jobs/holdings-sync.js` — confirmed NO Claude API calls, pure data sync
+- `lib/redis.js` — no Claude API calls
+- `server.js` — no Claude API calls
+
+## Schedule (weekdays only, 5 days/week)
+- `runPremarketCheck()` — 8:30 AM ET × 1/day
+- `runIntradayMonitor({ context: "opening" })` — 9:35 AM × 1/day
+- `runIntradayMonitor({ context: "intraday" })` — every 30 min 10AM–3:30PM ≈ 12 runs/day
+- `runIntradayMonitor({ context: "pre-close" })` — 3:50 PM × 1/day
+- `runExitMonitor()` — 4:45 PM × 1/day
+- `runResearchScan({ agentIds: ["agent-1"] })` — 5:15 PM × 1/day
+- `runPerformanceReview()` — 5:45 PM × 1/day
+
+Total intraday runs/day: ~14 | Total daily AI-calling jobs: ~18 | Weekly: ~90 runs
 
 ## Next Step
-1. Run `ToolSearch` query `"robinhood"` — note exact tool names for reading positions and placing orders
-2. Update `EXECUTION-GUIDE.md` Step 2 and Step 3d with the real tool names
-3. Run `node scripts/list-approved-proposals.js` — check if any proposals are already queued
-4. Once Sam has funded the account: call the positions tool → pipe to `sync-holdings-from-mcp.js` for the first live holdings sync
+Read the five AI-calling job files to find which Claude model they use and estimate input/output token counts per call, then compute weekly cost:
+
+1. `jobs/premarket-check.js`
+2. `jobs/intraday-monitor.js`
+3. `jobs/monitor-positions.js`
+4. `jobs/research-scan.js`
+5. `jobs/performance-review.js`
+
+Current Claude pricing: Opus 4.8 = $5/1M input + $25/1M output; Sonnet 4.6 = $3/$15; Haiku 4.5 = $1/$5.

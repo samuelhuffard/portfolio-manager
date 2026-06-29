@@ -95,3 +95,10 @@ console.log(
     `NAV date ${navDate || getTodayInNewYork()}, amount $${amount.toFixed(2)}, ` +
     `${result.entry.units.toFixed(4)} units, ownership ${result.ownershipPct.toFixed(2)}%.`
 );
+
+if (!isWithdrawal) {
+  console.log(
+    "Next: sync the updated Robinhood cash/buying power, then run `node scripts/sync-holdings-from-mcp.js --scan < positions.json` " +
+      "or `npm run research:scan` so all three agents can queue cash-capped proposals for approval."
+  );
+}

@@ -14,6 +14,7 @@
     "proposals:fulfill": "node scripts/mark-fulfilled.js",
     "trade:record": "node scripts/record-trade.js",
     "holdings:sync:mcp": "node scripts/sync-holdings-from-mcp.js",
+    "holdings:sync:mcp:scan": "node scripts/sync-holdings-from-mcp.js --scan",
     "test": "node --test tests/*.test.js"
   },
   "dependencies": {

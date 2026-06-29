@@ -3,11 +3,13 @@ import http from "node:http";
 import { runResearchScan } from "./jobs/research-scan.js";
 import { runIntradayMonitor } from "./jobs/intraday-monitor.js";
 import { listPriceAlerts, addPriceAlert, removePriceAlert } from "./lib/price-alerts.js";
+import { syncHoldings } from "./jobs/holdings-sync.js";
 
 const PORT = process.env.PORTFOLIO_SERVER_PORT ?? 3200;
 const SECRET = process.env.PORTFOLIO_WEBHOOK_SECRET;
 
 let scanRunning = false;
+let syncRunning = false;
 
 function auth(req) {
   if (!SECRET) return true;
@@ -42,6 +44,23 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // POST /sync-holdings — trigger an on-demand holdings sync (called by PostToolUse hook
+  // after Robinhood MCP trade actions so cash/NAV refresh without waiting for the schedule)
+  if (req.method === "POST" && url.pathname === "/sync-holdings") {
+    if (syncRunning) {
+      res.writeHead(409);
+      res.end(JSON.stringify({ error: "Sync already running" }));
+      return;
+    }
+    res.writeHead(202);
+    res.end(JSON.stringify({ ok: true, message: "Holdings sync started" }));
+    syncRunning = true;
+    syncHoldings()
+      .catch((e) => console.error("[Server] Holdings sync error:", e.message))
+      .finally(() => { syncRunning = false; });
+    return;
+  }
+
   // POST /scan — trigger full research scan
   if (req.method === "POST" && url.pathname === "/scan") {
     if (scanRunning) {
@@ -50,9 +69,9 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     res.writeHead(202);
-    res.end(JSON.stringify({ ok: true, message: "Scan started" }));
+    res.end(JSON.stringify({ ok: true, message: "All-agent scan started" }));
     scanRunning = true;
-    runResearchScan({ agentIds: ["agent-1"] })
+    runResearchScan()
       .catch((e) => console.error("[Server] Scan error:", e.message))
       .finally(() => { scanRunning = false; });
     return;
