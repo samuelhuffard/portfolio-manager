@@ -32,6 +32,7 @@ import {
   readCashBalance,
   readHoldingsAllocation,
   readHoldingsReturnPct,
+  readMarketScans,
   readAgentStrategyNotes,
   appendAgentRecommendations,
   agentTabName,
@@ -52,6 +53,34 @@ function loadAgentConfig(agentId) {
   };
 }
 
+function selectMarketScanTickers(agentId, marketScans, watchlistTickers, limit = 5) {
+  const watchlist = new Set(watchlistTickers.map((t) => t.toUpperCase()));
+  const picked = [];
+  const seen = new Set();
+  for (const row of marketScans) {
+    const ticker = row.ticker?.toUpperCase();
+    if (!ticker || seen.has(ticker) || watchlist.has(ticker)) continue;
+    const hint = row.agentHint?.trim();
+    if (hint && hint !== agentId) continue;
+    seen.add(ticker);
+    picked.push(ticker);
+    if (picked.length >= limit) break;
+  }
+  return picked;
+}
+
+function scanSignalsForTicker(marketScans, ticker) {
+  return marketScans
+    .filter((row) => row.ticker === ticker)
+    .slice(0, 3)
+    .map((row) => ({
+      scanName: row.scanName,
+      signal: row.signal,
+      score: row.score,
+      notes: row.notes,
+    }));
+}
+
 /**
  * Runs one agent's full scan (quant score -> AI overlay -> risk engine -> write) against
  * its own watchlist, but the SAME shared portfolio/spreadsheet as the other two agents —
@@ -61,10 +90,16 @@ function loadAgentConfig(agentId) {
  */
 async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
   const { watchlist, weights: weightsConfig, riskLimits, personality } = loadAgentConfig(agent.id);
-  console.log(`[Research] ${agent.id}: scanning ${watchlist.tickers.length} tickers...`);
+  const marketScans = await readMarketScans(sheets, spreadsheetId).catch((err) => {
+    console.warn(`[Research] ${agent.id}: market scan context unavailable:`, err.message);
+    return [];
+  });
+  const scanTickers = selectMarketScanTickers(agent.id, marketScans, watchlist.tickers);
+  const universeTickers = [...new Set([...watchlist.tickers, ...scanTickers])];
+  console.log(`[Research] ${agent.id}: scanning ${universeTickers.length} tickers (${watchlist.tickers.length} watchlist + ${scanTickers.length} Robinhood scan).`);
 
   const [fundamentals, holdingTickers, strategyNotes, heldReturnPct] = await Promise.all([
-    fetchFundamentalsBatch(watchlist.tickers),
+    fetchFundamentalsBatch(universeTickers),
     readHoldingsTickers(sheets, spreadsheetId),
     readAgentStrategyNotes(sheets, spreadsheetId, agent.id),
     readHoldingsReturnPct(sheets, spreadsheetId),
@@ -140,6 +175,10 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
   // AI overlay: top quant movers + any current holdings (so held positions get reviewed too)
   const toReview = new Map();
   for (const c of scored.slice(0, TOP_N)) toReview.set(c.ticker, c);
+  for (const ticker of scanTickers) {
+    const c = scored.find((s) => s.ticker === ticker);
+    if (c) toReview.set(ticker, c);
+  }
   for (const ticker of holdingTickers) {
     const c = scored.find((s) => s.ticker === ticker);
     if (c) toReview.set(ticker, c);
@@ -238,6 +277,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
       analystTrend: c.analystTrend,
       insiderActivity: c.insiderActivity,
       recentFilings,
+      marketScanSignals: scanSignalsForTicker(marketScans, c.ticker),
       macro: macroText,
       personality,
       persistentMemory,
