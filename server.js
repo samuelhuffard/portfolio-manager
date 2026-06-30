@@ -4,6 +4,9 @@ import { runResearchScan } from "./jobs/research-scan.js";
 import { runIntradayMonitor } from "./jobs/intraday-monitor.js";
 import { listPriceAlerts, addPriceAlert, removePriceAlert } from "./lib/price-alerts.js";
 import { syncHoldings } from "./jobs/holdings-sync.js";
+import { getProposalById, markProposalFulfilled } from "./lib/redis.js";
+import { recordMcpFill } from "./lib/mcp-accounting.js";
+import { getServiceAccountClients, getSheetIds, resolveSharedSpreadsheetId } from "./lib/sheets.js";
 
 const PORT = process.env.PORTFOLIO_SERVER_PORT ?? 3200;
 const SECRET = process.env.PORTFOLIO_WEBHOOK_SECRET;
@@ -125,6 +128,37 @@ const server = http.createServer(async (req, res) => {
     await removePriceAlert(deleteMatch[1]);
     res.writeHead(200);
     res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  // POST /record-trade — called by the portfolio dashboard after a Robinhood MCP order is placed
+  if (req.method === "POST" && url.pathname === "/record-trade") {
+    try {
+      const body = await readBody(req);
+      const { proposalId, orderId, ticker, side, shares, price, agentId } = body;
+      if (!proposalId || !orderId || !ticker || !side || shares == null || price == null) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: "proposalId, orderId, ticker, side, shares, and price are required" }));
+        return;
+      }
+      const proposal = await getProposalById(proposalId);
+      const { sheets, drive } = getServiceAccountClients();
+      const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
+      const sheetIds = await getSheetIds(sheets, spreadsheetId);
+      const { trade, alreadyRecorded } = await recordMcpFill({
+        sheets, spreadsheetId, sheetIds, proposal, orderId, ticker,
+        side, shares, price, agentId: agentId ?? "agent-1",
+      });
+      await markProposalFulfilled(proposalId, orderId);
+      res.writeHead(200);
+      res.end(JSON.stringify({ ok: true, alreadyRecorded, trade }));
+      // Kick off a holdings sync so the dashboard reflects the new position immediately
+      syncHoldings().catch((e) => console.error("[Server] Post-trade sync error:", e.message));
+    } catch (e) {
+      console.error("[Server] record-trade error:", e.message);
+      res.writeHead(500);
+      res.end(JSON.stringify({ error: e.message }));
+    }
     return;
   }
 
