@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { sizeProposalAmount, hasOpenProposal } from "../lib/proposal-sizing.js";
+import { sizeProposalAmount, hasOpenProposal, hasRecentProposal } from "../lib/proposal-sizing.js";
 
 test("sizes a BUY off total portfolio value", () => {
   const result = sizeProposalAmount({ action: "BUY", targetWeightPct: 5, totalPortfolioValue: 20000 });
@@ -93,4 +93,17 @@ test("hasOpenProposal matches an approved-but-unfulfilled proposal", () => {
 
 test("hasOpenProposal is false when nothing matches", () => {
   assert.equal(hasOpenProposal(baseProposals, { agentId: "agent-3", ticker: "TSLA", side: "BUY" }), false);
+});
+
+test("hasRecentProposal caps ordinary SELL reviews by age", () => {
+  const now = new Date("2026-07-01T12:00:00.000Z");
+  const proposals = [
+    { agentId: "agent-1", ticker: "AAPL", side: "SELL", createdAt: "2026-06-28T12:00:00.000Z" },
+    { agentId: "agent-1", ticker: "MSFT", side: "SELL", createdAt: "2026-06-01T12:00:00.000Z" },
+    { agentId: "agent-1", ticker: "AAPL", side: "BUY", createdAt: "2026-06-30T12:00:00.000Z" },
+  ];
+
+  assert.equal(hasRecentProposal(proposals, { agentId: "agent-1", ticker: "AAPL", side: "SELL", cooldownDays: 7, now }), true);
+  assert.equal(hasRecentProposal(proposals, { agentId: "agent-1", ticker: "MSFT", side: "SELL", cooldownDays: 7, now }), false);
+  assert.equal(hasRecentProposal(proposals, { agentId: "agent-1", ticker: "AAPL", side: "SELL", cooldownDays: 0, now }), false);
 });

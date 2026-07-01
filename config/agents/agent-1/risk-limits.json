@@ -17,6 +17,7 @@
   "percentageSizingMinPortfolioValue": 500,
   "starterPortfolioMaxPositions": 2,
   "starterPortfolioCashReservePct": 0,
+  "ordinarySellCooldownDays": 7,
   "microCapMinAvgDollarVolume": 3000000,
   "minConfidence": 0.4,
   "requireBearCase": true,

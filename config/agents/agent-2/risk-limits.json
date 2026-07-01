@@ -2,6 +2,7 @@
   "description": "Deterministic risk engine limits enforced on every AI recommendation before it's written to the Sheet — the AI proposes, this engine decides admissibility (downgrading to HOLD when a check fails). Edit here to change risk posture; see config/weights.json for quant scoring weights.",
   "maxPositionPct": 8,
   "maxSectorPct": 25,
+  "ordinarySellCooldownDays": 7,
   "minConfidence": 0.4,
   "requireBearCase": true
 }

@@ -27,11 +27,13 @@ import { sendMessage as sendTelegram } from "../lib/telegram.js";
 import {
   getServiceAccountClients,
   resolveSharedSpreadsheetId,
+  readCashBalance,
   readHoldingsAllocation,
   readHoldingsReturnPct,
 } from "../lib/sheets.js";
 
-// AGENT_ID removed — each alert carries its own agentId
+const EXIT_AGENT_ID = "agent-1";
+// Price alerts carry their own agentId; ATR stop exits are still attributed to Agent One.
 // Tickers to watch for price alerts even when not held
 import fs from "node:fs";
 import path from "node:path";
@@ -47,12 +49,17 @@ export async function runIntradayMonitor({ context = "intraday" } = {}) {
   const { sheets, drive } = getServiceAccountClients();
   const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
 
-  const [allocation, returnPct, openProposals, priceAlerts] = await Promise.all([
+  const [allocation, returnPct, cashBalance, openProposals, priceAlerts] = await Promise.all([
     readHoldingsAllocation(sheets, spreadsheetId),
     readHoldingsReturnPct(sheets, spreadsheetId),
+    readCashBalance(sheets, spreadsheetId),
     listAllProposals(),
     listPriceAlerts(),
   ]);
+  const acceptedBuyReserve = openProposals
+    .filter((p) => p.side === "BUY" && p.status === "ApprovedForBrokerReview" && !p.fulfilledAt)
+    .reduce((sum, p) => sum + (p.amountDollars ?? 0), 0);
+  let availableCashForBuys = Math.max(0, Math.round(((cashBalance ?? 0) - acceptedBuyReserve) * 100) / 100);
 
   const heldTickers = allocation.filter((h) => (h.marketValue ?? 0) > 0).map((h) => h.ticker);
   const allTickers = [...new Set([...heldTickers, ...WATCHLIST_TICKERS, ...priceAlerts.map((a) => a.ticker)])];
@@ -85,10 +92,14 @@ export async function runIntradayMonitor({ context = "intraday" } = {}) {
     if (!hasOpenProposal(openProposals, { agentId: alert.agentId, ticker: alert.ticker, side })) {
       let amountDollars;
       if (side === "BUY") {
-        amountDollars = 25;
+        amountDollars = Math.min(25, availableCashForBuys);
       } else {
         const pos = allocation.find((h) => h.ticker === alert.ticker);
         amountDollars = pos?.marketValue ?? 25;
+      }
+      if (side === "BUY" && amountDollars <= 0) {
+        console.log(`[Intraday] ${alert.ticker}: BUY alert triggered but no free cash is available — skipping proposal.`);
+        continue;
       }
 
       const maxPrice = side === "BUY" ? Math.round(price * 1.01 * 100) / 100 : null;
@@ -108,6 +119,7 @@ export async function runIntradayMonitor({ context = "intraday" } = {}) {
         });
         if (created) {
           openProposals.push(created);
+          if (created.side === "BUY") availableCashForBuys = Math.max(0, Math.round((availableCashForBuys - created.amountDollars) * 100) / 100);
           console.log(`[Intraday] Queued ${side} ${alert.ticker} $${amountDollars} from price alert.`);
         }
       } catch (e) {
@@ -167,9 +179,9 @@ export async function runIntradayMonitor({ context = "intraday" } = {}) {
         // Only flag ATR stop breach on a losing position (memo: no averaging down, quick exit)
         console.log(`[Intraday] ${pos.ticker}: ATR stop breached at $${price} (stop $${stopLevel}) — flagging for exit.`);
 
-        if (!hasOpenProposal(openProposals, { agentId: AGENT_ID, ticker: pos.ticker, side: "SELL" })) {
+        if (!hasOpenProposal(openProposals, { agentId: EXIT_AGENT_ID, ticker: pos.ticker, side: "SELL" })) {
           const created = await createProposal({
-            agentId: AGENT_ID,
+            agentId: EXIT_AGENT_ID,
             ticker: pos.ticker,
             side: "SELL",
             amountDollars: Math.round((pos.marketValue ?? 0) * 100) / 100,

@@ -23,7 +23,7 @@ import {
   listAllProposals,
   createProposal,
 } from "../lib/redis.js";
-import { sizeProposalAmount, hasOpenProposal } from "../lib/proposal-sizing.js";
+import { sizeProposalAmount, hasOpenProposal, hasRecentProposal } from "../lib/proposal-sizing.js";
 import {
   getServiceAccountClients,
   resolveSharedSpreadsheetId,
@@ -225,6 +225,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
       .filter((p) => p.side === "BUY" && p.status === "ApprovedForBrokerReview" && !p.fulfilledAt)
       .reduce((sum, p) => sum + (p.amountDollars ?? 0), 0);
   availableCashForBuys = Math.max(0, Math.round(availableCashForBuys * 100) / 100);
+  const ordinarySellCooldownDays = riskLimits.ordinarySellCooldownDays ?? 7;
 
   const recommendations = [];
   for (const c of toReview.values()) {
@@ -264,6 +265,15 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
     }
 
     const recentFilings = await fetchRecentFilings(c.ticker, { limit: 3 });
+    const proposalPolicy = [
+      `Available cash for new BUY proposals before this ticker: $${availableCashForBuys.toFixed(2)} after accepted, unfilled BUY reserves.`,
+      availableCashForBuys > 0
+        ? "When free cash exists, it is acceptable to propose BUYs every scan day for names that clear the evidence/risk bar."
+        : "When free cash is zero, do not treat hypothetical sale proceeds as available cash for a BUY proposal.",
+      `Ordinary research-scan SELL/rotation proposals are cadence-capped to one SELL review per agent/ticker every ${ordinarySellCooldownDays} days.`,
+      "A sell-funded replacement is a contingent rotation idea: first propose/review the SELL, then only propose the BUY after the sell is approved, filled, and cash is synced. Do not present a new BUY as funded until cash is real.",
+      "Immediate risk exits from stop/kill-criteria monitors are handled by separate exit jobs and can bypass this ordinary rotation cadence.",
+    ].join("\n");
 
     const proposal = await getAIRecommendation({
       ticker: c.ticker,
@@ -281,6 +291,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
       macro: macroText,
       personality,
       persistentMemory,
+      proposalPolicy,
     });
 
     const rec = applyRiskChecks(
@@ -332,59 +343,77 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
     // waiting for him to read the Sheet and re-type a proposal by hand. He still
     // approves or rejects every one in the dashboard before anything is placed.
     if (rec.action !== "HOLD" && !hasOpenProposal(openProposals, { agentId: agent.id, ticker: c.ticker, side: rec.action })) {
-      const sized = sizeProposalAmount({
-        action: rec.action,
-        targetWeightPct: rec.targetWeight,
-        totalPortfolioValue,
-        currentPositionWeightPct: tickerWeightPct[c.ticker] ?? 0,
-        cashAvailable: rec.action === "BUY" ? availableCashForBuys : undefined,
-        limits: riskLimits,
-      });
+      if (
+        rec.action === "SELL" &&
+        hasRecentProposal(openProposals, {
+          agentId: agent.id,
+          ticker: c.ticker,
+          side: "SELL",
+          cooldownDays: ordinarySellCooldownDays,
+        })
+      ) {
+        rec.overrideNotes = [
+          ...(rec.overrideNotes ?? []),
+          `ordinary_sell_cooldown: skipped approval proposal because this position had a SELL review within ${ordinarySellCooldownDays} days`,
+        ];
+        console.log(
+          `[Research] ${agent.id}: SELL ${c.ticker} blocked by ${ordinarySellCooldownDays}d ordinary sell cooldown.`
+        );
+      } else {
+        const sized = sizeProposalAmount({
+          action: rec.action,
+          targetWeightPct: rec.targetWeight,
+          totalPortfolioValue,
+          currentPositionWeightPct: tickerWeightPct[c.ticker] ?? 0,
+          cashAvailable: rec.action === "BUY" ? availableCashForBuys : undefined,
+          limits: riskLimits,
+        });
 
-      if (sized) {
-        if (sized.starterSized) {
-          const slots = Math.max(1, riskLimits.starterPortfolioMaxPositions ?? 2);
-          const currentPositions = heldAllocation.filter((h) => (h.marketValue ?? 0) > 0).length;
-          const openStarterBuys = openProposals.filter(
-            (p) =>
-              p.agentId === agent.id &&
-              p.side === "BUY" &&
-              (p.status === "Pending" || (p.status === "ApprovedForBrokerReview" && !p.fulfilledAt))
-          ).length;
-          if (currentPositions + openStarterBuys >= slots) {
-            console.log(
-              `[Research] ${agent.id}: starter slots full (${currentPositions} positions + ${openStarterBuys} open BUYs / ${slots}) — skipping ${c.ticker} proposal.`
-            );
-            continue;
+        if (sized) {
+          if (sized.starterSized) {
+            const slots = Math.max(1, riskLimits.starterPortfolioMaxPositions ?? 2);
+            const currentPositions = heldAllocation.filter((h) => (h.marketValue ?? 0) > 0).length;
+            const openStarterBuys = openProposals.filter(
+              (p) =>
+                p.agentId === agent.id &&
+                p.side === "BUY" &&
+                (p.status === "Pending" || (p.status === "ApprovedForBrokerReview" && !p.fulfilledAt))
+            ).length;
+            if (currentPositions + openStarterBuys >= slots) {
+              console.log(
+                `[Research] ${agent.id}: starter slots full (${currentPositions} positions + ${openStarterBuys} open BUYs / ${slots}) — skipping ${c.ticker} proposal.`
+              );
+              continue;
+            }
           }
-        }
 
-        const maxPrice = rec.action === "BUY" && entryPrice ? Math.round(entryPrice * 1.02 * 100) / 100 : null;
-        const riskSummary = `Quant score ${c.quantScore}/100. Confidence ${rec.confidence ?? "n/a"}. Risk checks: ${
-          rec.overrideNotes.length ? rec.overrideNotes.join("; ") : "all passed"
-        }.${sized.starterSized ? " Small-account starter sizing used instead of strict target-weight sizing." : ""}${
-          sized.clamped ? " Sized amount clamped to the $10,000 proposal cap." : ""
-        }${sized.cashClamped ? ` Sized amount capped by idle cash available after accepted, unfilled BUY proposals ($${availableCashForBuys}).` : ""}${
-          rec.action === "BUY" ? ` Idle cash remaining before this proposal: $${availableCashForBuys}.` : ""
-        }`;
+          const maxPrice = rec.action === "BUY" && entryPrice ? Math.round(entryPrice * 1.02 * 100) / 100 : null;
+          const riskSummary = `Quant score ${c.quantScore}/100. Confidence ${rec.confidence ?? "n/a"}. Risk checks: ${
+            rec.overrideNotes.length ? rec.overrideNotes.join("; ") : "all passed"
+          }.${sized.starterSized ? " Small-account starter sizing used instead of strict target-weight sizing." : ""}${
+            sized.clamped ? " Sized amount clamped to the $10,000 proposal cap." : ""
+          }${sized.cashClamped ? ` Sized amount capped by idle cash available after accepted, unfilled BUY proposals ($${availableCashForBuys}).` : ""}${
+            rec.action === "BUY" ? ` Idle cash remaining before this proposal: $${availableCashForBuys}.` : ""
+          }`;
 
-        try {
-          const created = await createProposal({
-            agentId: agent.id,
-            ticker: c.ticker,
-            side: rec.action,
-            amountDollars: sized.amountDollars,
-            maxPrice,
-            rationale,
-            riskSummary,
-          });
-          if (created) {
-            openProposals.push(created);
-            if (created.side === "BUY") availableCashForBuys = Math.max(0, Math.round((availableCashForBuys - created.amountDollars) * 100) / 100);
-            console.log(`[Research] ${agent.id}: queued ${rec.action} ${c.ticker} proposal ($${sized.amountDollars}).`);
+          try {
+            const created = await createProposal({
+              agentId: agent.id,
+              ticker: c.ticker,
+              side: rec.action,
+              amountDollars: sized.amountDollars,
+              maxPrice,
+              rationale,
+              riskSummary,
+            });
+            if (created) {
+              openProposals.push(created);
+              if (created.side === "BUY") availableCashForBuys = Math.max(0, Math.round((availableCashForBuys - created.amountDollars) * 100) / 100);
+              console.log(`[Research] ${agent.id}: queued ${rec.action} ${c.ticker} proposal ($${sized.amountDollars}).`);
+            }
+          } catch (err) {
+            console.warn(`[Research] ${agent.id}: failed to queue proposal for ${c.ticker}:`, err.message);
           }
-        } catch (err) {
-          console.warn(`[Research] ${agent.id}: failed to queue proposal for ${c.ticker}:`, err.message);
         }
       }
     }
