@@ -33,6 +33,16 @@ def as_float(value):
         return None
 
 
+def short_description(text, limit=80):
+    # Robinhood's "description" field here is a full business-summary paragraph, not a
+    # company name — truncate so the sheet's Company column stays readable. Only used
+    # as a human-facing hint; the ticker is the actual join key everywhere else.
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit].rsplit(" ", 1)[0] + "..."
+
+
 def movers_to_rows(movers, direction):
     rows = []
     for m in movers or []:
@@ -42,7 +52,7 @@ def movers_to_rows(movers, direction):
         movement = m.get("price_movement") or {}
         rows.append({
             "symbol": symbol,
-            "description": m.get("description") or "",
+            "description": short_description(m.get("description")),
             "price": as_float(movement.get("market_hours_last_price")),
             "changePct": as_float(movement.get("market_hours_last_movement_pct")),
             "direction": direction,
