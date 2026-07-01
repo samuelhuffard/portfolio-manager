@@ -34,9 +34,18 @@ def main():
     password = os.environ.get("ROBINHOOD_PASSWORD", "").strip()
     totp_secret = os.environ.get("ROBINHOOD_TOTP_SECRET", "").strip()
     persist_session = os.environ.get("ROBINHOOD_STORE_SESSION", "").strip().lower() in {"1", "true", "yes"}
+    # This login has multiple brokerage accounts underneath it (individual, Roth IRA, and
+    # the "Agentic" cash account this bot actually trades in). Without an explicit account
+    # number, robin_stocks silently falls back to whichever account Robinhood flags
+    # is_default=true — which is the unrelated individual account, not this one — so every
+    # position/cash figure synced would be for the wrong account with no error raised.
+    account_number = os.environ.get("ROBINHOOD_ACCOUNT_NUMBER", "").strip()
 
     if not username or not password:
         print(json.dumps({"error": "Missing ROBINHOOD_USERNAME/ROBINHOOD_PASSWORD env vars"}))
+        sys.exit(1)
+    if not account_number:
+        print(json.dumps({"error": "Missing ROBINHOOD_ACCOUNT_NUMBER env var — this login has multiple accounts, so the account to sync must be explicit."}))
         sys.exit(1)
 
     try:
@@ -65,7 +74,7 @@ def main():
 
     try:
         holdings = []
-        for p in rh.get_open_stock_positions():
+        for p in rh.get_open_stock_positions(account_number=account_number):
             quantity = float(p.get("quantity", 0))
             if quantity <= 0:
                 continue
@@ -76,7 +85,7 @@ def main():
                 "avgCost": float(p.get("average_buy_price", 0)),
             })
 
-        profile = rh.load_portfolio_profile() or {}
+        profile = rh.load_portfolio_profile(account_number=account_number) or {}
 
         fills = []
         fills_error = None
@@ -84,7 +93,7 @@ def main():
         if since_iso:
             try:
                 since_dt = datetime.fromisoformat(since_iso.replace("Z", "+00:00"))
-                for o in rh.get_all_stock_orders():
+                for o in rh.get_all_stock_orders(account_number=account_number):
                     if o.get("state") != "filled":
                         continue
                     updated_at = o.get("updated_at") or o.get("last_transaction_at") or ""
