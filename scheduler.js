@@ -5,7 +5,7 @@ import { runExitMonitor } from "./jobs/monitor-positions.js";
 import { runPerformanceReview } from "./jobs/performance-review.js";
 import { runPremarketCheck } from "./jobs/premarket-check.js";
 import { runIntradayMonitor } from "./jobs/intraday-monitor.js";
-import { syncHoldings } from "./jobs/holdings-sync.js";
+import { syncHoldings, checkForNewFills } from "./jobs/holdings-sync.js";
 import { startServer } from "./server.js";
 
 startServer();
@@ -32,6 +32,20 @@ cron.schedule("30 8 * * 1-5", async () => {
 // First look at opening prices — gap analysis, any alerts triggered at open.
 cron.schedule("35 9 * * 1-5", async () => {
   await runIntradayMonitor({ context: "opening" }).catch((e) => console.error("[Opening] error:", e.message));
+}, TZ);
+
+// ── Fill check (every 5 min, 9:30 AM–4 PM ET) ───────────────────────────────
+// Cheap Robinhood poll for newly-filled orders (see checkForNewFills doc comment
+// in jobs/holdings-sync.js — written for this cadence but never scheduled until
+// now). Triggers a full syncHoldings() (fresh quotes + Sheet write) only when a
+// new fill is found, so position values reflect trades within minutes instead
+// of waiting for the 9:30 AM/4:30 PM syncs.
+cron.schedule("*/5 9-16 * * 1-5", async () => {
+  const now = new Date();
+  const etHour = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" })).getHours();
+  const etMin  = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" })).getMinutes();
+  if (etHour < 9 || (etHour === 9 && etMin < 30) || etHour >= 16) return;
+  await checkForNewFills().catch((e) => console.error("[FillCheck] error:", e.message));
 }, TZ);
 
 // ── Intraday monitor (every 30 min, 10 AM–3:30 PM ET) ───────────────────────
@@ -72,6 +86,7 @@ cron.schedule("45 17 * * 1-5", async () => {
 
 console.log(
   "[Portfolio Manager] Scheduler started — " +
-  "pre-market 8:30 AM | opening 9:35 AM | intraday every 30 min 10 AM–3:30 PM | " +
-  "pre-close 3:50 PM | exit monitor 4:45 PM | research scan 5:15 PM | perf review 5:45 PM (Mon-Fri, ET)"
+  "pre-market 8:30 AM | opening 9:35 AM | fill check every 5 min 9:30 AM–4 PM | " +
+  "intraday every 30 min 10 AM–3:30 PM | pre-close 3:50 PM | exit monitor 4:45 PM | " +
+  "research scan 5:15 PM | perf review 5:45 PM (Mon-Fri, ET)"
 );

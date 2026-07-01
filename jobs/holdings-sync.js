@@ -35,6 +35,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PYTHON_BIN = process.env.ROBINHOOD_PYTHON?.trim() || path.join(__dirname, "..", "venv", "bin", "python3");
 const SCRIPT_PATH = path.join(__dirname, "..", "lib", "robinhood-sync.py");
+// robin_stocks' device-approval prompt polls for up to 120s waiting on a human tap in the
+// Robinhood app (see _validate_sherrif_id in its authentication.py) — 60s was killing the
+// child process mid-approval, which meant the session pickle never got written and every
+// run re-triggered a fresh device challenge instead of reusing the cached session.
+const ROBINHOOD_SYNC_TIMEOUT_MS = 150_000;
 
 /**
  * Processes detected Robinhood fills since the last sync: matches each to the
@@ -114,7 +119,7 @@ export async function syncHoldings() {
 
   let data;
   try {
-    const { stdout } = await execFileAsync(PYTHON_BIN, [SCRIPT_PATH, sinceIso], { timeout: 60000 });
+    const { stdout } = await execFileAsync(PYTHON_BIN, [SCRIPT_PATH, sinceIso], { timeout: ROBINHOOD_SYNC_TIMEOUT_MS });
     // robin_stocks prints its own status lines to stdout (e.g. "Logged out
     // successfully.") around our JSON output, so scan from the end for the
     // line that's actually valid JSON instead of assuming it's the last one.
@@ -250,7 +255,7 @@ export async function checkForNewFills() {
   const sinceIso = (await getLastFillSyncAt()) || "1970-01-01T00:00:00Z";
   let data;
   try {
-    const { stdout } = await execFileAsync(PYTHON_BIN, [SCRIPT_PATH, sinceIso], { timeout: 60000 });
+    const { stdout } = await execFileAsync(PYTHON_BIN, [SCRIPT_PATH, sinceIso], { timeout: ROBINHOOD_SYNC_TIMEOUT_MS });
     const lines = stdout.trim().split("\n");
     for (let i = lines.length - 1; i >= 0; i--) {
       try { data = JSON.parse(lines[i]); break; } catch { continue; }
