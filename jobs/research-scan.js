@@ -24,6 +24,7 @@ import {
   createProposal,
 } from "../lib/redis.js";
 import { sizeProposalAmount, hasOpenProposal, hasRecentProposal } from "../lib/proposal-sizing.js";
+import { syncMarketScansFromRobinhood } from "../lib/market-scan-sync.js";
 import {
   getServiceAccountClients,
   resolveSharedSpreadsheetId,
@@ -444,6 +445,17 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
  * Pass agentIds to override for a targeted diagnostic scan.
  */
 export async function runResearchScan({ agentIds = DEFAULT_AGENT_IDS } = {}) {
+  // Refresh the shared Market Scans tab from Robinhood before any agent reads it, so
+  // scanTickers (see selectMarketScanTickers above) can include names outside each
+  // agent's static watchlist. Never blocks the scan — a failure here just leaves
+  // agents scanning their watchlists only, same as before this existed.
+  try {
+    const count = await syncMarketScansFromRobinhood();
+    console.log(`[Research] Market scan refresh: ${count} row(s) from Robinhood.`);
+  } catch (err) {
+    console.warn("[Research] Market scan refresh failed — continuing with watchlists only:", err.message);
+  }
+
   const { sheets, drive } = getServiceAccountClients();
   const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
   const sheetIds = await getSheetIds(sheets, spreadsheetId);
