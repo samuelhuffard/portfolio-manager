@@ -7,6 +7,7 @@ import { runPremarketCheck } from "./jobs/premarket-check.js";
 import { runIntradayMonitor } from "./jobs/intraday-monitor.js";
 import { syncHoldings } from "./jobs/holdings-sync.js";
 import { runLedgerVerification } from "./scripts/verify-ledgers.js";
+import { runWeeklyReview } from "./jobs/weekly-review.js";
 import { startServer } from "./server.js";
 
 startServer();
@@ -92,9 +93,19 @@ cron.schedule("0 18 * * 1-5", async () => {
   await runLedgerVerification().catch((e) => console.error("[Verify] error:", e.message));
 }, TZ);
 
+// ── Weekly review (Friday 6:30 PM ET) ────────────────────────────────────────
+// Closes the feedback loop: deterministic per-agent scorecard (proposals,
+// decisions, matured track record, calibration) → ≤3 durable lessons written
+// into agent memory → Telegram summary. Runs after ledger verify so the week's
+// books are checked before being summarized.
+cron.schedule("30 18 * * 5", async () => {
+  await runWeeklyReview().catch((e) => console.error("[WeeklyReview] error:", e.message));
+}, TZ);
+
 console.log(
   "[Portfolio Manager] Scheduler started — " +
   "pre-market 8:30 AM | opening 9:35 AM | holdings sync 11 AM/1 PM/3 PM | " +
   "intraday every 30 min 10 AM–3:30 PM | pre-close 3:50 PM | exit monitor 4:45 PM | " +
-  "research scan 5:15 PM | perf review 5:45 PM | ledger verify 6:00 PM (Mon-Fri, ET)"
+  "research scan 5:15 PM | perf review 5:45 PM | ledger verify 6:00 PM (Mon-Fri, ET) | " +
+  "weekly review Fri 6:30 PM ET"
 );

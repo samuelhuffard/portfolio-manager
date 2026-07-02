@@ -13,6 +13,10 @@ import { fetchRecentFilings } from "../lib/edgar.js";
 import { fetchMacroSnapshot, formatMacroSnapshot } from "../lib/fred.js";
 import { getAIRecommendation } from "../lib/ai-overlay.js";
 import { applyRiskChecks } from "../lib/risk-engine.js";
+import { evaluateProposal, resolveFinalVerdict } from "../lib/evaluator.js";
+import { makeBoundaryToken, sanitizeEvidenceItems } from "../lib/evidence.js";
+import { assessCircuitBreaker, applyBreakerToProposal } from "../lib/circuit-breaker.js";
+import { sendMessage as sendTelegram } from "../lib/telegram.js";
 import { formatAgentMemoriesForPrompt, listAgentMemories } from "../lib/agent-memory.js";
 import {
   getCachedNews,
@@ -22,6 +26,10 @@ import {
   getCachedPortfolioTotalValue,
   listAllProposals,
   createProposal,
+  getPortfolioHighWaterMark,
+  setPortfolioHighWaterMark,
+  getBreakerState,
+  setBreakerState,
 } from "../lib/redis.js";
 import { sizeProposalAmount, hasOpenProposal, hasRecentProposal } from "../lib/proposal-sizing.js";
 import { syncMarketScansFromRobinhood } from "../lib/market-scan-sync.js";
@@ -37,6 +45,7 @@ import {
   readAgentStrategyNotes,
   appendAgentRecommendations,
   agentTabName,
+  readPerformanceHistory,
 } from "../lib/sheets.js";
 import { AGENTS } from "../config/agents.js";
 
@@ -52,6 +61,62 @@ function loadAgentConfig(agentId) {
     riskLimits: JSON.parse(fs.readFileSync(path.join(dir, "risk-limits.json"), "utf8")),
     personality: fs.readFileSync(path.join(dir, "personality.md"), "utf8").trim(),
   };
+}
+
+/**
+ * Resolves the portfolio drawdown circuit breaker (LOOP-DESIGN.md §2 step 5)
+ * BEFORE any agent runs. Basis is NAV/unit when the investor ledger has one
+ * (deposit/withdrawal-neutral); falls back to total portfolio value otherwise.
+ * A basis switch resets the high-water mark rather than comparing across units.
+ * Telegrams on tier CHANGE only, so a persistent drawdown doesn't spam.
+ */
+async function resolveCircuitBreaker(sheets, spreadsheetId) {
+  let current = null;
+  let basis = null;
+  try {
+    const history = await readPerformanceHistory(sheets, spreadsheetId);
+    const last = history.at(-1);
+    if (last?.navPerUnit != null && Number.isFinite(last.navPerUnit) && last.navPerUnit > 0) {
+      current = last.navPerUnit;
+      basis = "navPerUnit";
+    }
+  } catch (err) {
+    console.warn("[Breaker] Performance history unavailable:", err.message);
+  }
+  if (current == null) {
+    const totalValue = await getCachedPortfolioTotalValue();
+    if (totalValue != null && Number.isFinite(totalValue) && totalValue > 0) {
+      current = totalValue;
+      basis = "totalValue";
+    }
+  }
+
+  const stored = await getPortfolioHighWaterMark();
+  const priorHwm = stored && stored.basis === basis ? stored.value : null;
+  const assessment = assessCircuitBreaker({ current, highWaterMark: priorHwm });
+
+  if (assessment.highWaterMark != null && basis) {
+    await setPortfolioHighWaterMark({ value: assessment.highWaterMark, basis });
+  }
+  const priorState = await getBreakerState();
+  await setBreakerState({ tier: assessment.tier, drawdownPct: assessment.drawdownPct, basis });
+
+  if (assessment.tier !== "NONE") {
+    console.error(
+      `[Breaker] tier ${assessment.tier} active — drawdown ${assessment.drawdownPct ?? "?"}% from ${basis ?? "no"} high-water mark.`
+    );
+  }
+  if (priorState?.tier !== assessment.tier) {
+    const msg = `⚠️ Portfolio circuit breaker: ${priorState?.tier ?? "NONE"} → ${assessment.tier}${
+      assessment.drawdownPct != null ? ` (drawdown ${assessment.drawdownPct}% on ${basis})` : " (no valuation data)"
+    }`;
+    try {
+      await sendTelegram(msg);
+    } catch (err) {
+      console.error("[Breaker] Telegram alert failed:", err.message, "—", msg);
+    }
+  }
+  return assessment;
 }
 
 function selectMarketScanTickers(agentId, marketScans, watchlistTickers, limit = 5) {
@@ -83,13 +148,48 @@ function scanSignalsForTicker(marketScans, ticker) {
 }
 
 /**
+ * Conviction discipline (agent-1 memo): the AI overlay may size aggressively, but a
+ * BUY can never exceed the position cap its strong-signal evidence earns. A single-
+ * strong-signal "Speculative" name is clamped to 5% even if the model wanted 15%, and
+ * an unqualified name (no strong signal) is downgraded to HOLD outright.
+ * Extracted so the evaluator's revision path re-applies the same clamp.
+ */
+function applyConvictionClamp(rec, agent, candidate, riskLimits) {
+  if (agent.id !== "agent-1" || rec.action !== "BUY") return rec;
+  const entrySignals = assembleEntrySignals(candidate);
+  const conviction = assessConviction(entrySignals, riskLimits);
+  if (!conviction.qualified) {
+    return {
+      ...rec,
+      action: "HOLD",
+      targetWeight: 0,
+      overrideNotes: [...(rec.overrideNotes ?? []), "conviction: unqualified (no strong signal) — downgraded to HOLD"],
+    };
+  }
+  if (rec.targetWeight > conviction.maxWeightPct) {
+    return {
+      ...rec,
+      targetWeight: conviction.maxWeightPct,
+      overrideNotes: [
+        ...(rec.overrideNotes ?? []),
+        `conviction ${conviction.tier}: clamped ${rec.targetWeight}%→${conviction.maxWeightPct}%`,
+      ],
+    };
+  }
+  return rec;
+}
+
+/**
  * Runs one agent's full scan (quant score -> AI overlay -> risk engine -> write) against
  * its own watchlist, but the SAME shared portfolio/spreadsheet as the other two agents —
  * so risk checks (sector/position-size limits) see real combined exposure across all
  * three agents, and one agent's proposal can be downgraded because of another agent's
  * existing position. One agent's failure doesn't block the others (see runResearchScan).
  */
-async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
+async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, { breaker, boundaryToken } = {}) {
+  breaker = breaker ?? { tier: "NONE", drawdownPct: 0 };
+  boundaryToken = boundaryToken ?? makeBoundaryToken();
+  const evidenceFlags = []; // injection-suspect evidence collected across the run, Telegramed once at the end
   const { watchlist, weights: weightsConfig, riskLimits, personality } = loadAgentConfig(agent.id);
   const marketScans = await readMarketScans(sheets, spreadsheetId).catch((err) => {
     console.warn(`[Research] ${agent.id}: market scan context unavailable:`, err.message);
@@ -266,6 +366,20 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
       }
     }
 
+    // Fence-and-scan untrusted internet text before any model sees it (lib/evidence.js).
+    // Cache keeps the ORIGINAL text; sanitization runs on every use so pattern updates apply to cached items too.
+    const newsScan = sanitizeEvidenceItems(news, { kind: `news:${c.ticker}`, textFields: ["title", "content"] });
+    const scanSignalScan = sanitizeEvidenceItems(scanSignalsForTicker(marketScans, c.ticker), {
+      kind: `scan:${c.ticker}`,
+      textFields: ["signal", "notes"],
+    });
+    for (const flag of [...newsScan.flags, ...scanSignalScan.flags]) {
+      evidenceFlags.push(flag);
+      console.error(`[Evidence] ${agent.id}: instruction-like content redacted in ${flag.kind}: ${flag.reasons.join(", ")}`);
+    }
+    const safeNews = newsScan.items;
+    const safeScanSignals = scanSignalScan.items;
+
     const recentFilings = await fetchRecentFilings(c.ticker, { limit: 3 });
     const proposalPolicy = [
       `Available cash for new BUY proposals before this ticker: $${availableCashForBuys.toFixed(2)} after accepted, unfilled BUY reserves.`,
@@ -277,57 +391,133 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
       "Immediate risk exits from stop/kill-criteria monitors are handled by separate exit jobs and can bypass this ordinary rotation cadence.",
     ].join("\n");
 
-    const proposal = await getAIRecommendation({
+    const overlayInput = {
       ticker: c.ticker,
       name: c.name,
       quantScore: c.quantScore,
       breakdown: c.breakdown,
-      news,
+      news: safeNews,
       strategyNotes,
       isHeld: holdingTickers.includes(c.ticker),
       nextEarningsDate: c.nextEarningsDate,
       analystTrend: c.analystTrend,
       insiderActivity: c.insiderActivity,
       recentFilings,
-      marketScanSignals: scanSignalsForTicker(marketScans, c.ticker),
+      marketScanSignals: safeScanSignals,
       macro: macroText,
       personality,
       persistentMemory,
       proposalPolicy,
-    });
+      boundaryToken,
+    };
+    const proposal = await getAIRecommendation(overlayInput);
+    if (proposal.suspectEvidence?.length) {
+      evidenceFlags.push({ kind: `model:${c.ticker}`, reasons: proposal.suspectEvidence });
+      console.error(`[Evidence] ${agent.id}: model flagged suspect evidence for ${c.ticker}: ${proposal.suspectEvidence.join("; ")}`);
+    }
 
-    const rec = applyRiskChecks(
-      proposal,
-      {
-        sector: c.subVertical,
-        currentSectorWeightPct: subVerticalWeightPct[c.subVertical] ?? 0,
-        currentPositionWeightPct: tickerWeightPct[c.ticker] ?? 0,
-        // Friend's rule: never average down into a losing held position, and never let a
-        // stale-data read slip past the AI overlay into a live proposal.
-        isHeldAtLoss: (heldReturnPct[c.ticker] ?? 0) < 0,
-        dataStale: c.dataGate ? c.dataGate.stale : false,
-      },
-      riskLimits
-    );
+    const riskContext = {
+      sector: c.subVertical,
+      currentSectorWeightPct: subVerticalWeightPct[c.subVertical] ?? 0,
+      currentPositionWeightPct: tickerWeightPct[c.ticker] ?? 0,
+      // Friend's rule: never average down into a losing held position, and never let a
+      // stale-data read slip past the AI overlay into a live proposal.
+      isHeldAtLoss: (heldReturnPct[c.ticker] ?? 0) < 0,
+      dataStale: c.dataGate ? c.dataGate.stale : false,
+    };
+    let rec = applyConvictionClamp(applyRiskChecks(proposal, riskContext, riskLimits), agent, c, riskLimits);
 
-    // Conviction discipline (agent-1 memo): the AI overlay may size aggressively, but a
-    // BUY can never exceed the position cap its strong-signal evidence earns. A single-
-    // strong-signal "Speculative" name is clamped to 5% even if the model wanted 15%, and
-    // an unqualified name (no strong signal) is downgraded to HOLD outright.
-    let conviction = null;
-    if (agent.id === "agent-1" && rec.action === "BUY") {
-      const entrySignals = assembleEntrySignals(c);
-      conviction = assessConviction(entrySignals, riskLimits);
-      if (!conviction.qualified) {
-        rec.action = "HOLD";
-        rec.targetWeight = 0;
-        rec.overrideNotes = [...(rec.overrideNotes ?? []), "conviction: unqualified (no strong signal) — downgraded to HOLD"];
-      } else if (rec.targetWeight > conviction.maxWeightPct) {
-        rec.overrideNotes = [
-          ...(rec.overrideNotes ?? []),
-          `conviction ${conviction.tier}: clamped ${rec.targetWeight}%→${conviction.maxWeightPct}%`,
-        ];
-        rec.targetWeight = conviction.maxWeightPct;
+    // Circuit-breaker pre-gate: don't spend evaluator tokens on an action the
+    // breaker tier can't admit anyway (BUYs at ≥12% drawdown, everything at HALT).
+    if (rec.action !== "HOLD") {
+      const breakerGate = applyBreakerToProposal(breaker.tier, rec.action, 1);
+      if (!breakerGate.allowed) {
+        rec = { ...rec, action: "HOLD", targetWeight: 0, overrideNotes: [...(rec.overrideNotes ?? []), breakerGate.note] };
+      }
+    }
+
+    // Duplicate pre-check: an identical open proposal means this one can never
+    // queue, so skip the evaluator spend and note why.
+    const isDuplicateOpen =
+      rec.action !== "HOLD" && hasOpenProposal(openProposals, { agentId: agent.id, ticker: c.ticker, side: rec.action });
+    if (isDuplicateOpen) {
+      rec.overrideNotes = [...(rec.overrideNotes ?? []), "duplicate_open_proposal: evaluator skipped, will not re-queue"];
+    }
+
+    // Independent evaluator (lib/evaluator.js): every actionable proposal is graded
+    // by a separate skeptical model before it can reach Sam's approval queue.
+    // Downgrade-only, one revision max, and any evaluator failure fails CLOSED.
+    if (rec.action !== "HOLD" && !isDuplicateOpen) {
+      try {
+        const evalContext = {
+          ticker: c.ticker,
+          name: c.name,
+          quantScore: c.quantScore,
+          breakdown: c.breakdown,
+          rawData: {
+            price: c.raw?.price?.regularMarketPrice ?? null,
+            marketCap: c.marketCap ?? null,
+            momentum3mPct: c.momentum3m ?? null,
+            momentum1mPct: c.momentum1m ?? null,
+            rsi14: c.rsi ?? null,
+            avgDailyDollarVolume: c.avgDollarVolume ?? null,
+            heldPositionWeightPct: tickerWeightPct[c.ticker] ?? 0,
+            subVertical: c.subVertical ?? null,
+          },
+          newsBlock: safeNews.map((n) => `- ${n.title} (${n.url})\n  ${(n.content ?? "").slice(0, 300)}`).join("\n"),
+          mandate: personality,
+          boundaryToken,
+        };
+
+        let finalEval;
+        const first = await evaluateProposal({ ...evalContext, proposal: rec });
+        if (first.verdict === "REVISE") {
+          console.log(`[Evaluator] ${agent.id}: ${c.ticker} sent back for revision — ${first.critique.join("; ")}`);
+          const revisedRaw = await getAIRecommendation({ ...overlayInput, evaluatorCritique: first.critique, previousProposal: rec });
+          const revised = applyConvictionClamp(applyRiskChecks(revisedRaw, riskContext, riskLimits), agent, c, riskLimits);
+          if (revised.action === "HOLD") {
+            // Generator conceded (or the risk engine downgraded the revision) — final HOLD.
+            finalEval = { ...first, verdict: "REJECT", revisions: 1, critique: [...first.critique, "generator conceded on revision"] };
+            rec = revised;
+          } else {
+            const second = await evaluateProposal({ ...evalContext, proposal: revised });
+            finalEval = resolveFinalVerdict(first, second);
+            if (finalEval.verdict === "APPROVE") rec = revised;
+          }
+        } else {
+          finalEval = resolveFinalVerdict(first);
+        }
+
+        if (finalEval.suspectEvidence?.length) {
+          evidenceFlags.push({ kind: `evaluator:${c.ticker}`, reasons: finalEval.suspectEvidence });
+        }
+        if (finalEval.verdict === "APPROVE") {
+          rec.overrideNotes = [
+            ...(rec.overrideNotes ?? []),
+            `evaluator: APPROVE${finalEval.revisions ? " after 1 revision" : ""}`,
+          ];
+        } else if (rec.action !== "HOLD") {
+          console.log(`[Evaluator] ${agent.id}: ${c.ticker} ${rec.action} rejected — ${finalEval.critique.join("; ")}`);
+          rec = {
+            ...rec,
+            action: "HOLD",
+            targetWeight: 0,
+            overrideNotes: [
+              ...(rec.overrideNotes ?? []),
+              `evaluator_reject: ${finalEval.critique.slice(0, 2).join("; ") || "no critique returned"}`,
+            ],
+          };
+        }
+      } catch (err) {
+        // Evaluator infrastructure failure (API down, 429): fail closed — an
+        // unevaluated actionable proposal must not reach the approval queue.
+        console.error(`[Evaluator] ${agent.id}: ${c.ticker} evaluation errored (failing closed to HOLD): ${err.message}`);
+        rec = {
+          ...rec,
+          action: "HOLD",
+          targetWeight: 0,
+          overrideNotes: [...(rec.overrideNotes ?? []), `evaluator_error (failed closed): ${err.message}`],
+        };
       }
     }
 
@@ -362,7 +552,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
           `[Research] ${agent.id}: SELL ${c.ticker} blocked by ${ordinarySellCooldownDays}d ordinary sell cooldown.`
         );
       } else {
-        const sized = sizeProposalAmount({
+        let sized = sizeProposalAmount({
           action: rec.action,
           targetWeightPct: rec.targetWeight,
           totalPortfolioValue,
@@ -372,6 +562,20 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
           cashAvailable: rec.action === "BUY" ? availableCashForBuys : undefined,
           limits: riskLimits,
         });
+
+        // Circuit-breaker sizing pass: REDUCE tier halves BUY dollars; blocked tiers
+        // were already downgraded pre-evaluator — this is a belt-and-braces recheck.
+        if (sized) {
+          const breakerGate = applyBreakerToProposal(breaker.tier, rec.action, sized.amountDollars);
+          if (!breakerGate.allowed) {
+            console.error(`[Breaker] ${agent.id}: ${rec.action} ${c.ticker} blocked at queue time — ${breakerGate.note}`);
+            rec.overrideNotes = [...(rec.overrideNotes ?? []), breakerGate.note];
+            sized = null;
+          } else if (breakerGate.note) {
+            rec.overrideNotes = [...(rec.overrideNotes ?? []), breakerGate.note];
+            sized = { ...sized, amountDollars: breakerGate.amountDollars };
+          }
+        }
 
         if (sized) {
           if (sized.starterSized) {
@@ -461,6 +665,18 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
 
   await appendAgentRecommendations(sheets, spreadsheetId, sheetIds[agentTabName(agent.id)], agent.id, recommendations);
   console.log(`[Research] ${agent.id}: done — wrote ${recommendations.length} recommendations.`);
+
+  // Injection-suspect evidence is a security signal Sam should see, not just a log line.
+  if (evidenceFlags.length) {
+    const summary = `⚠️ ${agent.id}: ${evidenceFlags.length} injection-suspect evidence item(s) redacted/flagged this scan: ${evidenceFlags
+      .map((f) => f.kind)
+      .join(", ")}`;
+    try {
+      await sendTelegram(summary);
+    } catch (err) {
+      console.error("[Evidence] Telegram alert failed:", err.message, "—", summary);
+    }
+  }
 }
 
 /**
@@ -484,10 +700,16 @@ export async function runResearchScan({ agentIds = DEFAULT_AGENT_IDS } = {}) {
   const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
   const sheetIds = await getSheetIds(sheets, spreadsheetId);
 
+  // System-wide gates computed ONCE per run, before any agent: the drawdown
+  // circuit breaker (restricts what any agent may queue) and the per-run
+  // boundary token for untrusted-evidence fencing.
+  const breaker = await resolveCircuitBreaker(sheets, spreadsheetId);
+  const boundaryToken = makeBoundaryToken();
+
   const activeAgents = AGENTS.filter((a) => agentIds.includes(a.id));
   for (const agent of activeAgents) {
     try {
-      await runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds);
+      await runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, { breaker, boundaryToken });
     } catch (err) {
       console.error(`[Research] ${agent.id} failed:`, err.message);
     }

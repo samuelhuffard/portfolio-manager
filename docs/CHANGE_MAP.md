@@ -18,10 +18,12 @@ Gotchas (all real bugs):
 
 ## Changing recommendation / research logic
 
-Files: `jobs/research-scan.js` (orchestration), `lib/quant-scorer.js` (scoring), `lib/ai-overlay.js` (prompt + JSON parse), `lib/risk-engine.js` + `config/agents/<id>/risk-limits.json` (deterministic checks), `lib/screener.js`, `lib/data-gates.js`, `lib/conviction.js`, `config/weights.json`.
+Files: `jobs/research-scan.js` (orchestration), `lib/quant-scorer.js` (scoring), `lib/ai-overlay.js` (prompt + JSON parse), `lib/risk-engine.js` + `config/agents/<id>/risk-limits.json` (deterministic checks), `lib/screener.js`, `lib/data-gates.js`, `lib/conviction.js`, `lib/evaluator.js` (independent proposal evaluator), `lib/evidence.js` (untrusted-text fencing/redaction), `lib/circuit-breaker.js` (drawdown tiers), `config/weights.json`. Design rationale: `docs/LOOP-DESIGN.md`.
 
 Gotchas:
-- Preserve the pipeline shape: cheap gates → AI → deterministic downgrades → sizing → human queue. The risk engine must never upgrade an action.
+- Preserve the pipeline shape: cheap gates → AI → deterministic downgrades → **evaluator (downgrade-only, fail-closed, one revision max)** → sizing → human queue. Neither the risk engine nor the evaluator may ever upgrade an action or confidence.
+- The circuit breaker is resolved ONCE per scan run (system-wide) before any agent; it restricts (halves/blocks), never authorizes. UNKNOWN tier (no valuation data) blocks BUYs on purpose.
+- News/scan text must pass through `sanitizeEvidenceItems` + `fenceUntrusted` before reaching any prompt; the cache stores ORIGINAL text and sanitization runs on every use.
 - Anything volatile (cash figures, per-run values) goes in the **user message**, never the cached `system` block — it kills the prompt cache for the rest of the run.
 - Model JSON: check `stop_reason === "max_tokens"`; missing fields must FAIL the checks that read them (see the confidence-floor bug).
 - New config keys: grep that code actually consumes them — `risk-limits.json` has historically accumulated dead keys.
@@ -73,7 +75,12 @@ Gotchas:
 
 ## Changing scheduler cadence
 
-File: `scheduler.js`. Gotchas: research scan runs AFTER the exit monitor on purpose (SELLs queue first); update the startup console summary string when times change; no holiday awareness exists yet anywhere.
+File: `scheduler.js`. Gotchas: research scan runs AFTER the exit monitor on purpose (SELLs queue first); weekly review (Fri 6:30 PM) runs AFTER ledger verify so the week's books are checked before being summarized; update the startup console summary string when times change; no holiday awareness exists yet anywhere.
+
+## Changing the weekly review / agent lessons
+
+Files: `jobs/weekly-review.js` (orchestration + the one LLM call), `lib/weekly-scorecard.js` (pure scorecard math + lesson parsing), `lib/agent-memory.js` (`mergeWeeklyLessons`/`applyWeeklyLessons`), `lib/sheets.js` (`readAgentRecommendationOutcomes`).
+Gotchas: lessons are `source: "weekly_review"` memories — they may only evict each other (cap 6), never Sam's chat/manual memories; the dashboard's `AgentMemorySource` union in `../portfolio-dashboard/lib/agentMemory.ts` must include any new source value; malformed lesson JSON yields ZERO lessons (fail closed), never partial garbage.
 
 ## Adding tests
 

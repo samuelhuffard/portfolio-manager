@@ -9,6 +9,7 @@
     "research:scan": "node jobs/research-scan.js",
     "exit:monitor": "node jobs/monitor-positions.js",
     "performance:review": "node jobs/performance-review.js",
+    "weekly:review": "node jobs/weekly-review.js",
     "tavily:check": "node scripts/check-tavily.js",
     "proposals:approved": "node scripts/list-approved-proposals.js",
     "proposals:fulfill": "node scripts/mark-fulfilled.js",

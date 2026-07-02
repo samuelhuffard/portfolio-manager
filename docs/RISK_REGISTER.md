@@ -22,10 +22,11 @@ The companion is the only executor. Mac asleep = approved proposals sit. Heartbe
 The companion regexes JSON out of `claude -p` stdout; a hallucinated `{"ok":true, orderId...}` would be recorded as a fill (validation catches ticker/side/amount mismatches but not a plausible fabrication). Reconciliation (#1) is the systemic backstop.
 **Mitigate:** switch companion invocations to `claude -p --output-format json` with strict schema; cross-check the reported orderId against `get_equity_orders` before recording (one extra read call); ship #1.
 
-## 5. Prompt injection via news/scan/memory text — MEDIUM severity, MEDIUM likelihood
+## 5. Prompt injection via news/scan/memory text — MEDIUM severity, MEDIUM likelihood — **PARTIALLY CLOSED 2026-07-02**
 
-Tavily article text, Robinhood scan descriptions, and extracted agent memories flow verbatim into the proposal-generating prompt. A poisoned article can bias proposals (can't execute anything — human gate + risk engine hold — but can flood the queue with attacker-chosen tickers and pollute memory over time).
-**Mitigate:** fence external text in the prompt as explicitly non-instruction DATA blocks; cap news snippet length (already 300 chars) and strip URLs/markup; consider a ticker allowlist for proposals; periodic human review of `pm:agent-memory:*`.
+Tavily article text, Robinhood scan descriptions, and extracted agent memories flow into the proposal-generating prompt. A poisoned article can bias proposals (can't execute anything — human gate + risk engine hold — but can flood the queue with attacker-chosen tickers and pollute memory over time).
+**Done 2026-07-02:** `lib/evidence.js` — deterministic instruction-pattern scan redacts suspicious news/scan text before any model sees it (Telegram on flag); remaining text is fenced in per-run `UNTRUSTED-*` boundary tokens the system prompt declares data-only; the generator reports `suspect_evidence`; the independent evaluator (`lib/evaluator.js`) re-checks for parroted instruction-like content and leans REJECT.
+**Still open:** agent memories extracted from chat are injected unfenced (they originate from Sam, lower risk); pattern list is best-effort by nature — periodic human review of `pm:agent-memory:*` still applies; no ticker allowlist for proposals.
 
 ## 6. Google Sheets concurrency + human editability — MEDIUM severity, MEDIUM likelihood
 
