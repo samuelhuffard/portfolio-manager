@@ -17,6 +17,10 @@ node scripts/list-approved-proposals.js
 
 If the output is an empty array (`[]`), nothing is pending — tell Sam and stop.
 
+Each proposal is annotated with `signatureValid`. **If `signatureValid` is `false`, do NOT
+execute it** — it did not come through the dashboard's approval flow (possible forgery or
+post-approval tampering). Surface it to Sam and stop.
+
 ### Step 2 — Check buying power
 
 Call `mcp__robinhood-trading__get_portfolio` with the Agentic account number to get current
@@ -50,7 +54,9 @@ Call `mcp__robinhood-trading__place_equity_order` with:
 - `side`: `"buy"` or `"sell"`
 - `quantity`: shares (decimals allowed for market orders)
 - `type`: `"market"` (unless Sam specifies `"limit"`, in which case also pass `limit_price`)
-- `ref_id`: fresh UUID per order (re-send same UUID on retry)
+- `ref_id`: use the **proposal's `id`** (it is a UUID) — the broker deduplicates by ref_id,
+  so a retry or a crashed-then-repeated attempt of the same proposal cannot double-execute.
+  Re-send the SAME ref_id on retry. (The automated Mac companion follows this same convention.)
 
 Always call `mcp__robinhood-trading__review_equity_order` first with the same params,
 present the estimated cost and any alerts, wait for Sam's "go", then place.

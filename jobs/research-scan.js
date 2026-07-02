@@ -230,6 +230,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
 
   const recommendations = [];
   for (const c of toReview.values()) {
+    try {
     // Data-availability gate runs BEFORE the (expensive) AI overlay. Per the memo, missing
     // or stale required inputs are an automatic NO_TRADE — we never ask Claude to reason
     // over a candidate we can't fully see, and we never queue a proposal off it.
@@ -365,7 +366,9 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
           action: rec.action,
           targetWeightPct: rec.targetWeight,
           totalPortfolioValue,
-          currentPositionWeightPct: tickerWeightPct[c.ticker] ?? 0,
+          // Actual position dollars — SELLs exit what's really held, and BUY
+          // increments are computed against the same total-value denominator.
+          currentPositionValue: heldAllocation.find((h) => h.ticker === c.ticker)?.marketValue ?? 0,
           cashAvailable: rec.action === "BUY" ? availableCashForBuys : undefined,
           limits: riskLimits,
         });
@@ -433,6 +436,27 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds) {
       confidence: rec.confidence,
       ruleCheck: rec.overrideNotes.length ? rec.overrideNotes.join("; ") : "OK",
     });
+    } catch (err) {
+      // One ticker failing (Anthropic 429/timeout, Yahoo hiccup, EDGAR outage)
+      // must not discard every other ticker's finished research — especially
+      // since proposals queued earlier in this loop already exist in Redis and
+      // would otherwise have no matching recommendation row in the Sheet.
+      console.error(`[Research] ${agent.id}: ${c.ticker} failed mid-review (continuing): ${err.message}`);
+      recommendations.push({
+        date: new Date().toISOString().slice(0, 10),
+        ticker: c.ticker,
+        action: "HOLD",
+        quantScore: c.quantScore ?? null,
+        rationale: `SCAN ERROR: ${err.message}`,
+        newsLinks: "",
+        status: "pending",
+        entryPrice: c.raw?.price?.regularMarketPrice ?? null,
+        spyEntryPrice,
+        targetWeight: 0,
+        confidence: null,
+        ruleCheck: "scan_error",
+      });
+    }
   }
 
   await appendAgentRecommendations(sheets, spreadsheetId, sheetIds[agentTabName(agent.id)], agent.id, recommendations);

@@ -7,12 +7,31 @@ test("sizes a BUY off total portfolio value", () => {
   assert.deepEqual(result, { amountDollars: 1000, clamped: false });
 });
 
+test("sizes a BUY as the increment toward target, not the full target", () => {
+  // Already holding 8% ($1600 of $20k); target 10% → buy only the 2% gap ($400),
+  // not another 10% (which would land the position at ~18%, over the cap).
+  const result = sizeProposalAmount({
+    action: "BUY",
+    targetWeightPct: 10,
+    totalPortfolioValue: 20000,
+    currentPositionValue: 1600,
+  });
+  assert.deepEqual(result, { amountDollars: 400, clamped: false });
+});
+
+test("returns null for a BUY when the position already meets its target weight", () => {
+  assert.equal(
+    sizeProposalAmount({ action: "BUY", targetWeightPct: 8, totalPortfolioValue: 20000, currentPositionValue: 2000 }),
+    null
+  );
+});
+
 test("uses concentrated starter sizing for a tiny new account without a required cash reserve", () => {
   const result = sizeProposalAmount({
     action: "BUY",
     targetWeightPct: 15,
     totalPortfolioValue: 50,
-    currentPositionWeightPct: 0,
+    currentPositionValue: 0,
     limits: {
       percentageSizingMinPortfolioValue: 500,
       starterPortfolioMaxPositions: 2,
@@ -22,12 +41,13 @@ test("uses concentrated starter sizing for a tiny new account without a required
   assert.deepEqual(result, { amountDollars: 25, clamped: false, starterSized: true });
 });
 
-test("uses percentage sizing for adds to existing positions even in a tiny account", () => {
+test("uses incremental percentage sizing for adds to existing positions even in a tiny account", () => {
+  // Holding $20 of $50 (40%); target 55% → increment is 15% of $50 = $7.50.
   const result = sizeProposalAmount({
     action: "BUY",
-    targetWeightPct: 15,
+    targetWeightPct: 55,
     totalPortfolioValue: 50,
-    currentPositionWeightPct: 40,
+    currentPositionValue: 20,
     limits: {
       percentageSizingMinPortfolioValue: 500,
       starterPortfolioMaxPositions: 2,
@@ -60,13 +80,15 @@ test("returns null for a BUY when open proposals reserve all idle cash", () => {
   assert.equal(sizeProposalAmount({ action: "BUY", targetWeightPct: 5, totalPortfolioValue: 10000, cashAvailable: 0 }), null);
 });
 
-test("sizes a SELL off the ticker's current position weight", () => {
-  const result = sizeProposalAmount({ action: "SELL", totalPortfolioValue: 20000, currentPositionWeightPct: 10 });
+test("sizes a SELL off the ticker's actual position market value", () => {
+  // Position is worth $2000 — the SELL is $2000 regardless of how much idle
+  // cash sits in the account (weight × total value used to overstate this).
+  const result = sizeProposalAmount({ action: "SELL", totalPortfolioValue: 20000, currentPositionValue: 2000 });
   assert.deepEqual(result, { amountDollars: 2000, clamped: false });
 });
 
 test("returns null for a SELL with no current position", () => {
-  assert.equal(sizeProposalAmount({ action: "SELL", totalPortfolioValue: 20000, currentPositionWeightPct: 0 }), null);
+  assert.equal(sizeProposalAmount({ action: "SELL", totalPortfolioValue: 20000, currentPositionValue: 0 }), null);
 });
 
 test("returns null for HOLD", () => {

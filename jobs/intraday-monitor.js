@@ -172,7 +172,7 @@ export async function runIntradayMonitor({ context = "intraday" } = {}) {
       const returnP = returnPct[pos.ticker] ?? 0;
 
       console.log(
-        `[Intraday] ${pos.ticker}: price $${price} | 20-day high $${high20.toFixed(2)} | ATR stop $${stopLevel} | return ${(returnP * 100).toFixed(1)}%`
+        `[Intraday] ${pos.ticker}: price $${price} | 20-day high $${high20.toFixed(2)} | ATR stop $${stopLevel} | return ${returnP.toFixed(1)}%`
       );
 
       if (price < stopLevel && returnP < 0) {
@@ -186,7 +186,7 @@ export async function runIntradayMonitor({ context = "intraday" } = {}) {
             side: "SELL",
             amountDollars: Math.round((pos.marketValue ?? 0) * 100) / 100,
             maxPrice: null,
-            rationale: `Intraday ATR stop breach: ${pos.ticker} at $${price} is below ATR stop $${stopLevel} (20-day high $${high20.toFixed(2)} − 1.5×ATR $${atrVal.toFixed(2)}). Position is at a loss (${(returnP * 100).toFixed(1)}%). Agent One memo requires fast exit.`,
+            rationale: `Intraday ATR stop breach: ${pos.ticker} at $${price} is below ATR stop $${stopLevel} (20-day high $${high20.toFixed(2)} − 1.5×ATR $${atrVal.toFixed(2)}). Position is at a loss (${returnP.toFixed(1)}%). Agent One memo requires fast exit.`,
             riskSummary: `ATR stop triggered intraday. Full exit signal analysis will run at 4:45 PM ET exit monitor.`,
           });
           if (created) {

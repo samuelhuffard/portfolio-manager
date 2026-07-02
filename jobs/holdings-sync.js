@@ -23,6 +23,7 @@ import {
   readInvestorLedger,
   writeOverviewTab,
   appendTradeLedgerEntries,
+  readTradeLedger,
   readAllLots,
   appendLots,
   applyLotUpdatesToSheet,
@@ -50,19 +51,38 @@ const ROBINHOOD_SYNC_TIMEOUT_MS = 150_000;
 async function processFills(sheets, spreadsheetId, sheetIds, fills) {
   if (!fills.length) return;
 
-  const [openProposals, allLots] = await Promise.all([
+  const [openProposals, allLots, existingLedger] = await Promise.all([
     listOpenApprovedProposals(),
     readAllLots(sheets, spreadsheetId),
+    readTradeLedger(sheets, spreadsheetId),
   ]);
 
+  // The Trade Ledger is the source of truth for "already recorded" — the
+  // pm:last-fill-sync-at cursor alone can't prevent double-booking (e.g. the
+  // post-trade sync kicked by /record-trade re-fetches the fill it just wrote).
+  const seenOrderIds = new Set(existingLedger.map((t) => t.orderId).filter(Boolean));
+  const freshFills = fills.filter((f) => {
+    if (f.orderId && seenOrderIds.has(f.orderId)) {
+      console.log(`[Holdings] Skipping already-recorded fill ${f.side} ${f.ticker} (order ${f.orderId}).`);
+      return false;
+    }
+    if (f.orderId) seenOrderIds.add(f.orderId); // also dedupe within this batch
+    return true;
+  });
+  if (!freshFills.length) return;
+
   let lots = allLots;
+  let candidates = openProposals;
   const newLots = [];
   const tradeRows = [];
   const lotUpdatesByRowIndex = new Map();
 
-  for (const fill of fills) {
+  for (const fill of freshFills) {
     const trade = { ticker: fill.ticker, side: fill.side, shares: fill.shares, price: fill.price, amount: fill.amount, date: fill.date };
-    const { agentId, proposalId } = matchTradeToApprovedProposal(trade, openProposals);
+    const { agentId, proposalId } = matchTradeToApprovedProposal(trade, candidates);
+    // A proposal can only fulfill one fill — drop it from the pool so a second
+    // same-ticker/side fill doesn't re-match it (which used to throw and abort the batch).
+    if (proposalId) candidates = candidates.filter((p) => p.id !== proposalId);
 
     let realizedGain = null;
     if (fill.side === "BUY") {
@@ -92,8 +112,6 @@ async function processFills(sheets, spreadsheetId, sheetIds, fills) {
       proposalId,
       realizedGain,
     });
-
-    if (proposalId) await markProposalFulfilled(proposalId, fill.orderId ?? null);
   }
 
   await appendTradeLedgerEntries(sheets, spreadsheetId, sheetIds["Trade Ledger"], tradeRows);
@@ -101,7 +119,19 @@ async function processFills(sheets, spreadsheetId, sheetIds, fills) {
   const lotUpdates = [...lotUpdatesByRowIndex.values()].filter((l) => l.rowIndex != null);
   if (lotUpdates.length) await applyLotUpdatesToSheet(sheets, spreadsheetId, lotUpdates);
 
-  console.log(`[Holdings] Processed ${fills.length} fill(s): ${newLots.length} new lot(s), ${lotUpdates.length} lot(s) updated by sells.`);
+  // Mark fulfillment only after the ledger write succeeded — the reverse order
+  // could leave a proposal "fulfilled" with no ledger row. A fulfillment failure
+  // (e.g. companion already marked it) must not abort accounting for other fills.
+  for (const row of tradeRows) {
+    if (!row.proposalId) continue;
+    try {
+      await markProposalFulfilled(row.proposalId, row.orderId ?? null);
+    } catch (err) {
+      console.warn(`[Holdings] Could not mark proposal ${row.proposalId} fulfilled (continuing): ${err.message}`);
+    }
+  }
+
+  console.log(`[Holdings] Processed ${freshFills.length} fill(s): ${newLots.length} new lot(s), ${lotUpdates.length} lot(s) updated by sells.`);
 }
 
 export async function syncHoldings() {

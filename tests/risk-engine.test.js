@@ -56,3 +56,19 @@ test("downgrades when sub-vertical exposure would breach 75%", () => {
   assert.equal(r.action, "HOLD");
   assert.equal(r.ruleChecks.sector_ok, false);
 });
+
+test("missing or invalid confidence fails the floor instead of skipping it", () => {
+  const noConf = applyRiskChecks({ ...goodBuy, confidence: null }, {}, LIMITS);
+  assert.equal(noConf.action, "HOLD");
+  assert.equal(noConf.ruleChecks.confidence_ok, false);
+
+  const nanConf = applyRiskChecks({ ...goodBuy, confidence: "high" }, {}, LIMITS);
+  assert.equal(nanConf.action, "HOLD");
+  assert.equal(nanConf.ruleChecks.confidence_ok, false);
+});
+
+test("out-of-range confidence is clamped to [0,1]", () => {
+  // 7.0 clamps to 1.0 — passes the floor on conviction, not on a unit mistake.
+  const clamped = applyRiskChecks({ ...goodBuy, confidence: 7 }, {}, LIMITS);
+  assert.equal(clamped.ruleChecks.confidence_ok ?? true, true);
+});

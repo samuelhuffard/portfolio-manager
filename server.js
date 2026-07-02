@@ -1,22 +1,30 @@
 import "dotenv/config";
 import http from "node:http";
+import { timingSafeEqual } from "node:crypto";
 import { runResearchScan } from "./jobs/research-scan.js";
 import { runIntradayMonitor } from "./jobs/intraday-monitor.js";
 import { listPriceAlerts, addPriceAlert, removePriceAlert } from "./lib/price-alerts.js";
 import { syncHoldings } from "./jobs/holdings-sync.js";
-import { getProposalById, markProposalFulfilled } from "./lib/redis.js";
+import { getProposalById, markProposalFulfilled, getRedis } from "./lib/redis.js";
 import { recordMcpFill } from "./lib/mcp-accounting.js";
 import { getServiceAccountClients, getSheetIds, resolveSharedSpreadsheetId } from "./lib/sheets.js";
 
 const PORT = process.env.PORTFOLIO_SERVER_PORT ?? 3200;
-const SECRET = process.env.PORTFOLIO_WEBHOOK_SECRET;
+const SECRET = process.env.PORTFOLIO_WEBHOOK_SECRET?.trim();
 
 let scanRunning = false;
 let syncRunning = false;
 
+// FAIL CLOSED: without a configured secret, every route except /health is
+// refused. The old fail-open behavior meant an unset env var silently exposed
+// /record-trade, /scan, and /alerts to anyone who could reach this port.
 function auth(req) {
-  if (!SECRET) return true;
-  return req.headers["authorization"] === `Bearer ${SECRET}`;
+  if (!SECRET) return false;
+  const header = req.headers["authorization"] ?? "";
+  const expected = Buffer.from(`Bearer ${SECRET}`);
+  const provided = Buffer.from(String(header));
+  if (provided.length !== expected.length) return false;
+  return timingSafeEqual(provided, expected);
 }
 
 function readBody(req) {
@@ -36,8 +44,25 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost`);
 
   if (req.method === "GET" && url.pathname === "/health") {
-    res.writeHead(200);
-    res.end(JSON.stringify({ ok: true, scanRunning }));
+    // "ok" used to mean only "the process is up" — it said ok with Redis,
+    // Sheets auth, and the Anthropic key all broken (the silent-no-op family
+    // of bugs). Report dependency reality instead. Booleans only; safe unauthenticated.
+    const deps = {
+      redis: false,
+      sheetsAuth: Boolean(process.env.GOOGLE_SERVICE_ACCOUNT || process.env.GOOGLE_CREDENTIALS_PATH),
+      anthropicKey: Boolean(process.env.ANTHROPIC_API_KEY?.trim()),
+      webhookSecret: Boolean(SECRET),
+      telegram: Boolean(process.env.TELEGRAM_BOT_TOKEN?.trim() && process.env.TELEGRAM_CHAT_ID?.trim()),
+    };
+    try {
+      const redis = getRedis();
+      if (redis) deps.redis = (await redis.ping()) === "PONG";
+    } catch {
+      deps.redis = false;
+    }
+    const ok = deps.redis && deps.sheetsAuth && deps.anthropicKey && deps.webhookSecret;
+    res.writeHead(ok ? 200 : 503);
+    res.end(JSON.stringify({ ok, scanRunning, deps }));
     return;
   }
 
@@ -167,6 +192,9 @@ const server = http.createServer(async (req, res) => {
 });
 
 export function startServer() {
+  if (!SECRET) {
+    console.error("[Portfolio Manager] WARNING: PORTFOLIO_WEBHOOK_SECRET is not set — all routes except /health will return 401 until it is configured.");
+  }
   server.listen(PORT, () => {
     console.log(`[Portfolio Manager] HTTP server listening on port ${PORT}`);
   });

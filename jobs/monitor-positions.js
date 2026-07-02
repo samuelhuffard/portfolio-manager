@@ -40,6 +40,9 @@ const SUBVERTICAL_BENCHMARK = {
   "Tech-Adjacent High-Growth": "QQQ",
 };
 
+// Per-run memoization only — the scheduler keeps this module alive for weeks,
+// so a cross-run cache would compare fresh position closes against benchmark
+// series frozen on day one (relative-strength exits drift into nonsense).
 const benchmarkCache = new Map();
 async function benchmarkClosesFor(subVertical, period1, period2) {
   const ticker = SUBVERTICAL_BENCHMARK[subVertical] || "QQQ";
@@ -51,6 +54,7 @@ async function benchmarkClosesFor(subVertical, period1, period2) {
 }
 
 export async function runExitMonitor() {
+  benchmarkCache.clear();
   const { sheets, drive } = getServiceAccountClients();
   const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
 

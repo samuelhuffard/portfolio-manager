@@ -1,10 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { applyFillToLots, validateMcpFillInput } from "../lib/mcp-accounting.js";
+import { computeDecisionSignature } from "../lib/proposal-signature.js";
 import { openLot } from "../lib/tax-lots.js";
 
+const TEST_SECRET = "test-hmac-secret";
+process.env.AUDIT_HMAC_SECRET = TEST_SECRET;
+
 function proposal(overrides = {}) {
-  return {
+  const base = {
     id: "proposal-1",
     agentId: "agent-1",
     ticker: "CRWD",
@@ -12,9 +16,16 @@ function proposal(overrides = {}) {
     amountDollars: 1000,
     maxPrice: 250,
     status: "ApprovedForBrokerReview",
+    decidedAt: "2026-06-28T00:00:00Z",
+    decidedByUserId: "user_manager",
     fulfilledAt: null,
     ...overrides,
   };
+  // Sign like the dashboard does at approval time (unless the test overrides it).
+  if (!("decisionHmac" in overrides)) {
+    base.decisionHmac = computeDecisionSignature(base, TEST_SECRET);
+  }
+  return base;
 }
 
 test("validates an approved MCP fill against its proposal", () => {
@@ -112,4 +123,58 @@ test("SELL MCP fills consume FIFO lots and compute realized gain", () => {
   assert.equal(result.trade.realizedGain, 125);
   assert.equal(result.updatedLots.find((lot) => lot.lotId === "lot-1").status, "CLOSED");
   assert.equal(result.updatedLots.find((lot) => lot.lotId === "lot-2").sharesOpen, 2);
+});
+
+test("refuses unsigned or forged approval signatures", () => {
+  const base = {
+    existingTrades: [],
+    orderId: "order-sig",
+    ticker: "CRWD",
+    side: "BUY",
+    shares: 4,
+    price: 250,
+    agentId: "agent-1",
+  };
+
+  // No signature at all — e.g. a proposal written straight into Redis.
+  assert.throws(
+    () => validateMcpFillInput({ ...base, proposal: proposal({ decisionHmac: null }) }),
+    /no decision signature/
+  );
+  // Trade-relevant field changed after signing.
+  const tampered = proposal();
+  tampered.amountDollars = 9000;
+  assert.throws(() => validateMcpFillInput({ ...base, proposal: tampered }), /INVALID/);
+});
+
+test("SELL fills may undershoot the proposal amount but not overshoot", () => {
+  const sellProposal = proposal({ side: "SELL", amountDollars: 1000, maxPrice: null });
+  // Whole remaining position was worth less than the proposal — allowed.
+  const under = validateMcpFillInput({
+    proposal: sellProposal,
+    existingTrades: [],
+    orderId: "order-under",
+    ticker: "CRWD",
+    side: "SELL",
+    shares: 1,
+    price: 250,
+    agentId: "agent-1",
+  });
+  assert.equal(under.amount, 250);
+
+  // Selling meaningfully MORE than authorized is still rejected.
+  assert.throws(
+    () =>
+      validateMcpFillInput({
+        proposal: sellProposal,
+        existingTrades: [],
+        orderId: "order-over",
+        ticker: "CRWD",
+        side: "SELL",
+        shares: 5,
+        price: 250,
+        agentId: "agent-1",
+      }),
+    /differs from proposal/
+  );
 });
