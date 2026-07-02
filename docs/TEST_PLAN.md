@@ -14,13 +14,11 @@ Status of the tests that matter most, prioritized by "would this catch a catastr
 `tests/red-lines.test.ts` (wording/route patterns), `tests/proxy-routes.test.ts` (proxy routes keep RBAC).
 **Missing:** CI-level grep asserting `rh.order_` appears nowhere in Python; a test that no `app/api` route imports any order-placing capability. Cheap and worth adding.
 
-## 4. Approval signature enforcement — ✅ existing (new 2026-07-01)
-Backend: unsigned/forged proposals rejected (`mcp-accounting.test.js`); dashboard: approvals signed, tamper breaks signature, rejections unsigned (`proposals.test.ts`).
-**Missing:** companion-side verification has NO test (companion has no test harness — its `computeDecisionSignature` mirror could drift silently). Highest-value new test target; extract the companion's pure functions or add a signature cross-check test that imports all three implementations and asserts identical output for the same proposal.
+## 4. Approval signature enforcement — ✅ existing (completed 2026-07-02)
+Backend: unsigned/forged proposals rejected (`mcp-accounting.test.js`); dashboard: approvals signed, tamper breaks signature, rejections unsigned (`proposals.test.ts`). Companion logic extracted to `scripts/companion-core.mjs`; `tests/companion-core.test.ts` cross-checks all three signature implementations against the same proposal and tests refusal of unsigned/forged/unverifiable proposals.
 
-## 5. Investor ledger signing — ✅ existing / ❌ verification
-Signing, seed-owner guard, withdrawal bounds: `tests/investor-ledger.test.js`.
-**Missing:** verify-on-read does not exist in code, so it can't be tested — build `scripts/verify-ledgers.js` (RISK_REGISTER #2) and test tamper detection (flip one cell → mismatch flagged).
+## 5. Investor ledger signing — ✅ existing (verification added 2026-07-02)
+Signing, seed-owner guard, withdrawal bounds: `tests/investor-ledger.test.js`. Verify-on-read: `lib/ledger-verify.js` + `scripts/verify-ledgers.js` (scheduled daily), tamper detection + Sheet round-trip tested in `tests/ledger-verify.test.js`; audit-row verification included.
 
 ## 6. Withdrawal bounds — ✅ existing
 `tests/investor-ledger.test.js` (can't withdraw more units than held); dashboard `withdrawal-preview` covered via `tests/investors.test.ts` math.
@@ -44,8 +42,9 @@ No tests around `ensureTabs` / `ensureHeadersExtendable` (the recurring cache-hi
 `tests/audit-rate-limit.test.ts` (production audit failure fails request; rate-limit enforcement).
 **Gap 🟡:** audit rows' HMACs never verified (same as #5) — no tamper-detection test possible until a verifier exists.
 
-## 12. Execution idempotency (Executing state / reconcile) — ❌ missing
-The duplicate-trade fix has zero automated coverage (lives in the untestable-as-written companion). Decision table to pin once extracted: Executing+executionOrderId → record-only retry; reconcile found+filled → record+fulfill; found+cancelled/rejected/failed → clear state + alert; not-found → clear state; found+working → wait.
+## 12. Execution idempotency (Executing state / reconcile) — 🟡 partial (core covered 2026-07-02)
+Decision table extracted to `companion-core.mjs` `decideReconcileAction` and fully tested (`tests/companion-core.test.ts`): found+filled → record; not-found / terminal → retry (+alert); working → wait. Order-instruction side correctness, fabricated-orderId rejection, and the holiday-aware market clock are tested there too.
+**Still missing:** the poll-loop wiring itself (lock handling, Executing-marker write ordering) has no harness — would need `claude -p` stubbing.
 
 ## 13. Sizing and risk-engine money math — ✅ existing (strong)
 `tests/proposal-sizing.test.js` (incremental BUY, SELL by market value, starter sizing, cash caps), `tests/risk-engine.test.js` (confidence missing/clamp, averaging-down, stale data, caps), `tests/tax-lots.test.js` (FIFO), `tests/conviction.test.js`, `tests/data-gates.test.js`, `tests/screener.test.js`, `tests/agent-attribution.test.js`, `tests/exit-signals.test.js`, `tests/indicators.test.js`.

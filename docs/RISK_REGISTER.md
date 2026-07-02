@@ -2,15 +2,15 @@
 
 Remaining risks after the 2026-07-01 audit fixes, ranked by (severity × likelihood). Each has concrete mitigation steps. Re-rank when one is closed.
 
-## 1. No broker-vs-ledger reconciliation job — HIGH severity, MEDIUM likelihood
+## 1. ~~No broker-vs-ledger reconciliation job~~ — MITIGATED 2026-07-02, residual LOW
 
-Nothing periodically compares Robinhood's actual orders/positions against the Trade Ledger + Lots. Every residual execution/recording failure mode (companion dies mid-recovery, manual trade outside the flow, partial fill oddity) stays invisible until Sheet numbers "look weird."
-**Mitigate:** nightly job (companion side, since it holds MCP auth): fetch the day's `get_equity_orders`, diff orderIds against `readTradeLedger`, Telegram any miss, append misses as `unattributed` rows. Also diff positions vs Holdings.
+Daily reconciliation now runs from the companion after close (4:35 PM ET): read-only `get_equity_orders` for the day → `scripts/reconcile-orders.js` diffs filled orders against Trade Ledger orderIds → Telegram on any miss (report-only; fixing the books stays human). `lib/reconcile.js` + `tests/reconcile.test.js`.
+**Residual:** order-level only — no position-vs-Holdings diff yet; depends on the Mac being awake by end of day (a missed day is caught the next run only if orders fall in that day's window — consider widening `created_at_gte` to 3 days).
 
-## 2. Write-only integrity HMACs — HIGH severity, LOW likelihood
+## 2. ~~Write-only integrity HMACs~~ — MITIGATED 2026-07-02, residual LOW
 
-Investor-ledger and audit rows are signed but never verified on read. Tamper-evidence doesn't actually exist until something checks the MACs; an investor (or a bug) editing the Sheet goes undetected. Don't describe these stores as tamper-evident to investors yet.
-**Mitigate:** `scripts/verify-ledgers.js` — recompute rowHmac over Investors + spot-check audit lists with `timingSafeEqual`, alarm on mismatch; run weekly via scheduler + before any contribution/withdrawal.
+`scripts/verify-ledgers.js` (`npm run ledgers:verify`) now recomputes every Investors-tab rowHmac and the last 7 days of audit-row HMACs, `timingSafeEqual`, Telegram on mismatch. Scheduled daily 6:00 PM ET in `scheduler.js`. `lib/ledger-verify.js` + `tests/ledger-verify.test.js` (round-trip + tamper detection).
+**Residual:** the audit-HMAC format is mirrored from dashboard `lib/audit.ts` by hand (same drift class as #8); Trade Ledger/Lots rows are still unsigned (reconciliation #1 covers their integrity indirectly).
 
 ## 3. Execution depends on Sam's laptop being awake — HIGH severity, HIGH likelihood (mitigated, not fixed)
 

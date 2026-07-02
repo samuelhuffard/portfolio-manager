@@ -17,7 +17,9 @@
     "market-scans:sync:robinhood": "node lib/market-scan-sync.js",
     "holdings:sync:mcp": "node scripts/sync-holdings-from-mcp.js",
     "holdings:sync:mcp:scan": "node scripts/sync-holdings-from-mcp.js --scan",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "ledgers:verify": "node scripts/verify-ledgers.js",
+    "orders:reconcile": "node scripts/reconcile-orders.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

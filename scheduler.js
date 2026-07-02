@@ -6,6 +6,7 @@ import { runPerformanceReview } from "./jobs/performance-review.js";
 import { runPremarketCheck } from "./jobs/premarket-check.js";
 import { runIntradayMonitor } from "./jobs/intraday-monitor.js";
 import { syncHoldings } from "./jobs/holdings-sync.js";
+import { runLedgerVerification } from "./scripts/verify-ledgers.js";
 import { startServer } from "./server.js";
 
 startServer();
@@ -83,9 +84,17 @@ cron.schedule("45 17 * * 1-5", async () => {
   await runPerformanceReview().catch((e) => console.error("[Performance] error:", e.message));
 }, TZ);
 
+// ── Ledger verification (6:00 PM ET) ─────────────────────────────────────────
+// Recomputes the Investors-tab row HMACs and the last week of audit-log row
+// HMACs. Signed rows were previously write-only — this is what makes them
+// actually tamper-evident. Report-only; Telegrams on any mismatch.
+cron.schedule("0 18 * * 1-5", async () => {
+  await runLedgerVerification().catch((e) => console.error("[Verify] error:", e.message));
+}, TZ);
+
 console.log(
   "[Portfolio Manager] Scheduler started — " +
   "pre-market 8:30 AM | opening 9:35 AM | holdings sync 11 AM/1 PM/3 PM | " +
   "intraday every 30 min 10 AM–3:30 PM | pre-close 3:50 PM | exit monitor 4:45 PM | " +
-  "research scan 5:15 PM | perf review 5:45 PM (Mon-Fri, ET)"
+  "research scan 5:15 PM | perf review 5:45 PM | ledger verify 6:00 PM (Mon-Fri, ET)"
 );
