@@ -52,6 +52,7 @@ import { AGENTS } from "../config/agents.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOP_N = 5;
 const DEFAULT_AGENT_IDS = AGENTS.map((agent) => agent.id);
+const EVIDENCE_TELEGRAM_THRESHOLD = 3;
 
 function loadAgentConfig(agentId) {
   const dir = path.join(__dirname, "..", "config", "agents", agentId);
@@ -106,7 +107,8 @@ async function resolveCircuitBreaker(sheets, spreadsheetId) {
       `[Breaker] tier ${assessment.tier} active — drawdown ${assessment.drawdownPct ?? "?"}% from ${basis ?? "no"} high-water mark.`
     );
   }
-  if (priorState?.tier !== assessment.tier) {
+  const priorTier = priorState?.tier ?? assessment.tier;
+  if (priorTier !== assessment.tier) {
     const msg = `⚠️ Portfolio circuit breaker: ${priorState?.tier ?? "NONE"} → ${assessment.tier}${
       assessment.drawdownPct != null ? ` (drawdown ${assessment.drawdownPct}% on ${basis})` : " (no valuation data)"
     }`;
@@ -117,6 +119,21 @@ async function resolveCircuitBreaker(sheets, spreadsheetId) {
     }
   }
   return assessment;
+}
+
+function shouldTelegramEvidenceFlags(flags) {
+  if (!flags.length) return false;
+  // Deterministic news/model flags are common background telemetry. Escalate when
+  // the independent evaluator sees suspect evidence, or when the scan has enough
+  // separate flags to suggest a broader poisoned-data problem.
+  return flags.some((flag) => flag.kind?.startsWith("evaluator:")) || flags.length >= EVIDENCE_TELEGRAM_THRESHOLD;
+}
+
+function summarizeEvidenceFlags(flags) {
+  return flags
+    .map((f) => f.kind)
+    .filter(Boolean)
+    .join(", ");
 }
 
 function selectMarketScanTickers(agentId, marketScans, watchlistTickers, limit = 5) {
@@ -666,16 +683,17 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
   await appendAgentRecommendations(sheets, spreadsheetId, sheetIds[agentTabName(agent.id)], agent.id, recommendations);
   console.log(`[Research] ${agent.id}: done — wrote ${recommendations.length} recommendations.`);
 
-  // Injection-suspect evidence is a security signal Sam should see, not just a log line.
-  if (evidenceFlags.length) {
-    const summary = `⚠️ ${agent.id}: ${evidenceFlags.length} injection-suspect evidence item(s) redacted/flagged this scan: ${evidenceFlags
-      .map((f) => f.kind)
-      .join(", ")}`;
+  // Injection-suspect evidence is logged every time, but Telegram only escalates
+  // higher-signal cases so routine single-source redactions don't look like bot replies.
+  if (shouldTelegramEvidenceFlags(evidenceFlags)) {
+    const summary = `⚠️ Scheduled research scan safety alert: ${agent.id} flagged ${evidenceFlags.length} evidence item(s): ${summarizeEvidenceFlags(evidenceFlags)}`;
     try {
       await sendTelegram(summary);
     } catch (err) {
       console.error("[Evidence] Telegram alert failed:", err.message, "—", summary);
     }
+  } else if (evidenceFlags.length) {
+    console.warn(`[Evidence] ${agent.id}: ${evidenceFlags.length} low-severity evidence flag(s) logged without Telegram: ${summarizeEvidenceFlags(evidenceFlags)}`);
   }
 }
 
