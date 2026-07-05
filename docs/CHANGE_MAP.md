@@ -82,6 +82,10 @@ File: `scheduler.js`. Gotchas: research scan runs AFTER the exit monitor on purp
 Files: `jobs/weekly-review.js` (orchestration + the one LLM call), `lib/weekly-scorecard.js` (pure scorecard math + lesson parsing), `lib/agent-memory.js` (`mergeWeeklyLessons`/`applyWeeklyLessons`), `lib/sheets.js` (`readAgentRecommendationOutcomes`).
 Gotchas: lessons are `source: "weekly_review"` memories — they may only evict each other (cap 6), never Sam's chat/manual memories; the dashboard's `AgentMemorySource` union in `../portfolio-dashboard/lib/agentMemory.ts` must include any new source value; malformed lesson JSON yields ZERO lessons (fail closed), never partial garbage.
 
+## Changing the system sentinel / sysloop
+
+Files: `lib/sysloop/*` (pure checks — unit-test with fixtures in `tests/sysloop.test.js`), `jobs/system-sentinel.js` (Jetson Tier 0), `scripts/sysloop-{mac,triage,weekly,shared}.mjs` (Mac tiers). Design doc: `docs/SYSTEM-LOOP-PLAN.md`. Gotchas: sysloop Redis writes MUST stay inside `pm:sysloop:*` (enforced by `redisGuardSet` — don't bypass it); new checks go in `checks.js` as pure functions taking injected inputs, gathering goes in `snapshot.js`; the `claude -p` invocations in `sysloop-shared.mjs` must keep `--strict-mcp-config` and the read-only `--allowedTools` list; new expected Sheet headers come from `SYSLOOP_EXPECTED_HEADERS` in `sheets.js` (references the writer constants — never copy header strings). Deploy: backend to Jetson as usual, plus `pm2 restart portfolio-sysloop` on the Mac (runs from this repo's working tree).
+
 ## Adding tests
 
 Backend: `tests/*.test.js`, node:test, `npm test`. Dashboard: `tests/*.test.ts`, `npm test` (tsx), plus `npm run lint` (= `tsc --noEmit`) and `npm run build`.

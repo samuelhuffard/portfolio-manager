@@ -95,6 +95,13 @@ pm2 describe portfolio-executor
 - Executor: approvals page shows an offline banner when the heartbeat is stale while accepted proposals wait; or read `pm:companion:last-seen` directly.
 - Production: sign-in 200, all `/api/*` 401 signed-out.
 
+## Sysloop (system autoresearch loop)
+
+- Jetson sentinel runs 6:15 PM ET Mon–Fri (`npm run sysloop:check`, or `--dry-run` for a no-publish smoke test). Snapshot → `pm:sysloop:snapshot:<date>` (7d TTL) + `ops/health/<date>.json`; heartbeat → `pm:sysloop:last-run`.
+- Mac PM2 process `portfolio-sysloop` (this repo's working tree): cross-watch every 30 min, triage 6:35 PM Mon–Fri (`npm run sysloop:triage`), weekly Sun 10 AM (`npm run sysloop:weekly`). Both accept `--force` to bypass the once-per-period Redis rate cap.
+- Findings ledger: `ops/findings/*.md` (git-tracked). To close one, edit `status: open` → `fixed`; if the fingerprint reappears it auto-flips to `regressed` and escalates. Weekly artifacts: `ops/reports/`, `ops/proposed-tests/`, `ops/proposed-patches/` — all propose-only, nothing is applied automatically.
+- LLM tiers run `claude -p` on the Mac (subscription, not API), read-only tools, no MCP. Telegram alerts come from the Jetson sentinel; Mac-side alerts are console-only until `TELEGRAM_*` is added to the Mac `.env`.
+
 ## Common failure modes and what they usually mean
 
 | Symptom | Usual meaning |
