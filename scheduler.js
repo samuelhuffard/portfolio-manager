@@ -100,14 +100,19 @@ cron.schedule("0,30 10-15 * * 1-5", wrapJob("intraday-monitor", "Intraday", asyn
 // Late momentum sweep — last chance to flag a stop breach before EOD.
 cron.schedule("50 15 * * 1-5", wrapJob("intraday-monitor", "PreClose", () => runIntradayMonitor({ context: "pre-close" }), MARKET_DAY_ONLY), TZ);
 
-// ── Exit monitor (4:45 PM ET) ────────────────────────────────────────────────
+// ── Exit monitor (4:45 PM ET, Sun–Thu) ───────────────────────────────────────
 // Full ATR/fundamental/momentum exit signals with complete EOD bar data.
-cron.schedule("45 16 * * 1-5", wrapJob("exit-monitor", "ExitMonitor", runExitMonitor, MARKET_DAY_ONLY), TZ);
+// Shifted off Friday: proposals expire 48h after creation (lib/redis.js), so a
+// Friday-evening proposal expired Sunday evening — before Monday's market even
+// opened. Running the Friday-close-data scan on Sunday instead means the same
+// proposal now expires Tuesday evening, leaving all of Monday's session to act.
+cron.schedule("45 16 * * 0-4", wrapJob("exit-monitor", "ExitMonitor", runExitMonitor, MARKET_DAY_ONLY), TZ);
 
-// ── Research scan — all agents (5:15 PM ET) ─────────────────────────────────
+// ── Research scan — all agents (5:15 PM ET, Sun–Thu) ─────────────────────────
 // Full quant score → AI overlay → risk checks → queue proposals.
 // Runs after exit monitor so any SELL proposals are already queued first.
-cron.schedule("15 17 * * 1-5", wrapJob("research-scan", "Research", runResearchScan, MARKET_DAY_ONLY), TZ);
+// See exit-monitor comment above for why this moved off the Friday slot.
+cron.schedule("15 17 * * 0-4", wrapJob("research-scan", "Research", runResearchScan, MARKET_DAY_ONLY), TZ);
 
 // ── Performance review (5:45 PM ET) ─────────────────────────────────────────
 // Scores past recommendations whose 30/90/180-day windows have elapsed.
