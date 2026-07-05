@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { getRedis } from "../lib/redis.js";
-import { openFindingsSummary, loadFindings } from "../lib/sysloop/findings.js";
+import { openFindingsSummary, loadFindings, writeFixlist } from "../lib/sysloop/findings.js";
 import { acquireRateCap, runClaudeJson, etToday, isoWeek, gitLog, telegramSafe, truncate, REPO_ROOT, OPS, SYSLOOP_MODEL } from "./sysloop-shared.mjs";
 
 // Tier 2 — the Researcher + Skeptic (docs/SYSTEM-LOOP-PLAN.md §2). Sundays on
@@ -169,6 +169,7 @@ ${JSON.stringify(proposals.map((p, index) => ({ index, ...p })), null, 1)}`,
   }
 
   writeReport(week, research.report_markdown, written, open);
+  writeFixlist({ findingsDir: OPS.findings, proposalDirs: { test: OPS.proposedTests, patch: OPS.proposedPatches } });
   appendToVault(week, research.report_markdown, written, open);
 
   const summary = `Sysloop weekly ${week}: ${open.length} open findings, ${written.length}/${proposals.length} proposals passed skeptic. Report: ops/reports/${week}-product-health.md`;

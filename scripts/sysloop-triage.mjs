@@ -1,8 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getRedis } from "../lib/redis.js";
-import { upsertFindings, loadFindings, openFindingsSummary } from "../lib/sysloop/findings.js";
+import { upsertFindings, loadFindings, openFindingsSummary, writeFixlist } from "../lib/sysloop/findings.js";
 import { acquireRateCap, runClaudeJson, etToday, truncate, OPS } from "./sysloop-shared.mjs";
+
+const PROPOSAL_DIRS = { test: OPS.proposedTests, patch: OPS.proposedPatches };
 
 // Tier 1 — the Analyst (docs/SYSTEM-LOOP-PLAN.md §2). Runs on the Mac daily
 // after the Jetson sentinel publishes its snapshot.
@@ -42,6 +44,8 @@ async function main() {
   // ── Step 1: deterministic ledger merge ────────────────────────────────────
   const { created, updated, regressed } = upsertFindings(OPS.findings, snapshot.anomalies, new Date());
   console.log(`[Triage] ledger merge: ${created.length} new, ${updated.length} recurring, ${regressed.length} regressed (${snapshot.anomalies.length} anomalies today)`);
+
+  writeFixlist({ findingsDir: OPS.findings, proposalDirs: PROPOSAL_DIRS });
 
   const needsAnalysis = [...created, ...regressed];
   if (needsAnalysis.length === 0) {
@@ -116,6 +120,7 @@ ${JSON.stringify(context, null, 1)}`,
     applied += 1;
   }
   console.log(`[Triage] annotated ${applied}/${needsAnalysis.length} findings`);
+  writeFixlist({ findingsDir: OPS.findings, proposalDirs: PROPOSAL_DIRS }); // pick up analyst next-steps
 }
 
 main().catch((e) => {

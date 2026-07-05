@@ -9,7 +9,7 @@ import {
   checkCompanionHeartbeat, checkRedisQueue, checkProposalLifecycle, checkSheetsSchema,
   checkSheetsFreshness, checkLogClusters, checkDocPaths, runChecks,
 } from "../lib/sysloop/checks.js";
-import { upsertFindings, loadFindings, openFindingsSummary } from "../lib/sysloop/findings.js";
+import { upsertFindings, loadFindings, openFindingsSummary, renderFixlist } from "../lib/sysloop/findings.js";
 
 const NOW = Date.parse("2026-07-06T22:15:00Z"); // 18:15 ET on a Monday
 const ET = { date: "2026-07-06", hour: 18, minute: 15, weekday: "Mon", iso: "2026-07-06T22:15:00Z" };
@@ -239,6 +239,32 @@ test("findings: duplicate fingerprints within one run collapse to one occurrence
   const dir = tmpDir();
   upsertFindings(dir, [anomalyFixture, { ...anomalyFixture, detail: "second copy" }], new Date());
   assert.equal(loadFindings(dir)[0].meta.occurrences, 1);
+});
+
+test("renderFixlist: open items get checkboxes, fixed items land in regression watch", () => {
+  const dir = tmpDir();
+  upsertFindings(dir, [
+    { ...anomalyFixture, fingerprint: "aaa111", severity: "P1", title: "broken thing" },
+    { ...anomalyFixture, fingerprint: "bbb222", severity: "P3", title: "fixed thing" },
+  ], new Date("2026-07-06T22:15:00Z"));
+  const f = loadFindings(dir).find((x) => x.meta.title === "fixed thing");
+  fs.writeFileSync(path.join(dir, f.file), fs.readFileSync(path.join(dir, f.file), "utf8").replace("status: open", "status: fixed"));
+  const md = renderFixlist({ findingsDir: dir });
+  assert.match(md, /## Needs attention\n\n- \[ \] \*\*P1\*\* `F-2026-001`/);
+  assert.match(md, /## Recently fixed[\s\S]*fixed thing/);
+  assert.match(md, /1 need attention/);
+  assert.ok(md.indexOf("broken thing") < md.indexOf("Recently fixed"));
+});
+
+test("renderFixlist: regressed items are flagged and empty ledger renders clean", () => {
+  const dir = tmpDir();
+  const md = renderFixlist({ findingsDir: dir });
+  assert.match(md, /\(none — clean\)/);
+  upsertFindings(dir, [anomalyFixture], new Date("2026-07-06T22:15:00Z"));
+  const f = loadFindings(dir)[0];
+  fs.writeFileSync(path.join(dir, f.file), fs.readFileSync(path.join(dir, f.file), "utf8").replace("status: open", "status: fixed"));
+  upsertFindings(dir, [anomalyFixture], new Date("2026-07-08T22:15:00Z"));
+  assert.match(renderFixlist({ findingsDir: dir }), /\*\*REGRESSED\*\*/);
 });
 
 test("openFindingsSummary sorts by severity and excludes fixed", () => {
