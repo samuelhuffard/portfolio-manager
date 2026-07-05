@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import cron from "node-cron";
 import { getRedis, listAllProposals } from "../lib/redis.js";
+import { isTradingDate } from "../lib/market-calendar.js";
 import { telegramSafe } from "./sysloop-shared.mjs";
 
 // Mac-side sysloop runner — PM2 process `portfolio-sysloop` (runs from this
@@ -67,7 +68,7 @@ async function crossWatch() {
 
   // (b) approved-but-unexecuted during market hours while executor is stale.
   const mins = et.hour * 60 + et.minute;
-  const marketOpen = weekday && mins >= 9 * 60 + 30 && mins < 16 * 60;
+  const marketOpen = weekday && isTradingDate(et.date) && mins >= 9 * 60 + 30 && mins < 16 * 60;
   if (marketOpen) {
     const proposals = await listAllProposals().catch(() => []);
     const waiting = proposals.filter((p) => p?.status === "ApprovedForBrokerReview" && !p.fulfilledAt && p.decidedAt && Date.now() - Date.parse(p.decidedAt) > 30 * 60 * 1000);

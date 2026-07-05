@@ -14,8 +14,8 @@ Daily reconciliation now runs from the companion after close (4:35 PM ET): read-
 
 ## 3. Execution depends on Sam's laptop being awake — HIGH severity, HIGH likelihood (mitigated, not fixed)
 
-The companion is the only executor. Mac asleep = approved proposals sit. Heartbeat + approvals-page banner (shipped 2026-07-01) make it *visible*, not *solved*. `isMarketOpen()` also ignores market holidays — it will happily execute on Thanksgiving.
-**Mitigate:** Telegram alert when an approved proposal is unexecuted >30 min during market hours (companion or backend cron); add a holiday calendar to `isMarketOpen()`; long-term, move execution to an always-on host once Robinhood MCP auth allows it.
+The companion is the only executor. Mac asleep = approved proposals sit. Heartbeat + approvals-page banner (shipped 2026-07-01) make it *visible*, not *solved*. The companion's `isMarketOpen()` also ignores market holidays — it will happily execute on Thanksgiving.
+**Mitigate:** ~~Telegram alert when an approved proposal is unexecuted >30 min during market hours~~ (shipped 2026-07-05: sysloop sentinel + Mac cross-watch, both holiday-aware); backend scheduler holiday awareness shipped 2026-07-05 (`lib/market-calendar.js`, `MARKET_DAY_ONLY` jobs — the July 3rd 2026 holiday ran a full research scan for ~$0.30 before this existed). REMAINING: port the holiday calendar into the companion's `isMarketOpen()` in portfolio-dashboard; long-term, move execution to an always-on host once Robinhood MCP auth allows it.
 
 ## 4. LLM-parsed execution results — MEDIUM-HIGH severity, MEDIUM likelihood
 

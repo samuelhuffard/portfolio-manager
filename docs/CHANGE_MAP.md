@@ -75,7 +75,7 @@ Gotchas:
 
 ## Changing scheduler cadence
 
-File: `scheduler.js`. Gotchas: research scan runs AFTER the exit monitor on purpose (SELLs queue first); weekly review (Fri 6:30 PM) runs AFTER ledger verify so the week's books are checked before being summarized; update the startup console summary string when times change; no holiday awareness exists yet anywhere.
+File: `scheduler.js`. Gotchas: research scan runs AFTER the exit monitor on purpose (SELLs queue first); weekly review (Fri 6:30 PM) runs AFTER ledger verify so the week's books are checked before being summarized; update the startup console summary string when times change. Market-dependent jobs pass `MARKET_DAY_ONLY` to `wrapJob` and skip full-day NYSE holidays via `lib/market-calendar.js` (computed, not a static list) — new market jobs must pass it too; verify-ledgers/weekly-review/system-sentinel deliberately run on holidays. The dashboard companion's `isMarketOpen()` still has NO holiday awareness (see RISK_REGISTER #2).
 
 ## Changing the weekly review / agent lessons
 
