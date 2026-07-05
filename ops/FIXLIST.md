@@ -4,16 +4,12 @@
 
 # Portfolio Manager — Fix List
 
-_Regenerated 2026-07-05T04:58:16.257Z · 8 need attention · 0 acknowledged · 0 recently fixed_
+_Regenerated 2026-07-05T05:07:33.553Z · 6 need attention · 2 acknowledged · 0 recently fixed_
 
 **For Claude Code sessions:** these are system-loop findings (docs/SYSTEM-LOOP-PLAN.md), detected by deterministic checks and deduped by fingerprint. For each item under "Needs attention", judge whether it warrants fixing in your current session: read the linked finding file for evidence, verify against live state before acting (checks are point-in-time), and respect docs/INVARIANTS.md on anything money-path. When you fix one: set its `status: fixed`, note the fix in the finding file, run `npm run sysloop:fixlist`. If a fixed item's fingerprint reappears, the loop auto-escalates it to regressed.
 
 ## Needs attention
 
-- [ ] **P1** `F-2026-001` [lifecycle] Approved proposal NVDA BUY has no decision signature — seen 1×, 2026-07-05 → 2026-07-05
-  - Details: `ops/findings/F-2026-001-approved-proposal-nvda-buy-has-no-decision-signa.md`
-- [ ] **P1** `F-2026-002` [sheets] Sheet tab "Investors" header drift at column 8 — seen 1×, 2026-07-05 → 2026-07-05
-  - Details: `ops/findings/F-2026-002-sheet-tab-investors-header-drift-at-column-8.md`
 - [ ] **P2** `F-2026-003` [approvals] 8 proposals expired without a decision — seen 1×, 2026-07-05 → 2026-07-05
   - Details: `ops/findings/F-2026-003-8-proposals-expired-without-a-decision.md`
 - [ ] **P3** `F-2026-004` [docs] Doc references missing file: config/weights.json — seen 1×, 2026-07-05 → 2026-07-05
@@ -29,7 +25,10 @@ _Regenerated 2026-07-05T04:58:16.257Z · 8 need attention · 0 acknowledged · 0
 
 ## Acknowledged (known, deliberately not fixed yet)
 
-(none)
+- **P1** `F-2026-001` [lifecycle] Approved proposal NVDA BUY has no decision signature — seen 1×, 2026-07-05 → 2026-07-05
+  - Details: `ops/findings/F-2026-001-approved-proposal-nvda-buy-has-no-decision-signa.md`
+- **P1** `F-2026-002` [sheets] Sheet tab "Investors" header drift at column 8 — seen 1×, 2026-07-05 → 2026-07-05
+  - Details: `ops/findings/F-2026-002-sheet-tab-investors-header-drift-at-column-8.md`
 
 ## Proposed fixes awaiting review
 
