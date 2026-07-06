@@ -5,7 +5,7 @@ import { runResearchScan } from "./jobs/research-scan.js";
 import { runIntradayMonitor } from "./jobs/intraday-monitor.js";
 import { listPriceAlerts, addPriceAlert, removePriceAlert } from "./lib/price-alerts.js";
 import { syncHoldings } from "./jobs/holdings-sync.js";
-import { getProposalById, markProposalFulfilled, getRedis } from "./lib/redis.js";
+import { getProposalById, markProposalFulfilled, getRedis, getUniverseStatus } from "./lib/redis.js";
 import { recordMcpFill } from "./lib/mcp-accounting.js";
 import { getServiceAccountClients, getSheetIds, resolveSharedSpreadsheetId } from "./lib/sheets.js";
 
@@ -61,8 +61,17 @@ const server = http.createServer(async (req, res) => {
       deps.redis = false;
     }
     const ok = deps.redis && deps.sheetsAuth && deps.anthropicKey && deps.webhookSecret;
+    // Universe catalog state is informational, never part of ok — the research
+    // scan has a loud seed-watchlist fallback when the catalog is missing.
+    let universe = null;
+    try {
+      const status = await getUniverseStatus();
+      if (status) universe = { state: status.state, cataloged: status.cataloged ?? 0, sectorEnriched: status.sectorEnriched ?? 0, updatedAt: status.updatedAt };
+    } catch {
+      universe = null;
+    }
     res.writeHead(ok ? 200 : 503);
-    res.end(JSON.stringify({ ok, scanRunning, deps }));
+    res.end(JSON.stringify({ ok, scanRunning, deps, universe }));
     return;
   }
 

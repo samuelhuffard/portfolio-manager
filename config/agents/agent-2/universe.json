@@ -1,0 +1,8 @@
+{
+  "description": "Universe discovery settings. source=watchlist keeps this agent on its static watchlist.json until it has a real mandate/philosophy to screen the full catalog with — flip source to catalog then.",
+  "source": "watchlist",
+  "slateSize": 20,
+  "aiReviewBudget": 12,
+  "researchCooldownDays": 14,
+  "explorationSlots": 0
+}

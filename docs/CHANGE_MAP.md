@@ -20,6 +20,17 @@ Gotchas (all real bugs):
 
 Files: `jobs/research-scan.js` (orchestration), `lib/quant-scorer.js` (scoring), `lib/ai-overlay.js` (prompt + JSON parse), `lib/risk-engine.js` + `config/agents/<id>/risk-limits.json` (deterministic checks), `lib/screener.js`, `lib/data-gates.js`, `lib/conviction.js`, `lib/evaluator.js` (independent proposal evaluator), `lib/evidence.js` (untrusted-text fencing/redaction), `lib/circuit-breaker.js` (drawdown tiers), `config/weights.json`. Design rationale: `docs/LOOP-DESIGN.md`.
 
+## Changing universe discovery / candidate selection
+
+Files: `lib/universe.js` (NYSE/NASDAQ listing parse + Redis catalog shapes), `jobs/universe-refresh.js` (nightly listing/quotes/sector-enrichment crawler, 7:30 PM ET cron), `lib/candidate-slate.js` (pure daily slate: holdings → movers → ranked → exploration), `lib/research-ledger.js` (per-agent memory of researched names; drives rotation + the overlay's prior-research line), `config/agents/<id>/universe.json` (`source: "catalog" | "watchlist"`, `slateSize`, `aiReviewBudget`, `researchCooldownDays`, `explorationSlots`), Redis helpers in `lib/redis.js` (`pm:universe:*` chunked catalog, `pm:research-ledger:<agentId>`).
+
+Gotchas:
+- `aiReviewBudget` is the cost guardrail on Anthropic spend — holdings are exempt (a held name is always reviewed), everything else competes for the budget. Don't add an unbudgeted path to `toReview`.
+- Catalog entries use short field names (`t/n/x/s/i/v/mc/advd/p/c52/qa/ea`) because the catalog is chunk-stored under Upstash request-size limits — keep new fields short and update `toScreenerCandidates`.
+- `advd` is average daily DOLLAR volume (price × 3-month share volume), matching what `screenUniverse` expects — don't store raw share volume.
+- The catalog/ledger are advisory discovery data: money paths must never read them, and their absence must degrade to the seed watchlist LOUDLY (console.error), never silently.
+- A data-gate NO_TRADE is still recorded in the research ledger — otherwise a permanently-gated name occupies an exploration slot forever.
+
 Gotchas:
 - Preserve the pipeline shape: cheap gates → AI → deterministic downgrades → **evaluator (downgrade-only, fail-closed, one revision max)** → sizing → human queue. Neither the risk engine nor the evaluator may ever upgrade an action or confidence.
 - The circuit breaker is resolved ONCE per scan run (system-wide) before any agent; it restricts (halves/blocks), never authorizes. UNKNOWN tier (no valuation data) blocks BUYs on purpose.

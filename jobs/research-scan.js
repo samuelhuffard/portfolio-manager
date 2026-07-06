@@ -30,9 +30,13 @@ import {
   setPortfolioHighWaterMark,
   getBreakerState,
   setBreakerState,
+  getUniverseCatalog,
 } from "../lib/redis.js";
 import { sizeProposalAmount, hasOpenProposal, hasRecentProposal } from "../lib/proposal-sizing.js";
 import { syncMarketScansFromRobinhood } from "../lib/market-scan-sync.js";
+import { toScreenerCandidates } from "../lib/universe.js";
+import { buildSlate, formatSlateCounts } from "../lib/candidate-slate.js";
+import { readResearchLedger, applyResearchRecords, formatResearchHistoryForPrompt } from "../lib/research-ledger.js";
 import {
   getServiceAccountClients,
   resolveSharedSpreadsheetId,
@@ -50,17 +54,27 @@ import {
 import { AGENTS } from "../config/agents.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TOP_N = 5;
 const DEFAULT_AGENT_IDS = AGENTS.map((agent) => agent.id);
 const EVIDENCE_TELEGRAM_THRESHOLD = 3;
 
+// A missing/broken universe.json quietly behaving like watchlist mode would be a
+// silent no-op on the whole discovery funnel — keep the fallback, but loudly.
+const DEFAULT_UNIVERSE_CONFIG = { source: "watchlist", slateSize: 20, aiReviewBudget: 12, researchCooldownDays: 14, explorationSlots: 0 };
+
 function loadAgentConfig(agentId) {
   const dir = path.join(__dirname, "..", "config", "agents", agentId);
+  let universe = DEFAULT_UNIVERSE_CONFIG;
+  try {
+    universe = { ...DEFAULT_UNIVERSE_CONFIG, ...JSON.parse(fs.readFileSync(path.join(dir, "universe.json"), "utf8")) };
+  } catch (err) {
+    console.error(`[Research] ${agentId}: universe.json unreadable (${err.message}) — falling back to watchlist source.`);
+  }
   return {
     watchlist: JSON.parse(fs.readFileSync(path.join(dir, "watchlist.json"), "utf8")),
     weights: JSON.parse(fs.readFileSync(path.join(dir, "weights.json"), "utf8")),
     riskLimits: JSON.parse(fs.readFileSync(path.join(dir, "risk-limits.json"), "utf8")),
     personality: fs.readFileSync(path.join(dir, "personality.md"), "utf8").trim(),
+    universe,
   };
 }
 
@@ -198,7 +212,9 @@ function applyConvictionClamp(rec, agent, candidate, riskLimits) {
 
 /**
  * Runs one agent's full scan (quant score -> AI overlay -> risk engine -> write) against
- * its own watchlist, but the SAME shared portfolio/spreadsheet as the other two agents —
+ * its own daily universe (catalog-sourced candidate slate, or seed watchlist for agents
+ * without a mandate — see universe.json), but the SAME shared portfolio/spreadsheet as
+ * the other two agents —
  * so risk checks (sector/position-size limits) see real combined exposure across all
  * three agents, and one agent's proposal can be downgraded because of another agent's
  * existing position. One agent's failure doesn't block the others (see runResearchScan).
@@ -207,21 +223,67 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
   breaker = breaker ?? { tier: "NONE", drawdownPct: 0 };
   boundaryToken = boundaryToken ?? makeBoundaryToken();
   const evidenceFlags = []; // injection-suspect evidence collected across the run, Telegramed once at the end
-  const { watchlist, weights: weightsConfig, riskLimits, personality } = loadAgentConfig(agent.id);
+  const { watchlist, weights: weightsConfig, riskLimits, personality, universe: universeCfg } = loadAgentConfig(agent.id);
   const marketScans = await readMarketScans(sheets, spreadsheetId).catch((err) => {
     console.warn(`[Research] ${agent.id}: market scan context unavailable:`, err.message);
     return [];
   });
-  const scanTickers = selectMarketScanTickers(agent.id, marketScans, watchlist.tickers);
-  const universeTickers = [...new Set([...watchlist.tickers, ...scanTickers])];
-  console.log(`[Research] ${agent.id}: scanning ${universeTickers.length} tickers (${watchlist.tickers.length} watchlist + ${scanTickers.length} Robinhood scan).`);
 
-  const [fundamentals, holdingTickers, strategyNotes, heldReturnPct] = await Promise.all([
-    fetchFundamentalsBatch(universeTickers),
+  // Holdings + research ledger come first now: the candidate slate needs both
+  // before the day's universe is even known (catalog-sourced agents).
+  const [holdingTickers, strategyNotes, heldReturnPct] = await Promise.all([
     readHoldingsTickers(sheets, spreadsheetId),
     readAgentStrategyNotes(sheets, spreadsheetId, agent.id),
     readHoldingsReturnPct(sheets, spreadsheetId),
   ]);
+  const researchLedger = await readResearchLedger(agent.id);
+
+  // For catalog agents the watchlist is no longer the universe — scan names only
+  // need to dodge holdings (which the slate already guarantees a review for).
+  const scanTickers = selectMarketScanTickers(
+    agent.id,
+    marketScans,
+    universeCfg.source === "catalog" ? holdingTickers : watchlist.tickers
+  );
+
+  // Day's universe: catalog-sourced agents get a slate narrowed from the full
+  // philosophy-screened NYSE/NASDAQ catalog (LOOP-DESIGN funnel); watchlist
+  // agents (and any agent whose catalog is unavailable) keep the seed-list path.
+  let universeTickers;
+  let explorationTickers = new Set();
+  if (universeCfg.source === "catalog") {
+    const catalog = await getUniverseCatalog();
+    const screenerCandidates = catalog ? toScreenerCandidates(catalog) : [];
+    const { passed: screened } = screenUniverse(screenerCandidates, riskLimits);
+    if (screened.length) {
+      const { slate, counts } = buildSlate({
+        screened,
+        holdings: holdingTickers,
+        scanTickers,
+        ledger: researchLedger,
+        config: universeCfg,
+      });
+      universeTickers = slate.map((s) => s.ticker);
+      explorationTickers = new Set(slate.filter((s) => s.bucket === "exploration").map((s) => s.ticker));
+      console.log(
+        `[Research] ${agent.id}: slate = ${formatSlateCounts(counts)}; catalog ${screened.length} screened / ${screenerCandidates.length} sector-enriched / ${catalog ? Object.keys(catalog).length : 0} cataloged.`
+      );
+    } else {
+      // The scan must never starve to zero, but a missing catalog is a broken
+      // discovery funnel — scream so it can't quietly regress to the static list.
+      console.error(
+        `[Research] ${agent.id}: universe catalog empty or unavailable — FALLING BACK to seed watchlist (${watchlist.tickers.length} names). Check jobs/universe-refresh.js.`
+      );
+      universeTickers = [...new Set([...watchlist.tickers, ...scanTickers])];
+    }
+  } else {
+    universeTickers = [...new Set([...watchlist.tickers, ...scanTickers])];
+    console.log(
+      `[Research] ${agent.id}: scanning ${universeTickers.length} tickers (${watchlist.tickers.length} watchlist + ${scanTickers.length} Robinhood scan).`
+    );
+  }
+
+  const fundamentals = await fetchFundamentalsBatch(universeTickers);
   const persistentMemory = formatAgentMemoriesForPrompt(await listAgentMemories(agent.id));
 
   const now = new Date();
@@ -290,19 +352,28 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
 
   const scored = scoreCandidates(eligible, weightsConfig.quant_weights);
 
-  // AI overlay: top quant movers + any current holdings (so held positions get reviewed too)
+  // AI overlay selection under a hard daily budget (cost guardrail). Priority:
+  // holdings are ALWAYS reviewed (even past the budget — a held position must
+  // never go unwatched because discovery filled the day's slots), then the
+  // exploration names the slate reserved, then Robinhood scan signals, then
+  // top-quant fill until the budget is spent.
+  const aiReviewBudget = Math.max(1, universeCfg.aiReviewBudget ?? 12);
   const toReview = new Map();
-  for (const c of scored.slice(0, TOP_N)) toReview.set(c.ticker, c);
-  for (const ticker of scanTickers) {
+  const addToReview = (ticker, { exempt = false } = {}) => {
+    if (toReview.has(ticker)) return;
+    if (!exempt && toReview.size >= aiReviewBudget) return;
     const c = scored.find((s) => s.ticker === ticker);
     if (c) toReview.set(ticker, c);
-  }
-  for (const ticker of holdingTickers) {
-    const c = scored.find((s) => s.ticker === ticker);
-    if (c) toReview.set(ticker, c);
+  };
+  for (const ticker of holdingTickers) addToReview(ticker, { exempt: true });
+  for (const ticker of explorationTickers) addToReview(ticker);
+  for (const ticker of scanTickers) addToReview(ticker);
+  for (const c of scored) {
+    if (toReview.size >= aiReviewBudget) break;
+    addToReview(c.ticker);
   }
 
-  console.log(`[Research] ${agent.id}: running AI overlay for ${toReview.size} tickers...`);
+  console.log(`[Research] ${agent.id}: running AI overlay for ${toReview.size} tickers (budget ${aiReviewBudget}, holdings exempt)...`);
   const spyQuote = await fetchQuotes([watchlist.benchmark]);
   const spyEntryPrice = spyQuote[watchlist.benchmark]?.regularMarketPrice ?? null;
 
@@ -346,6 +417,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
   const ordinarySellCooldownDays = riskLimits.ordinarySellCooldownDays ?? 7;
 
   const recommendations = [];
+  const researchRecords = []; // research-ledger updates, persisted once after the loop
   for (const c of toReview.values()) {
     try {
     // Data-availability gate runs BEFORE the (expensive) AI overlay. Per the memo, missing
@@ -367,6 +439,16 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
         targetWeight: 0,
         confidence: null,
         ruleCheck: `data_gate_blocked: ${reason}`,
+      });
+      // A data-gate block still counts as "looked at" for slate rotation —
+      // otherwise a permanently-gated name would occupy an exploration slot forever.
+      researchRecords.push({
+        ticker: c.ticker,
+        action: "NO_TRADE",
+        quantScore: c.quantScore ?? null,
+        confidence: null,
+        thesis: `NO_TRADE (data gate): ${reason}`,
+        entryPrice: c.raw?.price?.regularMarketPrice ?? null,
       });
       continue;
     }
@@ -425,6 +507,9 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
       personality,
       persistentMemory,
       proposalPolicy,
+      // The agent's own prior conclusion on this name (research ledger) — per-ticker,
+      // so it belongs in the user message, never the cached system block.
+      researchHistory: formatResearchHistoryForPrompt(researchLedger[c.ticker]),
       boundaryToken,
     };
     const proposal = await getAIRecommendation(overlayInput);
@@ -643,6 +728,15 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
       }
     }
 
+    researchRecords.push({
+      ticker: c.ticker,
+      action: rec.action,
+      quantScore: c.quantScore ?? null,
+      confidence: rec.confidence ?? null,
+      thesis: rec.thesis ?? "",
+      entryPrice,
+    });
+
     recommendations.push({
       date: new Date().toISOString().slice(0, 10),
       ticker: c.ticker,
@@ -682,6 +776,10 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
 
   await appendAgentRecommendations(sheets, spreadsheetId, sheetIds[agentTabName(agent.id)], agent.id, recommendations);
   console.log(`[Research] ${agent.id}: done — wrote ${recommendations.length} recommendations.`);
+
+  // Persist this run's research memory (advisory: rotation + prompt context only,
+  // so one write after the loop — a failed run just re-researches sooner).
+  await applyResearchRecords(agent.id, researchRecords);
 
   // Injection-suspect evidence is logged every time, but Telegram only escalates
   // higher-signal cases so routine single-source redactions don't look like bot replies.

@@ -1,5 +1,5 @@
 {
-  "description": "Agent 1's active watchlist slice for the aggressive technology-growth mandate in AGENT-ONE-PLAN.md. This is also the real, holdings-synced Robinhood account. The v5 screener permits US-listed technology names across Software/SaaS, Semiconductors, Tech Infrastructure, Tech Hardware, and Tech-Adjacent High-Growth; edit tickers freely as the dynamic universe source matures.",
+  "description": "SEED/FALLBACK ONLY since universe.json switched agent-1 to source=catalog: the research scan draws its daily slate from the full NYSE/NASDAQ tech catalog (jobs/universe-refresh.js + lib/candidate-slate.js) and only uses these tickers when the catalog is empty or unreadable (logged loudly). Benchmark is still read from here.",
   "benchmark": "SPY",
   "tickers": ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "AVGO", "AMD"]
 }

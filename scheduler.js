@@ -9,6 +9,7 @@ import { syncHoldings } from "./jobs/holdings-sync.js";
 import { runLedgerVerification } from "./scripts/verify-ledgers.js";
 import { runWeeklyReview } from "./jobs/weekly-review.js";
 import { runSystemSentinel } from "./jobs/system-sentinel.js";
+import { runUniverseRefresh } from "./jobs/universe-refresh.js";
 import { getRedis } from "./lib/redis.js";
 import { marketHolidayNameET } from "./lib/market-calendar.js";
 import { startServer } from "./server.js";
@@ -131,6 +132,14 @@ cron.schedule("0 18 * * 1-5", wrapJob("verify-ledgers", "Verify", runLedgerVerif
 // Runs last so it can see whether today's whole pipeline actually ran.
 cron.schedule("15 18 * * 1-5", wrapJob("system-sentinel", "Sysloop", runSystemSentinel), TZ);
 
+// ── Universe refresh (7:30 PM ET weeknights) ─────────────────────────────────
+// Maintains the NYSE/NASDAQ common-stock catalog the research scan's candidate
+// slate draws from (jobs/universe-refresh.js): listing refresh, bulk quotes,
+// and a paced nightly batch of sector enrichment. Off the 5:15 PM scan path on
+// purpose; failure Telegrams and the next scan uses the last good catalog.
+// Not market-day-gated — enrichment on a holiday evening is harmless and useful.
+cron.schedule("30 19 * * 1-5", wrapJob("universe-refresh", "Universe", runUniverseRefresh), TZ);
+
 // ── Weekly review (Friday 6:30 PM ET) ────────────────────────────────────────
 // Closes the feedback loop: deterministic per-agent scorecard (proposals,
 // decisions, matured track record, calibration) → ≤3 durable lessons written
@@ -143,5 +152,5 @@ console.log(
   "pre-market 8:30 AM | opening 9:35 AM | holdings sync 11 AM/1 PM/3 PM | " +
   "intraday every 30 min 10 AM–3:30 PM | pre-close 3:50 PM | exit monitor 4:45 PM | " +
   "research scan 5:15 PM | perf review 5:45 PM | ledger verify 6:00 PM | " +
-  "system sentinel 6:15 PM (Mon-Fri, ET) | weekly review Fri 6:30 PM ET"
+  "system sentinel 6:15 PM | universe refresh 7:30 PM (Mon-Fri, ET) | weekly review Fri 6:30 PM ET"
 );
