@@ -506,6 +506,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
       macro: macroText,
       personality,
       persistentMemory,
+      agentId: agent.id,
       proposalPolicy,
       // The agent's own prior conclusion on this name (research ledger) — per-ticker,
       // so it belongs in the user message, never the cached system block.
@@ -572,7 +573,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
         };
 
         let finalEval;
-        const first = await evaluateProposal({ ...evalContext, proposal: rec });
+        const first = await evaluateProposal({ ...evalContext, proposal: rec, agentId: agent.id });
         if (first.verdict === "REVISE") {
           console.log(`[Evaluator] ${agent.id}: ${c.ticker} sent back for revision — ${first.critique.join("; ")}`);
           const revisedRaw = await getAIRecommendation({ ...overlayInput, evaluatorCritique: first.critique, previousProposal: rec });
@@ -582,7 +583,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
             finalEval = { ...first, verdict: "REJECT", revisions: 1, critique: [...first.critique, "generator conceded on revision"] };
             rec = revised;
           } else {
-            const second = await evaluateProposal({ ...evalContext, proposal: revised });
+            const second = await evaluateProposal({ ...evalContext, proposal: revised, agentId: agent.id });
             finalEval = resolveFinalVerdict(first, second);
             if (finalEval.verdict === "APPROVE") rec = revised;
           }

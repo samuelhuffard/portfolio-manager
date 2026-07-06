@@ -36,6 +36,7 @@ Gotchas:
 - The circuit breaker is resolved ONCE per scan run (system-wide) before any agent; it restricts (halves/blocks), never authorizes. UNKNOWN tier (no valuation data) blocks BUYs on purpose.
 - News/scan text must pass through `sanitizeEvidenceItems` + `fenceUntrusted` before reaching any prompt; the cache stores ORIGINAL text and sanitization runs on every use.
 - Anything volatile (cash figures, per-run values) goes in the **user message**, never the cached `system` block — it kills the prompt cache for the rest of the run.
+- Anthropic prompt-cache proof lives in Redis `pm:anthropic-usage:<YYYY-MM-DD>` via `lib/anthropic-usage.js`; check `cacheReadInputTokens` and `cacheCreationInputTokens` before claiming caching is working or changing prompt structure.
 - Model JSON: check `stop_reason === "max_tokens"`; missing fields must FAIL the checks that read them (see the confidence-floor bug).
 - New config keys: grep that code actually consumes them — `risk-limits.json` has historically accumulated dead keys.
 - Per-ticker code runs inside a try/catch that writes `scan_error` rows — keep new steps inside it.

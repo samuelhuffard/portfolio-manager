@@ -4,6 +4,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { AGENTS } from "../config/agents.js";
 import { computeWeeklyScorecard, formatScorecardForPrompt, parseWeeklyLessons } from "../lib/weekly-scorecard.js";
 import { listAgentMemories, applyWeeklyLessons } from "../lib/agent-memory.js";
+import { recordAnthropicUsage } from "../lib/anthropic-usage.js";
 import { listAllProposals, setWeeklyReviewArtifact } from "../lib/redis.js";
 import { getServiceAccountClients, resolveSharedSpreadsheetId, readAgentRecommendationOutcomes } from "../lib/sheets.js";
 import { sendMessage as sendTelegram } from "../lib/telegram.js";
@@ -20,6 +21,7 @@ import { sendMessage as sendTelegram } from "../lib/telegram.js";
  */
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY?.trim() });
+const WEEKLY_REVIEW_MODEL = "claude-sonnet-4-6";
 
 const LESSON_PROMPT_RULES = `You write weekly calibration lessons for an investment research agent, based ONLY on the deterministic scorecard provided. Rules:
 - At most 3 new lessons. Zero is a fine answer — most weeks with little matured data deserve zero.
@@ -42,10 +44,17 @@ async function generateLessons(scorecard, existingLessons) {
     ? `Existing lessons from prior weekly reviews (candidates for "retire" if contradicted):\n${existingLessons.map((m) => `- ${m.text}`).join("\n")}`
     : "No existing weekly lessons.";
   const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
+    model: WEEKLY_REVIEW_MODEL,
     max_tokens: 500,
     system: [{ type: "text", text: LESSON_PROMPT_RULES }],
     messages: [{ role: "user", content: `${formatScorecardForPrompt(scorecard)}\n\n${existingBlock}` }],
+  });
+  await recordAnthropicUsage({
+    role: "weekly_review",
+    agentId: scorecard.agentId,
+    model: WEEKLY_REVIEW_MODEL,
+    stopReason: response.stop_reason,
+    usage: response.usage,
   });
   if (response.stop_reason === "max_tokens") {
     console.warn(`[WeeklyReview] ${scorecard.agentId}: lesson response hit max_tokens — discarding (fail closed).`);
