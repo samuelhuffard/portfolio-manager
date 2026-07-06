@@ -6,6 +6,7 @@ AI portfolio research + execution backend. **Real money flows through this repo.
 
 - **Open system-loop findings → `ops/FIXLIST.md`** (auto-generated). At session start, skim "Needs attention" and judge whether anything there should be fixed as part of (or before) the current task — verify against live state first, findings are point-in-time. When you fix one, follow the status/regenerate steps in the file header.
 - New to the system → `docs/ONBOARDING.md` (mental models, proposal lifecycle, vocabulary).
+- Planning significant work → `docs/AUTONOMY-ROADMAP.md` is the north star: find the current phase, verify its status against live state, work on that phase.
 - Before ANY change → find your change type in `docs/CHANGE_MAP.md` (exact files + gotchas).
 - Touching proposals/execution/ledgers/NAV → `docs/INVARIANTS.md` is non-negotiable.
 - Ops (deploy, env, failure modes) → `docs/RUNBOOK.md`.
