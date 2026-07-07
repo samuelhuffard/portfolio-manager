@@ -1,6 +1,7 @@
 import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { fetchFundamentals, fetchFundamentalsBatch, fetchDailyBars, fetchQuotes, percentChange } from "../lib/yahoo.js";
 import { scoreCandidates } from "../lib/quant-scorer.js";
@@ -32,6 +33,7 @@ import {
   setBreakerState,
   getUniverseCatalog,
   setSlateSnapshot,
+  setResearchScanStatus,
 } from "../lib/redis.js";
 import { sizeProposalAmount, hasOpenProposal, hasRecentProposal } from "../lib/proposal-sizing.js";
 import { syncMarketScansFromRobinhood } from "../lib/market-scan-sync.js";
@@ -58,6 +60,35 @@ import { AGENTS } from "../config/agents.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_AGENT_IDS = AGENTS.map((agent) => agent.id);
 const EVIDENCE_TELEGRAM_THRESHOLD = 3;
+
+function blankAgentScanSummary(agentId) {
+  return {
+    agentId,
+    status: "completed",
+    recommendationsWritten: 0,
+    attemptedReviews: 0,
+    actionCounts: { BUY: 0, SELL: 0, HOLD: 0 },
+    proposalsCreated: 0,
+    proposalCounts: { BUY: 0, SELL: 0 },
+    scanErrors: 0,
+    evaluatorRejects: 0,
+    startedAt: new Date().toISOString(),
+    completedAt: null,
+    error: null,
+  };
+}
+
+function summarizeRecommendation(summary, recommendation) {
+  if (!recommendation) return;
+  summary.recommendationsWritten += 1;
+  const action = recommendation.action;
+  if (action === "BUY" || action === "SELL" || action === "HOLD") {
+    summary.actionCounts[action] += 1;
+  }
+  const ruleCheck = recommendation.ruleCheck ?? "";
+  if (ruleCheck.includes("scan_error")) summary.scanErrors += 1;
+  if (ruleCheck.includes("evaluator_reject")) summary.evaluatorRejects += 1;
+}
 
 // A missing/broken universe.json quietly behaving like watchlist mode would be a
 // silent no-op on the whole discovery funnel — keep the fallback, but loudly.
@@ -767,6 +798,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
  * existing position. One agent's failure doesn't block the others (see runResearchScan).
  */
 async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, { breaker, boundaryToken } = {}) {
+  const summary = blankAgentScanSummary(agent.id);
   breaker = breaker ?? { tier: "NONE", drawdownPct: 0 };
   boundaryToken = boundaryToken ?? makeBoundaryToken();
   const evidenceFlags = []; // injection-suspect evidence collected across the run, Telegramed once at the end
@@ -901,6 +933,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
   }
 
   console.log(`[Research] ${agent.id}: running AI overlay for ${toReview.size} tickers (budget ${aiReviewBudget}, holdings exempt)...`);
+  summary.attemptedReviews = toReview.size;
 
   const reviewContext = await buildAgentReviewContext(sheets, spreadsheetId, {
     candidates,
@@ -927,16 +960,25 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
   const researchRecords = []; // research-ledger updates, persisted once after the loop
   for (const c of toReview.values()) {
     try {
-      const { recommendation, researchRecord } = await reviewCandidateForAgent(agent, c, ctx);
+      const { recommendation, researchRecord, createdProposal } = await reviewCandidateForAgent(agent, c, ctx);
       if (researchRecord) researchRecords.push(researchRecord);
-      if (recommendation) recommendations.push(recommendation);
+      if (createdProposal) {
+        summary.proposalsCreated += 1;
+        if (createdProposal.side === "BUY" || createdProposal.side === "SELL") {
+          summary.proposalCounts[createdProposal.side] += 1;
+        }
+      }
+      if (recommendation) {
+        recommendations.push(recommendation);
+        summarizeRecommendation(summary, recommendation);
+      }
     } catch (err) {
       // One ticker failing (Anthropic 429/timeout, Yahoo hiccup, EDGAR outage)
       // must not discard every other ticker's finished research — especially
       // since proposals queued earlier in this loop already exist in Redis and
       // would otherwise have no matching recommendation row in the Sheet.
       console.error(`[Research] ${agent.id}: ${c.ticker} failed mid-review (continuing): ${err.message}`);
-      recommendations.push({
+      const recommendation = {
         date: new Date().toISOString().slice(0, 10),
         ticker: c.ticker,
         action: "HOLD",
@@ -949,7 +991,9 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
         targetWeight: 0,
         confidence: null,
         ruleCheck: "scan_error",
-      });
+      };
+      recommendations.push(recommendation);
+      summarizeRecommendation(summary, recommendation);
     }
   }
 
@@ -972,6 +1016,8 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
   } else if (evidenceFlags.length) {
     console.warn(`[Evidence] ${agent.id}: ${evidenceFlags.length} low-severity evidence flag(s) logged without Telegram: ${summarizeEvidenceFlags(evidenceFlags)}`);
   }
+  summary.completedAt = new Date().toISOString();
+  return summary;
 }
 
 /**
@@ -979,35 +1025,87 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
  * agents so newly-available cash can collect competing proposals from every desk.
  * Pass agentIds to override for a targeted diagnostic scan.
  */
-export async function runResearchScan({ agentIds = DEFAULT_AGENT_IDS } = {}) {
-  // Refresh the shared Market Scans tab from Robinhood before any agent reads it, so
-  // scanTickers (see selectMarketScanTickers above) can include names outside each
-  // agent's static watchlist. Never blocks the scan — a failure here just leaves
-  // agents scanning their watchlists only, same as before this existed.
+export async function runResearchScan({ agentIds = DEFAULT_AGENT_IDS, source = "scheduled" } = {}) {
+  const runId = randomUUID();
+  const startedAt = new Date().toISOString();
+  const agentSummaries = [];
+  const persistFinalStatus = async (status, error = null) => {
+    const completedAt = new Date().toISOString();
+    await setResearchScanStatus({
+      runId,
+      source,
+      status,
+      startedAt,
+      completedAt,
+      durationMs: Date.parse(completedAt) - Date.parse(startedAt),
+      agents: agentSummaries,
+      totals: agentSummaries.reduce(
+        (acc, agent) => ({
+          recommendationsWritten: acc.recommendationsWritten + agent.recommendationsWritten,
+          attemptedReviews: acc.attemptedReviews + agent.attemptedReviews,
+          proposalsCreated: acc.proposalsCreated + agent.proposalsCreated,
+          scanErrors: acc.scanErrors + agent.scanErrors,
+          evaluatorRejects: acc.evaluatorRejects + agent.evaluatorRejects,
+        }),
+        { recommendationsWritten: 0, attemptedReviews: 0, proposalsCreated: 0, scanErrors: 0, evaluatorRejects: 0 }
+      ),
+      error,
+    });
+  };
+
+  await setResearchScanStatus({
+    runId,
+    source,
+    status: "running",
+    startedAt,
+    completedAt: null,
+    agents: [],
+    error: null,
+  });
+
   try {
-    const count = await syncMarketScansFromRobinhood();
-    console.log(`[Research] Market scan refresh: ${count} row(s) from Robinhood.`);
-  } catch (err) {
-    console.warn("[Research] Market scan refresh failed — continuing with watchlists only:", err.message);
-  }
-
-  const { sheets, drive } = getServiceAccountClients();
-  const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
-  const sheetIds = await getSheetIds(sheets, spreadsheetId);
-
-  // System-wide gates computed ONCE per run, before any agent: the drawdown
-  // circuit breaker (restricts what any agent may queue) and the per-run
-  // boundary token for untrusted-evidence fencing.
-  const breaker = await resolveCircuitBreaker(sheets, spreadsheetId);
-  const boundaryToken = makeBoundaryToken();
-
-  const activeAgents = AGENTS.filter((a) => agentIds.includes(a.id));
-  for (const agent of activeAgents) {
+    // Refresh the shared Market Scans tab from Robinhood before any agent reads it, so
+    // scanTickers (see selectMarketScanTickers above) can include names outside each
+    // agent's static watchlist. Never blocks the scan — a failure here just leaves
+    // agents scanning their watchlists only, same as before this existed.
     try {
-      await runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, { breaker, boundaryToken });
+      const count = await syncMarketScansFromRobinhood();
+      console.log(`[Research] Market scan refresh: ${count} row(s) from Robinhood.`);
     } catch (err) {
-      console.error(`[Research] ${agent.id} failed:`, err.message);
+      console.warn("[Research] Market scan refresh failed — continuing with watchlists only:", err.message);
     }
+
+    const { sheets, drive } = getServiceAccountClients();
+    const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
+    const sheetIds = await getSheetIds(sheets, spreadsheetId);
+
+    // System-wide gates computed ONCE per run, before any agent: the drawdown
+    // circuit breaker (restricts what any agent may queue) and the per-run
+    // boundary token for untrusted-evidence fencing.
+    const breaker = await resolveCircuitBreaker(sheets, spreadsheetId);
+    const boundaryToken = makeBoundaryToken();
+
+    const activeAgents = AGENTS.filter((a) => agentIds.includes(a.id));
+    for (const agent of activeAgents) {
+      try {
+        const summary = await runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, { breaker, boundaryToken });
+        agentSummaries.push(summary);
+      } catch (err) {
+        console.error(`[Research] ${agent.id} failed:`, err.message);
+        agentSummaries.push({
+          ...blankAgentScanSummary(agent.id),
+          status: "failed",
+          completedAt: new Date().toISOString(),
+          error: err.message,
+        });
+      }
+    }
+    const status = agentSummaries.some((agent) => agent.status === "failed") ? "failed" : "completed";
+    await persistFinalStatus(status, status === "failed" ? "One or more agents failed. See per-agent status." : null);
+  } catch (err) {
+    console.error("[Research] Scan failed before completion:", err.message);
+    await persistFinalStatus("failed", err.message);
+    throw err;
   }
 }
 

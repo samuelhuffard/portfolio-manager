@@ -158,7 +158,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(202);
     res.end(JSON.stringify({ ok: true, message: "All-agent scan started" }));
     scanRunning = true;
-    runResearchScan()
+    runResearchScan({ source: "manual" })
       .catch((e) => console.error("[Server] Scan error:", e.message))
       .finally(() => { scanRunning = false; });
     return;
