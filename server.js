@@ -1,19 +1,60 @@
 import "dotenv/config";
 import http from "node:http";
-import { timingSafeEqual } from "node:crypto";
-import { runResearchScan } from "./jobs/research-scan.js";
+import { timingSafeEqual, randomUUID } from "node:crypto";
+import { runResearchScan, researchTickerForAgent } from "./jobs/research-scan.js";
 import { runIntradayMonitor } from "./jobs/intraday-monitor.js";
 import { listPriceAlerts, addPriceAlert, removePriceAlert } from "./lib/price-alerts.js";
 import { syncHoldings } from "./jobs/holdings-sync.js";
-import { getProposalById, markProposalFulfilled, getRedis, getUniverseStatus } from "./lib/redis.js";
+import { getProposalById, markProposalFulfilled, getRedis, getUniverseStatus, setLabResearchStatus, getLabResearchStatus } from "./lib/redis.js";
 import { recordMcpFill } from "./lib/mcp-accounting.js";
 import { getServiceAccountClients, getSheetIds, resolveSharedSpreadsheetId } from "./lib/sheets.js";
+import { validateResearchTickerRequest, buildLabOutcome } from "./lib/lab-research.js";
+import { AGENTS } from "./config/agents.js";
 
 const PORT = process.env.PORTFOLIO_SERVER_PORT ?? 3200;
 const SECRET = process.env.PORTFOLIO_WEBHOOK_SECRET?.trim();
+const AGENT_IDS = AGENTS.map((a) => a.id);
 
 let scanRunning = false;
 let syncRunning = false;
+
+// Lab single-ticker research runs (POST /research-ticker): in-flight keys
+// (`agentId:ticker`) so the same request can't double-run; results live in
+// Redis under pm:lab-research:<requestId> for the dashboard to poll.
+const labResearchRunning = new Set();
+
+async function runLabResearch({ requestId, runKey, ticker, agentId, startedAt }) {
+  try {
+    const result = await researchTickerForAgent(agentId, ticker);
+    const outcome = buildLabOutcome(result);
+    await setLabResearchStatus(requestId, {
+      status: "done",
+      ticker,
+      agentId,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      outcome,
+    });
+    console.log(
+      `[Server] Lab research ${agentId}/${ticker} done — ${outcome.action}${
+        outcome.proposalId ? ` (proposal ${outcome.proposalId}, $${outcome.amountDollars})` : ` (${outcome.reason})`
+      }.`
+    );
+  } catch (e) {
+    // The Redis record is this run's only output surface — the failure must land there loudly.
+    console.error(`[Server] Lab research ${agentId}/${ticker} failed:`, e.message);
+    await setLabResearchStatus(requestId, {
+      status: "error",
+      ticker,
+      agentId,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      error: e.message,
+    });
+  } finally {
+    labResearchRunning.delete(runKey);
+  }
+}
 
 // FAIL CLOSED: without a configured secret, every route except /health is
 // refused. The old fail-open behavior meant an unset env var silently exposed
@@ -111,6 +152,65 @@ const server = http.createServer(async (req, res) => {
     runResearchScan()
       .catch((e) => console.error("[Server] Scan error:", e.message))
       .finally(() => { scanRunning = false; });
+    return;
+  }
+
+  // POST /research-ticker — dashboard Lab: run the full research pipeline for a
+  // single ticker/agent and, if it clears every gate, queue a properly-sized
+  // proposal into the approval queue. Responds 202 with a requestId; progress/
+  // result is polled via GET /research-ticker/<requestId>.
+  if (req.method === "POST" && url.pathname === "/research-ticker") {
+    let body;
+    try {
+      body = await readBody(req);
+    } catch {
+      res.writeHead(400);
+      res.end(JSON.stringify({ error: "Invalid JSON body" }));
+      return;
+    }
+    const validated = validateResearchTickerRequest(body, AGENT_IDS);
+    if (!validated.ok) {
+      res.writeHead(400);
+      res.end(JSON.stringify({ error: validated.error }));
+      return;
+    }
+    const { ticker, agentId } = validated;
+    if (scanRunning) {
+      res.writeHead(429);
+      res.end(JSON.stringify({ error: "Full research scan is currently running — retry after it finishes" }));
+      return;
+    }
+    const runKey = `${agentId}:${ticker}`;
+    if (labResearchRunning.has(runKey)) {
+      res.writeHead(409);
+      res.end(JSON.stringify({ error: `Lab research already running for ${ticker} (${agentId})` }));
+      return;
+    }
+    const requestId = randomUUID();
+    const startedAt = new Date().toISOString();
+    labResearchRunning.add(runKey);
+    await setLabResearchStatus(requestId, { status: "running", ticker, agentId, startedAt });
+    res.writeHead(202);
+    res.end(JSON.stringify({ ok: true, requestId }));
+    runLabResearch({ requestId, runKey, ticker, agentId, startedAt }).catch((e) => {
+      // runLabResearch handles its own errors; this only guards bookkeeping bugs.
+      console.error("[Server] Lab research bookkeeping error:", e.message);
+      labResearchRunning.delete(runKey);
+    });
+    return;
+  }
+
+  // GET /research-ticker/:requestId — poll a lab run's progress/result.
+  const labStatusMatch = url.pathname.match(/^\/research-ticker\/([0-9a-fA-F-]{1,64})$/);
+  if (req.method === "GET" && labStatusMatch) {
+    const record = await getLabResearchStatus(labStatusMatch[1]);
+    if (!record) {
+      res.writeHead(404);
+      res.end(JSON.stringify({ error: "Unknown or expired requestId" }));
+      return;
+    }
+    res.writeHead(200);
+    res.end(JSON.stringify(record));
     return;
   }
 
