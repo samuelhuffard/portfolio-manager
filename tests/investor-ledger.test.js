@@ -101,6 +101,42 @@ test("existing investors must use a current or explicitly accepted NAV date", ()
   assert.equal(accepted.entry.units, 100);
 });
 
+test("existing-capital attribution uses contribution-basis NAV instead of inflated market NAV", () => {
+  const ledger = [
+    buildInvestorLedgerEntry(
+      {
+        date: "2026-07-07",
+        email: "owner@example.com",
+        name: "Owner",
+        type: "Contribution",
+        amount: 25,
+        navPerUnit: 1,
+        units: 25,
+        investorId: "user_owner",
+        entryId: "entry_owner",
+      },
+      secret
+    ),
+  ];
+
+  const result = calculateInvestorLedgerEntry({
+    agentId: "agent-1",
+    ledger,
+    performanceHistory: [{ date: "2026-07-07", portfolioValue: 74.55, navPerUnit: 2.9819 }],
+    email: "client@example.com",
+    name: "Client",
+    amount: 25,
+    isExistingCapitalAttribution: true,
+    existingCapitalNavPerUnit: 1,
+    now: new Date("2026-07-07T16:00:00-04:00"),
+    secret,
+  });
+
+  assert.equal(result.entry.navPerUnit, 1);
+  assert.equal(result.entry.units, 25);
+  assert.equal(result.unitsOutstandingAfter, 50);
+});
+
 test("withdrawals cannot exceed the investor's units", () => {
   const ledger = [
     buildInvestorLedgerEntry(
