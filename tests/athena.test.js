@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { getAthenaConfig, fetchAthenaDossier, athenaDossierToEvidence } from "../lib/athena.js";
+import { getAthenaConfig, fetchAthenaDossier, fetchAthenaStatus, athenaDossierToEvidence } from "../lib/athena.js";
 import { sanitizeEvidenceItems } from "../lib/evidence.js";
 
 test("getAthenaConfig requires BOTH url and token (off by default)", () => {
@@ -42,6 +42,46 @@ test("fetchAthenaDossier degrades to null on HTTP errors and network failures", 
   assert.equal(await fetchAthenaDossier("GOOD", { env, fetchImpl: async () => ({ ok: false, status: 503 }) }), null);
   assert.equal(
     await fetchAthenaDossier("GOOD", {
+      env,
+      fetchImpl: async () => {
+        throw new Error("ECONNREFUSED");
+      },
+    }),
+    null
+  );
+});
+
+test("fetchAthenaStatus is a no-op returning null when unconfigured", async () => {
+  const result = await fetchAthenaStatus({
+    env: {},
+    fetchImpl: () => {
+      throw new Error("must not be called");
+    },
+  });
+  assert.equal(result, null);
+});
+
+test("fetchAthenaStatus hits /api/agent/status with the bearer token and parses JSON", async () => {
+  let seenUrl = null;
+  let seenAuth = null;
+  const result = await fetchAthenaStatus({
+    env: { ATHENA_AGENT_URL: "http://athena:8765", ATHENA_SERVICE_TOKEN: "tok" },
+    fetchImpl: async (url, opts) => {
+      seenUrl = url;
+      seenAuth = opts.headers.Authorization;
+      return { ok: true, json: async () => ({ analyst_ok: true, decisions: 12, calibration_ready: false }) };
+    },
+  });
+  assert.equal(seenUrl, "http://athena:8765/api/agent/status");
+  assert.equal(seenAuth, "Bearer tok");
+  assert.deepEqual(result, { analyst_ok: true, decisions: 12, calibration_ready: false });
+});
+
+test("fetchAthenaStatus degrades to null on HTTP errors and network failures", async () => {
+  const env = { ATHENA_AGENT_URL: "http://athena:8765", ATHENA_SERVICE_TOKEN: "tok" };
+  assert.equal(await fetchAthenaStatus({ env, fetchImpl: async () => ({ ok: false, status: 503 }) }), null);
+  assert.equal(
+    await fetchAthenaStatus({
       env,
       fetchImpl: async () => {
         throw new Error("ECONNREFUSED");

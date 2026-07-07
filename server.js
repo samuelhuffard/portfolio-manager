@@ -5,10 +5,11 @@ import { runResearchScan, researchTickerForAgent } from "./jobs/research-scan.js
 import { runIntradayMonitor } from "./jobs/intraday-monitor.js";
 import { listPriceAlerts, addPriceAlert, removePriceAlert } from "./lib/price-alerts.js";
 import { syncHoldings } from "./jobs/holdings-sync.js";
-import { getProposalById, markProposalFulfilled, getRedis, getUniverseStatus, setLabResearchStatus, getLabResearchStatus, getSlateSnapshot } from "./lib/redis.js";
+import { getProposalById, markProposalFulfilled, getRedis, getUniverseStatus, setLabResearchStatus, getLabResearchStatus, getSlateSnapshot, getLastSystemActivity } from "./lib/redis.js";
 import { recordMcpFill } from "./lib/mcp-accounting.js";
 import { getServiceAccountClients, getSheetIds, resolveSharedSpreadsheetId } from "./lib/sheets.js";
 import { validateResearchTickerRequest, buildLabOutcome } from "./lib/lab-research.js";
+import { fetchAthenaStatus } from "./lib/athena.js";
 import { AGENTS } from "./config/agents.js";
 
 const PORT = process.env.PORTFOLIO_SERVER_PORT ?? 3200;
@@ -120,14 +121,34 @@ const server = http.createServer(async (req, res) => {
     } catch {
       slate = null;
     }
+    // Athena's own analyst-pipeline health (optional, advisory-only source —
+    // see lib/athena.js). Informational like universe/slate: never part of ok,
+    // since Athena being down must never take our own health down with it.
+    const athena = await fetchAthenaStatus();
     res.writeHead(ok ? 200 : 503);
-    res.end(JSON.stringify({ ok, scanRunning, deps, universe, slate }));
+    res.end(JSON.stringify({ ok, scanRunning, deps, universe, slate, athena }));
     return;
   }
 
   if (!auth(req)) {
     res.writeHead(401);
     res.end(JSON.stringify({ error: "Unauthorized" }));
+    return;
+  }
+
+  // GET /activity — "what did the system last do", for the dashboard sidebar.
+  // Reuses the same pm:job:<name>:last-run keys the sysloop freshness check
+  // reads; scanRunning/syncRunning are surfaced too so the UI can show "running
+  // now" instead of a stale last-run entry while a manual trigger is in flight.
+  if (req.method === "GET" && url.pathname === "/activity") {
+    let activity = null;
+    try {
+      activity = await getLastSystemActivity();
+    } catch (e) {
+      console.error("[Server] /activity lookup failed:", e.message);
+    }
+    res.writeHead(200);
+    res.end(JSON.stringify({ activity, scanRunning, syncRunning }));
     return;
   }
 
