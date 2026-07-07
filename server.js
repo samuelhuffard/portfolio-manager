@@ -124,7 +124,7 @@ const server = http.createServer(async (req, res) => {
     // Athena's own analyst-pipeline health (optional, advisory-only source —
     // see lib/athena.js). Informational like universe/slate: never part of ok,
     // since Athena being down must never take our own health down with it.
-    const athena = await fetchAthenaStatus();
+    const athena = await fetchAthenaStatus({ timeoutMs: 3000 });
     res.writeHead(ok ? 200 : 503);
     res.end(JSON.stringify({ ok, scanRunning, deps, universe, slate, athena }));
     return;
