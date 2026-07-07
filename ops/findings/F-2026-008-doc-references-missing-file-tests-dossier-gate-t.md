@@ -4,7 +4,7 @@ fingerprint: ab172fcae62a
 check: docs
 type: docs
 severity: P3
-status: open
+status: fixed
 firstSeen: 2026-07-05T04:57:44.950Z
 lastSeen: 2026-07-05T04:57:44.950Z
 occurrences: 1
@@ -18,3 +18,7 @@ title: "Doc references missing file: tests/dossier-gate.test.js"
 ## Evidence
 
 - 2026-07-05T04:57:44.950Z — in docs/LOOP-DESIGN.md — doc drift
+
+## Fix
+
+2026-07-07 — LOOP-DESIGN.md now describes the dossier-gate test as planned with Stage 2 instead of referencing a nonexistent file.

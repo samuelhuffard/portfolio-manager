@@ -5,7 +5,7 @@ import { runResearchScan, researchTickerForAgent } from "./jobs/research-scan.js
 import { runIntradayMonitor } from "./jobs/intraday-monitor.js";
 import { listPriceAlerts, addPriceAlert, removePriceAlert } from "./lib/price-alerts.js";
 import { syncHoldings } from "./jobs/holdings-sync.js";
-import { getProposalById, markProposalFulfilled, getRedis, getUniverseStatus, setLabResearchStatus, getLabResearchStatus } from "./lib/redis.js";
+import { getProposalById, markProposalFulfilled, getRedis, getUniverseStatus, setLabResearchStatus, getLabResearchStatus, getSlateSnapshot } from "./lib/redis.js";
 import { recordMcpFill } from "./lib/mcp-accounting.js";
 import { getServiceAccountClients, getSheetIds, resolveSharedSpreadsheetId } from "./lib/sheets.js";
 import { validateResearchTickerRequest, buildLabOutcome } from "./lib/lab-research.js";
@@ -111,8 +111,17 @@ const server = http.createServer(async (req, res) => {
     } catch {
       universe = null;
     }
+    // Latest candidate-slate composition + research-ledger coverage (Phase 1
+    // funnel observability). Informational like universe: counts only, never
+    // tickers, never part of ok.
+    let slate = null;
+    try {
+      slate = await getSlateSnapshot("agent-1");
+    } catch {
+      slate = null;
+    }
     res.writeHead(ok ? 200 : 503);
-    res.end(JSON.stringify({ ok, scanRunning, deps, universe }));
+    res.end(JSON.stringify({ ok, scanRunning, deps, universe, slate }));
     return;
   }
 

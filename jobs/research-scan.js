@@ -31,12 +31,14 @@ import {
   getBreakerState,
   setBreakerState,
   getUniverseCatalog,
+  setSlateSnapshot,
 } from "../lib/redis.js";
 import { sizeProposalAmount, hasOpenProposal, hasRecentProposal } from "../lib/proposal-sizing.js";
 import { syncMarketScansFromRobinhood } from "../lib/market-scan-sync.js";
 import { toScreenerCandidates } from "../lib/universe.js";
 import { buildSlate, formatSlateCounts } from "../lib/candidate-slate.js";
-import { readResearchLedger, applyResearchRecords, formatResearchHistoryForPrompt } from "../lib/research-ledger.js";
+import { readResearchLedger, applyResearchRecords, formatResearchHistoryForPrompt, summarizeResearchLedger } from "../lib/research-ledger.js";
+import { getAthenaConfig, fetchAthenaDossier, athenaDossierToEvidence } from "../lib/athena.js";
 import {
   getServiceAccountClients,
   resolveSharedSpreadsheetId,
@@ -420,6 +422,23 @@ async function reviewCandidateForAgent(agent, c, ctx) {
   const safeNews = newsScan.items;
   const safeScanSignals = scanSignalScan.items;
 
+  // Optional Athena dossier (lib/athena.js): a second, locally-run research
+  // system's read on this ticker. Config-gated off by default; fetched fresh
+  // (local + free), then fenced and sanitized like every other external source.
+  let safeAthenaEvidence = [];
+  if (getAthenaConfig()) {
+    const dossier = await fetchAthenaDossier(c.ticker);
+    const athenaScan = sanitizeEvidenceItems(athenaDossierToEvidence(dossier), {
+      kind: `athena:${c.ticker}`,
+      textFields: ["content"],
+    });
+    for (const flag of athenaScan.flags) {
+      ctx.evidenceFlags.push(flag);
+      console.error(`[Evidence] ${agent.id}: instruction-like content redacted in ${flag.kind}: ${flag.reasons.join(", ")}`);
+    }
+    safeAthenaEvidence = athenaScan.items;
+  }
+
   const recentFilings = await fetchRecentFilings(c.ticker, { limit: 3 });
   const proposalPolicy = [
     `Available cash for new BUY proposals before this ticker: $${ctx.availableCashForBuys.toFixed(2)} after accepted, unfilled BUY reserves.`,
@@ -444,6 +463,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     insiderActivity: c.insiderActivity,
     recentFilings,
     marketScanSignals: safeScanSignals,
+    athenaEvidence: safeAthenaEvidence,
     macro: ctx.macroText,
     personality: ctx.personality,
     persistentMemory: ctx.persistentMemory,
@@ -795,6 +815,20 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
       console.log(
         `[Research] ${agent.id}: slate = ${formatSlateCounts(counts)}; catalog ${screened.length} screened / ${screenerCandidates.length} sector-enriched / ${catalog ? Object.keys(catalog).length : 0} cataloged.`
       );
+      // Phase 1 funnel observability (AUTONOMY-ROADMAP): persist the day's slate
+      // composition + research-ledger coverage so /health can show the funnel
+      // working instead of it living only in the log line above. Counts only —
+      // the snapshot surfaces on the unauthenticated /health route.
+      await setSlateSnapshot(agent.id, {
+        date: new Date().toISOString().slice(0, 10),
+        source: "catalog",
+        counts,
+        screened: screened.length,
+        sectorEnriched: screenerCandidates.length,
+        cataloged: catalog ? Object.keys(catalog).length : 0,
+        aiReviewBudget: universeCfg.aiReviewBudget ?? 12,
+        ledger: summarizeResearchLedger(researchLedger),
+      });
     } else {
       // The scan must never starve to zero, but a missing catalog is a broken
       // discovery funnel — scream so it can't quietly regress to the static list.
@@ -802,6 +836,16 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
         `[Research] ${agent.id}: universe catalog empty or unavailable — FALLING BACK to seed watchlist (${watchlist.tickers.length} names). Check jobs/universe-refresh.js.`
       );
       universeTickers = [...new Set([...watchlist.tickers, ...scanTickers])];
+      await setSlateSnapshot(agent.id, {
+        date: new Date().toISOString().slice(0, 10),
+        source: "watchlist-fallback", // catalog unavailable — the funnel is broken, make that visible
+        counts: null,
+        screened: 0,
+        sectorEnriched: 0,
+        cataloged: 0,
+        aiReviewBudget: universeCfg.aiReviewBudget ?? 12,
+        ledger: summarizeResearchLedger(researchLedger),
+      });
     }
   } else {
     universeTickers = [...new Set([...watchlist.tickers, ...scanTickers])];

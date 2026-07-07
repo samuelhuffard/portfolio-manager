@@ -36,7 +36,7 @@ Two writers full-rewrite Holdings (`clear`+`update` — a read landing in betwee
 ## 7. Legacy Python Robinhood sync fragility — MEDIUM severity, HIGH likelihood
 
 robin_stocks login breaks regularly (device-approval challenges, re-auth); the fill-check failed live on 2026-07-01. It's now redundant with the MCP path for fills but still load-bearing for scheduled Holdings/NAV freshness.
-**Mitigate:** decide explicitly: either retire scheduled Python sync in favor of MCP-driven syncs (companion cron) or keep it and alert on consecutive failures (currently it just logs). Remove `checkForNewFills` dead code. Track consecutive-failure count in Redis and Telegram after 3.
+**Mitigate:** DONE 2026-07-07 — `checkForNewFills` dead code removed; consecutive-failure streak tracked in Redis (`pm:robinhood-sync:failure-streak`) with a Telegram alert at 3 in a row (`jobs/holdings-sync.js`). Still open: the explicit retire-or-keep decision on the scheduled Python sync vs MCP-driven syncs.
 
 ## 8. Triplicated contracts / schema drift — MEDIUM severity, HIGH likelihood over time
 

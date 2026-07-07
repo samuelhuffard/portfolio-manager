@@ -21,8 +21,9 @@ import { fileURLToPath } from "node:url";
 import { fetchQuotes, fetchDailyBars } from "../lib/yahoo.js";
 import { atr } from "../lib/indicators.js";
 import { listPriceAlerts, checkAlerts, removePriceAlert } from "../lib/price-alerts.js";
-import { listAllProposals, createProposal } from "../lib/redis.js";
+import { listAllProposals, createProposal, wasProposalNudged, markProposalNudged } from "../lib/redis.js";
 import { hasOpenProposal } from "../lib/proposal-sizing.js";
+import { selectExpiringProposals, formatExpiryNudge } from "../lib/proposal-nudge.js";
 import { sendMessage as sendTelegram } from "../lib/telegram.js";
 import {
   getServiceAccountClients,
@@ -213,6 +214,26 @@ export async function runIntradayMonitor({ context = "intraday" } = {}) {
         `[Intraday] MOMENTUM FLAG ${ticker}: down ${(intraChange * 100).toFixed(1)}% from open ($${open} → $${current}) — watch closely.`
       );
     }
+  }
+
+  // ── 4. Approval-queue expiry nudge (F-2026-003) ──────────────────────────────
+  // Pending proposals silently lapse 48h after creation; Telegram once per
+  // proposal as it enters its final 24h so decisions stop expiring unseen.
+  // Marked nudged only AFTER a successful send, so a Telegram failure retries
+  // on the next tick instead of losing the nudge.
+  try {
+    const expiring = selectExpiringProposals(openProposals);
+    const toNudge = [];
+    for (const p of expiring) {
+      if (!(await wasProposalNudged(p.id))) toNudge.push(p);
+    }
+    if (toNudge.length) {
+      await sendTelegram(formatExpiryNudge(toNudge));
+      for (const p of toNudge) await markProposalNudged(p.id);
+      console.log(`[Intraday] Nudged ${toNudge.length} proposal(s) nearing expiry.`);
+    }
+  } catch (e) {
+    console.error("[Intraday] Expiry nudge failed:", e.message);
   }
 
   console.log(`[Intraday] ${context} check complete.`);

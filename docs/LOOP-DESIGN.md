@@ -105,7 +105,7 @@ Two stages. Stage 1 is the existing cheap triage over the whole universe (~15–
 ### Stage 1 — Triage (existing, unchanged)
 data gates → quant score → screen → one-shot overlay → risk engine. Output: HOLD rows go straight to the Sheet; BUY/SELL candidates enter Stage 2 instead of queueing immediately.
 
-### Stage 2 — Dossier loop (new: `lib/deep-research.js`)
+### Stage 2 — Dossier loop (planned module: `lib/deep-research` — not yet built, see AUTONOMY-ROADMAP Phase 2)
 
 ```
 plan → gather → draft (bull/bear/variant) → disconfirm → evaluate → [revise once] → decide
@@ -190,7 +190,7 @@ Parsing rule (mistake class #5): any missing required field **fails** the gate t
 ## 5. Implementation blueprint
 
 **Jobs/files**
-- `lib/deep-research.js` — Stage 2 orchestration (pure-ish; fetchers injected for tests)
+- `lib/deep-research` (planned, Phase 2) — Stage 2 orchestration (pure-ish; fetchers injected for tests)
 - `lib/evaluator.js` — evaluator call + verdict parsing (fail-closed on parse)
 - `lib/evidence.js` — bundle assembly, fencing, tiering, `evidenceId`s
 - `jobs/weekly-review.js` — cadence C (cron Fri 18:30 ET in `scheduler.js`)
@@ -215,9 +215,9 @@ Parsing rule (mistake class #5): any missing required field **fails** the gate t
 
 **Tests** (pure functions first, per house rule)
 - `tests/circuit-breaker.test.js` — tier boundaries, HWM updates, recovery hysteresis
-- `tests/evaluator-parsing.test.js` — missing fields fail closed, verdict never upgrades action/confidence
-- `tests/evidence-fencing.test.js` — injection strings in news/scan notes stay inside fences; instruction-looking content flagged
-- `tests/dossier-gate.test.js` — propose/hold/reject decision table
+- `tests/evaluator.test.js` — missing fields fail closed, verdict never upgrades action/confidence
+- `tests/evidence.test.js` — injection strings in news/scan notes stay inside fences; instruction-looking content flagged
+- a `dossier-gate` test (planned with Stage 2) — propose/hold/reject decision table
 - `tests/weekly-scorecard.test.js` — scorecard math from fixture Track Record rows
 - Cross-repo: dossier-ID field added to the proposal schema → update all three copies in one commit (CHANGE_MAP checklist)
 
