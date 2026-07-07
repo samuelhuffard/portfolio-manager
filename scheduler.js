@@ -10,13 +10,33 @@ import { runLedgerVerification } from "./scripts/verify-ledgers.js";
 import { runWeeklyReview } from "./jobs/weekly-review.js";
 import { runSystemSentinel } from "./jobs/system-sentinel.js";
 import { runUniverseRefresh } from "./jobs/universe-refresh.js";
-import { getRedis } from "./lib/redis.js";
+import { getRedis, getResearchScanStatus, setResearchScanStatus } from "./lib/redis.js";
 import { marketHolidayNameET } from "./lib/market-calendar.js";
 import { startServer } from "./server.js";
 
 startServer();
 
 const TZ = { timezone: "America/New_York" };
+
+async function repairInterruptedResearchScan() {
+  try {
+    const status = await getResearchScanStatus();
+    if (!status || status.status !== "running") return;
+    const completedAt = new Date().toISOString();
+    await setResearchScanStatus({
+      ...status,
+      status: "failed",
+      completedAt,
+      durationMs: status.startedAt ? Date.parse(completedAt) - Date.parse(status.startedAt) : null,
+      error: "Process restarted before research scan completed.",
+    });
+    console.warn(`[Scheduler] marked interrupted research scan ${status.runId ?? "unknown"} as failed.`);
+  } catch (e) {
+    console.warn("[Scheduler] failed to repair interrupted research scan:", e.message);
+  }
+}
+
+await repairInterruptedResearchScan();
 
 // Records every scheduled run to pm:job:<name>:last-run so the system sentinel
 // (jobs/system-sentinel.js) can detect missed crons and failed runs. Purely
