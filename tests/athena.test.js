@@ -32,7 +32,7 @@ test("fetchAthenaDossier sends the bearer token and parses JSON", async () => {
       return { ok: true, json: async () => ({ decision: "WATCH" }) };
     },
   });
-  assert.equal(seenUrl, "http://athena:8765/api/agent/ticker/GOOD");
+  assert.equal(seenUrl, "http://athena:8765/api/agent/ticker/GOOD?format=compact");
   assert.equal(seenAuth, "Bearer tok");
   assert.deepEqual(result, { decision: "WATCH" });
 });
