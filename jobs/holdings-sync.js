@@ -12,7 +12,11 @@ import {
   markProposalFulfilled,
   setCachedTaxReserveRatePct,
   setCachedPortfolioTotalValue,
+  bumpRobinhoodSyncFailureStreak,
+  clearRobinhoodSyncFailureStreak,
 } from "../lib/redis.js";
+import { planFillProcessing } from "../lib/fill-processing.js";
+import { sendMessage as sendTelegram } from "../lib/telegram.js";
 import {
   getServiceAccountClients,
   resolveSharedSpreadsheetId,
@@ -28,9 +32,6 @@ import {
   appendLots,
   applyLotUpdatesToSheet,
 } from "../lib/sheets.js";
-import { matchTradeToApprovedProposal } from "../lib/agent-attribution.js";
-import { openLot, consumeLotsFIFO, applyLotUpdates } from "../lib/tax-lots.js";
-
 const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -42,11 +43,29 @@ const SCRIPT_PATH = path.join(__dirname, "..", "lib", "robinhood-sync.py");
 // run re-triggered a fresh device challenge instead of reusing the cached session.
 const ROBINHOOD_SYNC_TIMEOUT_MS = 150_000;
 
+// Telegram once per breakage, when the streak first crosses the threshold —
+// 3 consecutive failures is over half a trading day of the 5 scheduled syncs,
+// which means holdings/NAV are meaningfully stale and re-auth is likely needed.
+const SYNC_FAILURE_ALERT_THRESHOLD = 3;
+
+async function reportSyncFailure(reason) {
+  const streak = await bumpRobinhoodSyncFailureStreak();
+  if (streak !== SYNC_FAILURE_ALERT_THRESHOLD) return;
+  const msg = `🚨 Robinhood sync has failed ${streak} times in a row — holdings/NAV are going stale. Manual re-auth is likely needed. Last error: ${reason}`;
+  try {
+    await sendTelegram(msg);
+  } catch (err) {
+    console.error("[Holdings] Telegram alert failed:", err.message, "—", msg);
+  }
+}
+
 /**
  * Processes detected Robinhood fills since the last sync: matches each to the
  * approved proposal it most likely fulfills (or "unattributed" if none), then
  * runs it through the FIFO lot ledger (buys open new lots, sells consume the
  * oldest open lots and realize a gain/loss). Writes Trade Ledger + Lots tabs.
+ * The decisions live in lib/fill-processing.js (pure, tested); this wrapper
+ * gathers inputs and persists the plan.
  */
 async function processFills(sheets, spreadsheetId, sheetIds, fills) {
   if (!fills.length) return;
@@ -57,72 +76,25 @@ async function processFills(sheets, spreadsheetId, sheetIds, fills) {
     readTradeLedger(sheets, spreadsheetId),
   ]);
 
-  // The Trade Ledger is the source of truth for "already recorded" — the
-  // pm:last-fill-sync-at cursor alone can't prevent double-booking (e.g. the
-  // post-trade sync kicked by /record-trade re-fetches the fill it just wrote).
-  const seenOrderIds = new Set(existingLedger.map((t) => t.orderId).filter(Boolean));
-  const freshFills = fills.filter((f) => {
-    if (f.orderId && seenOrderIds.has(f.orderId)) {
-      console.log(`[Holdings] Skipping already-recorded fill ${f.side} ${f.ticker} (order ${f.orderId}).`);
-      return false;
-    }
-    if (f.orderId) seenOrderIds.add(f.orderId); // also dedupe within this batch
-    return true;
+  const plan = planFillProcessing({
+    fills,
+    existingOrderIds: existingLedger.map((t) => t.orderId).filter(Boolean),
+    openProposals,
+    lots: allLots,
   });
-  if (!freshFills.length) return;
+  for (const f of plan.skipped) console.log(`[Holdings] Skipping already-recorded fill ${f.side} ${f.ticker} (order ${f.orderId}).`);
+  for (const warning of plan.warnings) console.warn(`[Holdings] ${warning}`);
+  if (!plan.freshFills.length) return;
 
-  let lots = allLots;
-  let candidates = openProposals;
-  const newLots = [];
-  const tradeRows = [];
-  const lotUpdatesByRowIndex = new Map();
-
-  for (const fill of freshFills) {
-    const trade = { ticker: fill.ticker, side: fill.side, shares: fill.shares, price: fill.price, amount: fill.amount, date: fill.date };
-    const { agentId, proposalId } = matchTradeToApprovedProposal(trade, candidates);
-    // A proposal can only fulfill one fill — drop it from the pool so a second
-    // same-ticker/side fill doesn't re-match it (which used to throw and abort the batch).
-    if (proposalId) candidates = candidates.filter((p) => p.id !== proposalId);
-
-    let realizedGain = null;
-    if (fill.side === "BUY") {
-      const lot = openLot({ ticker: fill.ticker, shares: fill.shares, costPerShare: fill.price, date: fill.date, agentId });
-      newLots.push(lot);
-      lots = [...lots, lot];
-    } else if (fill.side === "SELL") {
-      try {
-        const { realizedGain: gain, updatedLots } = consumeLotsFIFO(lots, fill.ticker, fill.shares, fill.price);
-        realizedGain = gain;
-        lots = applyLotUpdates(lots, updatedLots);
-        for (const updated of updatedLots) lotUpdatesByRowIndex.set(updated.lotId, updated);
-      } catch (err) {
-        console.warn(`[Holdings] Could not apply FIFO consumption for SELL ${fill.ticker}: ${err.message}`);
-      }
-    }
-
-    tradeRows.push({
-      date: fill.date,
-      ticker: fill.ticker,
-      side: fill.side,
-      shares: fill.shares,
-      price: fill.price,
-      amount: fill.amount,
-      orderId: fill.orderId,
-      agentId,
-      proposalId,
-      realizedGain,
-    });
-  }
-
-  await appendTradeLedgerEntries(sheets, spreadsheetId, sheetIds["Trade Ledger"], tradeRows);
-  if (newLots.length) await appendLots(sheets, spreadsheetId, sheetIds["Lots"], newLots);
-  const lotUpdates = [...lotUpdatesByRowIndex.values()].filter((l) => l.rowIndex != null);
+  await appendTradeLedgerEntries(sheets, spreadsheetId, sheetIds["Trade Ledger"], plan.tradeRows);
+  if (plan.newLots.length) await appendLots(sheets, spreadsheetId, sheetIds["Lots"], plan.newLots);
+  const lotUpdates = plan.lotUpdates.filter((l) => l.rowIndex != null);
   if (lotUpdates.length) await applyLotUpdatesToSheet(sheets, spreadsheetId, lotUpdates);
 
   // Mark fulfillment only after the ledger write succeeded — the reverse order
   // could leave a proposal "fulfilled" with no ledger row. A fulfillment failure
   // (e.g. companion already marked it) must not abort accounting for other fills.
-  for (const row of tradeRows) {
+  for (const row of plan.tradeRows) {
     if (!row.proposalId) continue;
     try {
       await markProposalFulfilled(row.proposalId, row.orderId ?? null);
@@ -131,7 +103,7 @@ async function processFills(sheets, spreadsheetId, sheetIds, fills) {
     }
   }
 
-  console.log(`[Holdings] Processed ${freshFills.length} fill(s): ${newLots.length} new lot(s), ${lotUpdates.length} lot(s) updated by sells.`);
+  console.log(`[Holdings] Processed ${plan.freshFills.length} fill(s): ${plan.newLots.length} new lot(s), ${lotUpdates.length} lot(s) updated by sells.`);
 }
 
 export async function syncHoldings() {
@@ -165,13 +137,17 @@ export async function syncHoldings() {
     if (data === undefined) throw new Error(`No JSON line found in output: ${stdout}`);
   } catch (err) {
     console.error("[Holdings] robinhood-sync.py failed to run — manual re-auth may be needed:", err.message);
+    await reportSyncFailure(err.message);
     return;
   }
 
   if (data.error) {
     console.error("[Holdings] robinhood-sync.py error — manual re-auth may be needed:", data.error);
+    await reportSyncFailure(data.error);
     return;
   }
+
+  await clearRobinhoodSyncFailureStreak();
 
   const { holdings, cash, fills = [], fillsError, syncedAt } = data;
   console.log(`[Holdings] Synced ${holdings.length} positions from Robinhood.`);
@@ -274,31 +250,6 @@ export async function syncHoldings() {
   });
 
   console.log(`[Holdings] Done - ${timestamp}.`);
-}
-
-/**
- * Lightweight fill check: calls robinhood-sync.py to see if any new orders have
- * filled since the last sync. If yes, runs the full syncHoldings(). If not,
- * returns without touching Yahoo or Sheets — cheap enough to poll every 5 min.
- */
-export async function checkForNewFills() {
-  const sinceIso = (await getLastFillSyncAt()) || "1970-01-01T00:00:00Z";
-  let data;
-  try {
-    const { stdout } = await execFileAsync(PYTHON_BIN, [SCRIPT_PATH, sinceIso], { timeout: ROBINHOOD_SYNC_TIMEOUT_MS });
-    const lines = stdout.trim().split("\n");
-    for (let i = lines.length - 1; i >= 0; i--) {
-      try { data = JSON.parse(lines[i]); break; } catch { continue; }
-    }
-    if (!data) return false;
-  } catch (err) {
-    console.warn("[Holdings] Fill check failed:", err.message);
-    return false;
-  }
-  if (data.error || !data.fills?.length) return false;
-  console.log(`[Holdings] ${data.fills.length} new fill(s) detected — triggering full sync.`);
-  await syncHoldings();
-  return true;
 }
 
 if (fileURLToPath(import.meta.url) === process.argv[1]) {

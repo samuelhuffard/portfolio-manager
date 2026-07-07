@@ -26,7 +26,8 @@ Google Sheet: create a blank Sheet in a personal Drive, share it Editor with the
 | Var | Backend (Jetson) | Dashboard (Vercel) | Companion (Mac) |
 |---|---|---|---|
 | ANTHROPIC_API_KEY | ✅ | ✅ | ✗ (stripped — uses claude.ai login) |
-| TAVILY_API_KEY / FRED_API_KEY / ALPHA_VANTAGE_API_KEY | ✅ / opt / opt | ✗ | ✗ |
+| TAVILY_API_KEY / FRED_API_KEY | ✅ / opt | ✗ | ✗ |
+| ATHENA_AGENT_URL / ATHENA_SERVICE_TOKEN | opt (off unless both set) | ✗ | ✗ |
 | ROBINHOOD_USERNAME / PASSWORD / TOTP_SECRET / ACCOUNT_NUMBER / STORE_SESSION / PYTHON | ✅ (STORE_SESSION=false) | ✗ | ✗ |
 | GOOGLE_CREDENTIALS_PATH or GOOGLE_SERVICE_ACCOUNT | ✅ | ✅ (base64) | via backend checkout |
 | UPSTASH_REDIS_REST_URL / TOKEN | ✅ | ✅ | ✅ (cascade, see below) |

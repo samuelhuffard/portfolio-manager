@@ -4,7 +4,7 @@ fingerprint: bd37d1c737c6
 check: docs
 type: docs
 severity: P3
-status: open
+status: fixed
 firstSeen: 2026-07-05T04:57:44.950Z
 lastSeen: 2026-07-05T04:57:44.950Z
 occurrences: 1
@@ -18,3 +18,7 @@ title: "Doc references missing file: tests/evaluator-parsing.test.js"
 ## Evidence
 
 - 2026-07-05T04:57:44.950Z — in docs/LOOP-DESIGN.md — doc drift
+
+## Fix
+
+2026-07-07 — LOOP-DESIGN.md test list now points at the real file `tests/evaluator.test.js`.

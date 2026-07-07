@@ -4,7 +4,7 @@ fingerprint: 6a2e15d9a782
 check: docs
 type: docs
 severity: P3
-status: open
+status: fixed
 firstSeen: 2026-07-05T04:57:44.950Z
 lastSeen: 2026-07-05T04:57:44.950Z
 occurrences: 1
@@ -18,3 +18,7 @@ title: "Doc references missing file: tests/evidence-fencing.test.js"
 ## Evidence
 
 - 2026-07-05T04:57:44.950Z — in docs/LOOP-DESIGN.md — doc drift
+
+## Fix
+
+2026-07-07 — LOOP-DESIGN.md test list now points at the real file `tests/evidence.test.js`.

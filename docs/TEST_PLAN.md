@@ -34,9 +34,8 @@ No tests around `ensureTabs` / `ensureHeadersExtendable` (the recurring cache-hi
 `createProposal` with no Redis now logs loudly and returns null (behavior exists; untested). Dashboard fail-closed audit behavior: ✅ `tests/audit-rate-limit.test.ts`.
 **Missing:** backend test that Redis-down during `processFills` cannot advance `pm:last-fill-sync-at` past unrecorded fills; test that `listAllProposals` returning `[]` (Redis down) doesn't let sizing treat reserved cash as free.
 
-## 10. Robinhood sync failure handling — ❌ missing
-`processFills` orderId dedupe and batch resilience (the 2026-07-01 critical fixes) have no direct tests because `processFills` does I/O inline.
-**Refactor-then-test:** extract the pure core (fills + existingLedger + openProposals → tradeRows/lots/skips) into `lib/` and port the four scenarios: duplicate orderId skipped, two fills one proposal, fulfillment failure doesn't abort, batch dedupe. This is the top backend test priority.
+## 10. Robinhood sync failure handling — ✅ existing (2026-07-07)
+Pure core extracted to `lib/fill-processing.js` (`planFillProcessing`); `tests/fill-processing.test.js` covers duplicate-orderId skip, batch dedupe, two-fills-one-proposal, FIFO sell gains, oversell warning (no throw), same-batch BUY→SELL, and lot-update dedupe. Fulfillment-failure isolation stays in the `jobs/holdings-sync.js` wrapper (per-row try/catch, untested — needs a stubbed Redis). Consecutive sync failures now alert: Redis streak + Telegram at 3 in a row (RISK_REGISTER #7).
 
 ## 11. Audit fail-closed — ✅ existing
 `tests/audit-rate-limit.test.ts` (production audit failure fails request; rate-limit enforcement).
@@ -51,7 +50,7 @@ Decision table extracted to `companion-core.mjs` `decideReconcileAction` and ful
 
 ## Priority order for new tests
 
-1. **processFills pure-core extraction + 4 scenarios** (#10) — protects the ledger.
+1. ~~processFills pure-core extraction (#10)~~ — DONE 2026-07-07 (`lib/fill-processing.js` + `tests/fill-processing.test.js`).
 2. **Signature triple-implementation cross-check** (#4) — protects execution authority.
 3. **Ledger verify-on-read script + tamper test** (#5/#11).
 4. **Reconcile decision table** (#12) — needs the same companion extraction as #2.

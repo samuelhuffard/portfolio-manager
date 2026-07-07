@@ -4,24 +4,13 @@
 
 # Portfolio Manager — Fix List
 
-_Regenerated 2026-07-05T05:07:33.553Z · 6 need attention · 2 acknowledged · 0 recently fixed_
+_Regenerated 2026-07-07T01:06:41.784Z · 0 need attention · 2 acknowledged · 6 recently fixed_
 
 **For Claude Code sessions:** these are system-loop findings (docs/SYSTEM-LOOP-PLAN.md), detected by deterministic checks and deduped by fingerprint. For each item under "Needs attention", judge whether it warrants fixing in your current session: read the linked finding file for evidence, verify against live state before acting (checks are point-in-time), and respect docs/INVARIANTS.md on anything money-path. When you fix one: set its `status: fixed`, note the fix in the finding file, run `npm run sysloop:fixlist`. If a fixed item's fingerprint reappears, the loop auto-escalates it to regressed.
 
 ## Needs attention
 
-- [ ] **P2** `F-2026-003` [approvals] 8 proposals expired without a decision — seen 1×, 2026-07-05 → 2026-07-05
-  - Details: `ops/findings/F-2026-003-8-proposals-expired-without-a-decision.md`
-- [ ] **P3** `F-2026-004` [docs] Doc references missing file: config/weights.json — seen 1×, 2026-07-05 → 2026-07-05
-  - Details: `ops/findings/F-2026-004-doc-references-missing-file-config-weights-json.md`
-- [ ] **P3** `F-2026-005` [docs] Doc references missing file: lib/deep-research.js — seen 1×, 2026-07-05 → 2026-07-05
-  - Details: `ops/findings/F-2026-005-doc-references-missing-file-lib-deep-research-js.md`
-- [ ] **P3** `F-2026-006` [docs] Doc references missing file: tests/evaluator-parsing.test.js — seen 1×, 2026-07-05 → 2026-07-05
-  - Details: `ops/findings/F-2026-006-doc-references-missing-file-tests-evaluator-pars.md`
-- [ ] **P3** `F-2026-007` [docs] Doc references missing file: tests/evidence-fencing.test.js — seen 1×, 2026-07-05 → 2026-07-05
-  - Details: `ops/findings/F-2026-007-doc-references-missing-file-tests-evidence-fenci.md`
-- [ ] **P3** `F-2026-008` [docs] Doc references missing file: tests/dossier-gate.test.js — seen 1×, 2026-07-05 → 2026-07-05
-  - Details: `ops/findings/F-2026-008-doc-references-missing-file-tests-dossier-gate-t.md`
+(none — clean)
 
 ## Acknowledged (known, deliberately not fixed yet)
 
@@ -36,4 +25,15 @@ _Regenerated 2026-07-05T05:07:33.553Z · 6 need attention · 2 acknowledged · 0
 
 ## Recently fixed (watching for regression)
 
-(none yet)
+- **P2** `F-2026-003` [approvals] 8 proposals expired without a decision — seen 1×, 2026-07-05 → 2026-07-05
+  - Details: `ops/findings/F-2026-003-8-proposals-expired-without-a-decision.md`
+- **P3** `F-2026-004` [docs] Doc references missing file: config/weights.json — seen 1×, 2026-07-05 → 2026-07-05
+  - Details: `ops/findings/F-2026-004-doc-references-missing-file-config-weights-json.md`
+- **P3** `F-2026-005` [docs] Doc references missing file: lib/deep-research.js — seen 1×, 2026-07-05 → 2026-07-05
+  - Details: `ops/findings/F-2026-005-doc-references-missing-file-lib-deep-research-js.md`
+- **P3** `F-2026-006` [docs] Doc references missing file: tests/evaluator-parsing.test.js — seen 1×, 2026-07-05 → 2026-07-05
+  - Details: `ops/findings/F-2026-006-doc-references-missing-file-tests-evaluator-pars.md`
+- **P3** `F-2026-007` [docs] Doc references missing file: tests/evidence-fencing.test.js — seen 1×, 2026-07-05 → 2026-07-05
+  - Details: `ops/findings/F-2026-007-doc-references-missing-file-tests-evidence-fenci.md`
+- **P3** `F-2026-008` [docs] Doc references missing file: tests/dossier-gate.test.js — seen 1×, 2026-07-05 → 2026-07-05
+  - Details: `ops/findings/F-2026-008-doc-references-missing-file-tests-dossier-gate-t.md`

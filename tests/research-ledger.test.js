@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mergeResearchRecords, formatResearchHistoryForPrompt } from "../lib/research-ledger.js";
+import { mergeResearchRecords, formatResearchHistoryForPrompt, summarizeResearchLedger } from "../lib/research-ledger.js";
 
 const NOW = "2026-07-05T21:15:00.000Z";
 
@@ -52,4 +52,25 @@ test("formatResearchHistoryForPrompt summarizes prior research and handles first
   assert.match(line, /quant 62\/100/);
   assert.match(line, /3 times/);
   assert.match(line, /margin inflection/);
+});
+
+test("summarizeResearchLedger counts total and trailing-window coverage", () => {
+  const now = new Date("2026-07-07T12:00:00.000Z");
+  const summary = summarizeResearchLedger(
+    {
+      FRESH: { ticker: "FRESH", lastResearchedAt: "2026-07-05T00:00:00.000Z" },
+      WEEKOLD: { ticker: "WEEKOLD", lastResearchedAt: "2026-06-28T00:00:00.000Z" },
+      STALE: { ticker: "STALE", lastResearchedAt: "2026-05-01T00:00:00.000Z" },
+      BROKEN: { ticker: "BROKEN", lastResearchedAt: "not-a-date" },
+    },
+    now
+  );
+  assert.equal(summary.totalNames, 4);
+  assert.equal(summary.researchedLast7d, 1);
+  assert.equal(summary.researchedLast14d, 2);
+});
+
+test("summarizeResearchLedger handles an empty or missing ledger", () => {
+  assert.deepEqual(summarizeResearchLedger({}), { totalNames: 0, researchedLast7d: 0, researchedLast14d: 0 });
+  assert.deepEqual(summarizeResearchLedger(), { totalNames: 0, researchedLast7d: 0, researchedLast14d: 0 });
 });
