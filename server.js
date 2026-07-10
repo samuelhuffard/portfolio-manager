@@ -11,6 +11,7 @@ import { getServiceAccountClients, getSheetIds, resolveSharedSpreadsheetId } fro
 import { validateResearchTickerRequest, buildLabOutcome } from "./lib/lab-research.js";
 import { fetchAthenaStatus } from "./lib/athena.js";
 import { AGENTS } from "./config/agents.js";
+import { withWorkflowLock } from "./lib/workflow-lock.js";
 
 const PORT = process.env.PORTFOLIO_SERVER_PORT ?? 3200;
 const SECRET = process.env.PORTFOLIO_WEBHOOK_SECRET?.trim();
@@ -305,15 +306,18 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: "proposalId, orderId, ticker, side, shares, and price are required" }));
         return;
       }
-      const proposal = await getProposalById(proposalId);
-      const { sheets, drive } = getServiceAccountClients();
-      const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
-      const sheetIds = await getSheetIds(sheets, spreadsheetId);
-      const { trade, alreadyRecorded } = await recordMcpFill({
-        sheets, spreadsheetId, sheetIds, proposal, orderId, ticker,
-        side, shares, price, agentId: agentId ?? "agent-1",
-      });
-      await markProposalFulfilled(proposalId, orderId);
+      const { trade, alreadyRecorded } = await withWorkflowLock("accounting", async () => {
+        const proposal = await getProposalById(proposalId);
+        const { sheets, drive } = getServiceAccountClients();
+        const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
+        const sheetIds = await getSheetIds(sheets, spreadsheetId);
+        const recorded = await recordMcpFill({
+          sheets, spreadsheetId, sheetIds, proposal, orderId, ticker,
+          side, shares, price, agentId: agentId ?? "agent-1",
+        });
+        await markProposalFulfilled(proposalId, orderId);
+        return recorded;
+      }, { ttlSeconds: 5 * 60 });
       res.writeHead(200);
       res.end(JSON.stringify({ ok: true, alreadyRecorded, trade }));
       // Kick off a holdings sync so the dashboard reflects the new position immediately

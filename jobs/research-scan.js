@@ -57,6 +57,7 @@ import {
 } from "../lib/sheets.js";
 import { AGENTS } from "../config/agents.js";
 import { canCreateActionableProposal, classifyResearchFailure, finiteNonNegative } from "../lib/research-run-health.js";
+import { withWorkflowLock } from "../lib/workflow-lock.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_AGENT_IDS = AGENTS.map((agent) => agent.id);
@@ -709,7 +710,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
       if (sized) {
         if (sized.starterSized) {
           const slots = Math.max(1, riskLimits.starterPortfolioMaxPositions ?? 2);
-          const currentPositions = ctx.heldAllocation.filter((h) => (h.marketValue ?? 0) > 0).length;
+          const currentPositions = ctx.heldAllocation.filter((h) => h.shares > 0).length;
           const openStarterBuys = ctx.openProposals.filter(
             (p) =>
               p.agentId === agent.id &&
@@ -1048,7 +1049,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
  * agents so newly-available cash can collect competing proposals from every desk.
  * Pass agentIds to override for a targeted diagnostic scan.
  */
-export async function runResearchScan({ agentIds = DEFAULT_AGENT_IDS, source = "scheduled" } = {}) {
+async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = "scheduled" } = {}) {
   const runId = randomUUID();
   const startedAt = new Date().toISOString();
   const agentSummaries = [];
@@ -1133,6 +1134,10 @@ export async function runResearchScan({ agentIds = DEFAULT_AGENT_IDS, source = "
   }
 }
 
+export async function runResearchScan(options) {
+  return withWorkflowLock("research", () => runResearchScanUnlocked(options), { ttlSeconds: 45 * 60 });
+}
+
 /**
  * Lab entry point (dashboard Lab → POST /research-ticker in server.js): run the
  * FULL research pipeline for one ticker, one agent, on demand — circuit breaker
@@ -1146,7 +1151,7 @@ export async function runResearchScan({ agentIds = DEFAULT_AGENT_IDS, source = "
  * Returns { ticker, agentId, quantScore, rec, recommendation, createdProposal,
  * evaluatorVerdict, noProposalReason } for lib/lab-research.js buildLabOutcome().
  */
-export async function researchTickerForAgent(agentId, ticker) {
+async function researchTickerForAgentUnlocked(agentId, ticker) {
   const agent = AGENTS.find((a) => a.id === agentId);
   if (!agent) throw new Error(`Unknown agentId: ${agentId}`);
   const symbol = String(ticker ?? "").trim().toUpperCase();
@@ -1285,6 +1290,14 @@ export async function researchTickerForAgent(agentId, ticker) {
     evaluatorVerdict: result.evaluatorVerdict,
     noProposalReason: result.noProposalReason,
   };
+}
+
+export async function researchTickerForAgent(agentId, ticker) {
+  return withWorkflowLock(
+    "research",
+    () => researchTickerForAgentUnlocked(agentId, ticker),
+    { ttlSeconds: 15 * 60 }
+  );
 }
 
 if (fileURLToPath(import.meta.url) === process.argv[1]) {

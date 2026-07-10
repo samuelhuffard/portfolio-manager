@@ -62,7 +62,7 @@ export async function runIntradayMonitor({ context = "intraday" } = {}) {
     .reduce((sum, p) => sum + (p.amountDollars ?? 0), 0);
   let availableCashForBuys = Math.max(0, Math.round(((cashBalance ?? 0) - acceptedBuyReserve) * 100) / 100);
 
-  const heldTickers = allocation.filter((h) => (h.marketValue ?? 0) > 0).map((h) => h.ticker);
+  const heldTickers = allocation.filter((h) => h.shares > 0).map((h) => h.ticker);
   const allTickers = [...new Set([...heldTickers, ...WATCHLIST_TICKERS, ...priceAlerts.map((a) => a.ticker)])];
 
   // Fetch current prices for everything we care about
@@ -158,7 +158,7 @@ export async function runIntradayMonitor({ context = "intraday" } = {}) {
   const threeMonthsAgo = new Date(now);
   threeMonthsAgo.setMonth(now.getMonth() - 3);
 
-  for (const pos of allocation.filter((h) => (h.marketValue ?? 0) > 0)) {
+  for (const pos of allocation.filter((h) => h.shares > 0)) {
     const price = priceMap[pos.ticker];
     if (!price) continue;
 

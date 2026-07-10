@@ -15,6 +15,7 @@ import {
   bumpRobinhoodSyncFailureStreak,
   clearRobinhoodSyncFailureStreak,
 } from "../lib/redis.js";
+import { withWorkflowLock } from "../lib/workflow-lock.js";
 import { planFillProcessing } from "../lib/fill-processing.js";
 import { sendMessage as sendTelegram } from "../lib/telegram.js";
 import {
@@ -67,7 +68,7 @@ async function reportSyncFailure(reason) {
  * The decisions live in lib/fill-processing.js (pure, tested); this wrapper
  * gathers inputs and persists the plan.
  */
-async function processFills(sheets, spreadsheetId, sheetIds, fills) {
+async function processFillsUnlocked(sheets, spreadsheetId, sheetIds, fills) {
   if (!fills.length) return;
 
   const [openProposals, allLots, existingLedger] = await Promise.all([
@@ -106,7 +107,16 @@ async function processFills(sheets, spreadsheetId, sheetIds, fills) {
   console.log(`[Holdings] Processed ${plan.freshFills.length} fill(s): ${plan.newLots.length} new lot(s), ${lotUpdates.length} lot(s) updated by sells.`);
 }
 
-export async function syncHoldings() {
+async function processFills(sheets, spreadsheetId, sheetIds, fills) {
+  if (!fills.length) return;
+  return withWorkflowLock(
+    "accounting",
+    () => processFillsUnlocked(sheets, spreadsheetId, sheetIds, fills),
+    { ttlSeconds: 5 * 60 }
+  );
+}
+
+async function syncHoldingsUnlocked() {
   console.log("[Holdings] Running robinhood-sync.py...");
 
   try {
@@ -138,13 +148,13 @@ export async function syncHoldings() {
   } catch (err) {
     console.error("[Holdings] robinhood-sync.py failed to run — manual re-auth may be needed:", err.message);
     await reportSyncFailure(err.message);
-    return;
+    throw new Error(`Robinhood sync failed: ${err.message}`);
   }
 
   if (data.error) {
     console.error("[Holdings] robinhood-sync.py error — manual re-auth may be needed:", data.error);
     await reportSyncFailure(data.error);
-    return;
+    throw new Error(`Robinhood sync failed: ${data.error}`);
   }
 
   await clearRobinhoodSyncFailureStreak();
@@ -250,6 +260,10 @@ export async function syncHoldings() {
   });
 
   console.log(`[Holdings] Done - ${timestamp}.`);
+}
+
+export async function syncHoldings() {
+  return withWorkflowLock("holdings-sync", syncHoldingsUnlocked, { ttlSeconds: 10 * 60 });
 }
 
 if (fileURLToPath(import.meta.url) === process.argv[1]) {

@@ -12,6 +12,7 @@ function fill(overrides = {}) {
     amount: 100,
     date: "2026-07-07",
     orderId: "order-1",
+    refId: "prop-1",
     ...overrides,
   };
 }
@@ -26,6 +27,7 @@ function proposal(overrides = {}) {
     maxPrice: 55,
     status: "ApprovedForBrokerReview",
     fulfilledAt: null,
+    decisionHmac: "signed",
     ...overrides,
   };
 }
@@ -78,6 +80,15 @@ test("a proposal fulfills at most one fill — the second same-ticker/side fill 
   assert.equal(plan.tradeRows[0].proposalId, "prop-1");
   assert.equal(plan.tradeRows[1].proposalId, null);
   assert.equal(plan.tradeRows[1].agentId, "unattributed");
+});
+
+test("legacy fill without broker refId remains unattributed", () => {
+  const plan = planFillProcessing({
+    fills: [fill({ refId: null })],
+    openProposals: [proposal()],
+  });
+  assert.equal(plan.tradeRows[0].proposalId, null);
+  assert.equal(plan.tradeRows[0].agentId, "unattributed");
 });
 
 test("SELL consumes lots FIFO and realizes the gain", () => {

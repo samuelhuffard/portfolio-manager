@@ -12,12 +12,13 @@ function proposal(overrides = {}) {
     maxPrice: null,
     status: "ApprovedForBrokerReview",
     fulfilledAt: null,
+    decisionHmac: "signed",
     ...overrides,
   };
 }
 
-test("matches a fill to the open approved proposal with the closest dollar amount", () => {
-  const trade = { ticker: "AAPL", side: "BUY", shares: 6.5, price: 153.5, amount: 998.0, date: "2026-06-20" };
+test("matches a fill only to the exact signed proposal broker refId", () => {
+  const trade = { ticker: "AAPL", side: "BUY", shares: 6.5, price: 153.5, amount: 998.0, date: "2026-06-20", refId: "p1" };
   const proposals = [proposal({ id: "p1", amountDollars: 1000 }), proposal({ id: "p2", amountDollars: 5000 })];
   const { agentId, proposalId } = matchTradeToApprovedProposal(trade, proposals);
   assert.equal(agentId, "agent-1");
@@ -25,7 +26,7 @@ test("matches a fill to the open approved proposal with the closest dollar amoun
 });
 
 test("falls back to unattributed when no proposal matches ticker/side", () => {
-  const trade = { ticker: "TSLA", side: "BUY", shares: 1, price: 300, amount: 300, date: "2026-06-20" };
+  const trade = { ticker: "TSLA", side: "BUY", shares: 1, price: 300, amount: 300, date: "2026-06-20", refId: "proposal-1" };
   const proposals = [proposal({ ticker: "AAPL" })];
   const { agentId, proposalId } = matchTradeToApprovedProposal(trade, proposals);
   assert.equal(agentId, "unattributed");
@@ -33,15 +34,28 @@ test("falls back to unattributed when no proposal matches ticker/side", () => {
 });
 
 test("rejects a proposal whose maxPrice the fill price exceeds beyond tolerance", () => {
-  const trade = { ticker: "AAPL", side: "BUY", shares: 5, price: 200, amount: 1000, date: "2026-06-20" };
+  const trade = { ticker: "AAPL", side: "BUY", shares: 5, price: 200, amount: 1000, date: "2026-06-20", refId: "proposal-1" };
   const proposals = [proposal({ maxPrice: 150 })];
   const { agentId } = matchTradeToApprovedProposal(trade, proposals);
   assert.equal(agentId, "unattributed");
 });
 
 test("does not match proposals for the wrong side", () => {
-  const trade = { ticker: "AAPL", side: "SELL", shares: 5, price: 150, amount: 750, date: "2026-06-20" };
+  const trade = { ticker: "AAPL", side: "SELL", shares: 5, price: 150, amount: 750, date: "2026-06-20", refId: "proposal-1" };
   const proposals = [proposal({ side: "BUY" })];
   const { agentId } = matchTradeToApprovedProposal(trade, proposals);
   assert.equal(agentId, "unattributed");
+});
+
+test("does not guess from ticker, side, or amount when broker refId is absent", () => {
+  const trade = { ticker: "AAPL", side: "BUY", shares: 6.5, price: 153.5, amount: 998.0, date: "2026-06-20" };
+  assert.deepEqual(matchTradeToApprovedProposal(trade, [proposal()]), {
+    agentId: "unattributed",
+    proposalId: null,
+  });
+});
+
+test("does not attribute an exact refId to an unsigned proposal", () => {
+  const trade = { ticker: "AAPL", side: "BUY", shares: 6.5, price: 153.5, amount: 998.0, date: "2026-06-20", refId: "proposal-1" };
+  assert.equal(matchTradeToApprovedProposal(trade, [proposal({ decisionHmac: null })]).proposalId, null);
 });

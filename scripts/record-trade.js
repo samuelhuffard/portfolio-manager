@@ -21,6 +21,7 @@ import "dotenv/config";
 import { getProposalById, markProposalFulfilled } from "../lib/redis.js";
 import { recordMcpFill } from "../lib/mcp-accounting.js";
 import { getServiceAccountClients, getSheetIds, resolveSharedSpreadsheetId } from "../lib/sheets.js";
+import { withWorkflowLock } from "../lib/workflow-lock.js";
 
 function arg(name) {
   const i = process.argv.indexOf(`--${name}`);
@@ -41,25 +42,26 @@ if (missing.length) {
   process.exit(1);
 }
 
-const { sheets, drive } = getServiceAccountClients();
-const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
-const sheetIds = await getSheetIds(sheets, spreadsheetId);
-const proposal = await getProposalById(proposalId);
-
-const { trade, newLots, updatedLots, alreadyRecorded } = await recordMcpFill({
-  sheets,
-  spreadsheetId,
-  sheetIds,
-  proposal,
-  orderId,
-  ticker,
-  agentId,
-  side,
-  shares: sharesRaw,
-  price: priceRaw,
-});
-
-await markProposalFulfilled(proposalId, orderId);
+const { trade, newLots, updatedLots, alreadyRecorded } = await withWorkflowLock("accounting", async () => {
+  const { sheets, drive } = getServiceAccountClients();
+  const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
+  const sheetIds = await getSheetIds(sheets, spreadsheetId);
+  const proposal = await getProposalById(proposalId);
+  const recorded = await recordMcpFill({
+    sheets,
+    spreadsheetId,
+    sheetIds,
+    proposal,
+    orderId,
+    ticker,
+    agentId,
+    side,
+    shares: sharesRaw,
+    price: priceRaw,
+  });
+  await markProposalFulfilled(proposalId, orderId);
+  return recorded;
+}, { ttlSeconds: 5 * 60 });
 
 console.log(`${alreadyRecorded ? "Trade already recorded; proposal fulfilled" : "Trade recorded and proposal fulfilled"}: ${trade.side} ${trade.shares} ${trade.ticker} @ $${trade.price} = $${trade.amount}`);
 console.log(`  Order ID:    ${orderId}`);
