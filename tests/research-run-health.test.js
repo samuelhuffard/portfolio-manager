@@ -1,0 +1,24 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import { AGENTS } from "../config/agents.js";
+import { canCreateActionableProposal, classifyResearchFailure, finiteNonNegative } from "../lib/research-run-health.js";
+
+test("only Agent 1 can create supervised approval proposals", () => {
+  assert.equal(canCreateActionableProposal(AGENTS.find((agent) => agent.id === "agent-1")), true);
+  assert.equal(canCreateActionableProposal(AGENTS.find((agent) => agent.id === "agent-2")), false);
+  assert.equal(canCreateActionableProposal(AGENTS.find((agent) => agent.id === "agent-3")), false);
+});
+
+test("non-finite and negative cash fail closed to zero", () => {
+  assert.equal(finiteNonNegative(NaN), 0);
+  assert.equal(finiteNonNegative("not-a-number"), 0);
+  assert.equal(finiteNonNegative(-1), 0);
+  assert.equal(finiteNonNegative("25.50"), 25.5);
+});
+
+test("budget and rate failures are not classified as investment judgments", () => {
+  assert.equal(classifyResearchFailure(new Error("429 rate limit exceeded")).kind, "budget_exhausted");
+  assert.equal(classifyResearchFailure(new Error("monthly credit balance exhausted")).kind, "budget_exhausted");
+  assert.equal(classifyResearchFailure(new Error("Yahoo fetch failed")).kind, "scan_error");
+});

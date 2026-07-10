@@ -10,7 +10,7 @@
  * sector sizes, so agents can downgrade/block each other's proposals.
  */
 export const AGENTS = [
-  { id: "agent-1", name: "" },
-  { id: "agent-2", name: "" },
-  { id: "agent-3", name: "" },
+  { id: "agent-1", name: "", executionEligibility: "supervised" },
+  { id: "agent-2", name: "", executionEligibility: "paper" },
+  { id: "agent-3", name: "", executionEligibility: "paper" },
 ];

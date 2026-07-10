@@ -56,6 +56,7 @@ import {
   readPerformanceHistory,
 } from "../lib/sheets.js";
 import { AGENTS } from "../config/agents.js";
+import { canCreateActionableProposal, classifyResearchFailure, finiteNonNegative } from "../lib/research-run-health.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_AGENT_IDS = AGENTS.map((agent) => agent.id);
@@ -71,6 +72,7 @@ function blankAgentScanSummary(agentId) {
     proposalsCreated: 0,
     proposalCounts: { BUY: 0, SELL: 0 },
     scanErrors: 0,
+    budgetExhaustions: 0,
     evaluatorRejects: 0,
     startedAt: new Date().toISOString(),
     completedAt: null,
@@ -87,6 +89,7 @@ function summarizeRecommendation(summary, recommendation) {
   }
   const ruleCheck = recommendation.ruleCheck ?? "";
   if (ruleCheck.includes("scan_error")) summary.scanErrors += 1;
+  if (ruleCheck.includes("budget_exhausted")) summary.budgetExhaustions += 1;
   if (ruleCheck.includes("evaluator_reject")) summary.evaluatorRejects += 1;
 }
 
@@ -341,11 +344,11 @@ async function buildAgentReviewContext(sheets, spreadsheetId, { candidates, risk
   const totalPortfolioValue = await getCachedPortfolioTotalValue();
   const openProposals = await listAllProposals();
   let availableCashForBuys =
-    (cashBalance ?? 0) -
+    finiteNonNegative(cashBalance) -
     openProposals
       .filter((p) => p.side === "BUY" && p.status === "ApprovedForBrokerReview" && !p.fulfilledAt)
       .reduce((sum, p) => sum + (p.amountDollars ?? 0), 0);
-  availableCashForBuys = Math.max(0, Math.round(availableCashForBuys * 100) / 100);
+  availableCashForBuys = finiteNonNegative(Math.round(availableCashForBuys * 100) / 100);
   const ordinarySellCooldownDays = riskLimits.ordinarySellCooldownDays ?? 7;
 
   return {
@@ -555,6 +558,18 @@ async function reviewCandidateForAgent(agent, c, ctx) {
         rawData: {
           price: c.raw?.price?.regularMarketPrice ?? null,
           marketCap: c.marketCap ?? null,
+          trailingEps: c.raw?.defaultKeyStatistics?.trailingEps ?? null,
+          forwardEps: c.raw?.defaultKeyStatistics?.forwardEps ?? null,
+          trailingPe: c.raw?.summaryDetail?.trailingPE ?? null,
+          forwardPe: c.raw?.summaryDetail?.forwardPE ?? null,
+          revenueGrowth: c.raw?.financialData?.revenueGrowth ?? null,
+          earningsGrowth: c.raw?.financialData?.earningsGrowth ?? null,
+          grossMargins: c.raw?.financialData?.grossMargins ?? null,
+          profitMargins: c.raw?.financialData?.profitMargins ?? null,
+          freeCashflow: c.raw?.financialData?.freeCashflow ?? null,
+          analystTrend: c.analystTrend ?? null,
+          insiderActivity: c.insiderActivity ?? null,
+          nextEarningsDate: c.nextEarningsDate ?? null,
           momentum3mPct: c.momentum3m ?? null,
           momentum1mPct: c.momentum1m ?? null,
           rsi14: c.rsi ?? null,
@@ -639,7 +654,11 @@ async function reviewCandidateForAgent(agent, c, ctx) {
   // Risk-gated BUY/SELL calls go straight into Sam's approval queue instead of
   // waiting for him to read the Sheet and re-type a proposal by hand. He still
   // approves or rejects every one in the dashboard before anything is placed.
-  if (rec.action !== "HOLD" && !hasOpenProposal(ctx.openProposals, { agentId: agent.id, ticker: c.ticker, side: rec.action })) {
+  if (rec.action !== "HOLD" && !canCreateActionableProposal(agent)) {
+    const note = `${agent.id} is paper-only; actionable recommendation recorded without creating an approval proposal`;
+    rec.overrideNotes = [...(rec.overrideNotes ?? []), `paper_only: ${note}`];
+    noProposalReason = note;
+  } else if (rec.action !== "HOLD" && !hasOpenProposal(ctx.openProposals, { agentId: agent.id, ticker: c.ticker, side: rec.action })) {
     if (
       rec.action === "SELL" &&
       hasRecentProposal(ctx.openProposals, {
@@ -906,7 +925,10 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
   if (agent.id === "agent-1") {
     const { passed, rejected } = screenUniverse(candidates, riskLimits);
     for (const r of rejected) console.log(`[Research] ${agent.id}: screened out ${r.ticker} — ${r.reason}`);
-    eligible = passed.length ? passed : candidates; // never starve the scan to zero on a bad data day
+    eligible = passed;
+    if (candidates.length > 0 && passed.length === 0) {
+      console.error(`[Research] ${agent.id}: universe screen rejected every candidate — failing closed with zero eligible names.`);
+    }
   }
 
   const scored = scoreCandidates(eligible, weightsConfig.quant_weights);
@@ -978,19 +1000,20 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
       // since proposals queued earlier in this loop already exist in Redis and
       // would otherwise have no matching recommendation row in the Sheet.
       console.error(`[Research] ${agent.id}: ${c.ticker} failed mid-review (continuing): ${err.message}`);
+      const failure = classifyResearchFailure(err);
       const recommendation = {
         date: new Date().toISOString().slice(0, 10),
         ticker: c.ticker,
-        action: "HOLD",
+        action: "ERROR",
         quantScore: c.quantScore ?? null,
-        rationale: `SCAN ERROR: ${err.message}`,
+        rationale: `${failure.kind}: ${failure.message}`,
         newsLinks: "",
-        status: "pending",
+        status: "error",
         entryPrice: c.raw?.price?.regularMarketPrice ?? null,
         spyEntryPrice: ctx.spyEntryPrice,
         targetWeight: 0,
         confidence: null,
-        ruleCheck: "scan_error",
+        ruleCheck: failure.kind,
       };
       recommendations.push(recommendation);
       summarizeRecommendation(summary, recommendation);
@@ -1045,9 +1068,10 @@ export async function runResearchScan({ agentIds = DEFAULT_AGENT_IDS, source = "
           attemptedReviews: acc.attemptedReviews + agent.attemptedReviews,
           proposalsCreated: acc.proposalsCreated + agent.proposalsCreated,
           scanErrors: acc.scanErrors + agent.scanErrors,
+          budgetExhaustions: acc.budgetExhaustions + agent.budgetExhaustions,
           evaluatorRejects: acc.evaluatorRejects + agent.evaluatorRejects,
         }),
-        { recommendationsWritten: 0, attemptedReviews: 0, proposalsCreated: 0, scanErrors: 0, evaluatorRejects: 0 }
+        { recommendationsWritten: 0, attemptedReviews: 0, proposalsCreated: 0, scanErrors: 0, budgetExhaustions: 0, evaluatorRejects: 0 }
       ),
       error,
     });
@@ -1156,17 +1180,42 @@ export async function researchTickerForAgent(agentId, ticker) {
   }
   const candidateRaw = await buildCandidate(fundamentals, riskLimits, makeDateWindow());
 
-  // Screener parity with the scheduled scan: agent-1's universe screen never
-  // starves a scan to zero (eligible falls back to all candidates when nothing
-  // passes), so a single-name slate that fails the screen is still reviewed —
-  // but the failure is logged the same way the scan logs it, and the data gate /
-  // risk engine / evaluator downstream still apply in full.
+  // Lab is an alternate entry point, not an escape hatch from Agent One's
+  // mandate. Out-of-universe names can still use the general research tools,
+  // but this agent-specific path must stop before proposal generation.
   if (agent.id === "agent-1") {
     const { rejected } = screenUniverse([candidateRaw], riskLimits);
-    for (const r of rejected) {
-      console.log(
-        `[Research] ${agent.id}: screened out ${r.ticker} — ${r.reason} (lab single-ticker run continues, matching the scan's never-starve fallback)`
-      );
+    if (rejected.length) {
+      const reason = rejected.map((r) => r.reason).join("; ");
+      console.log(`[Research] ${agent.id}: NO_TRADE ${symbol} — ${reason}`);
+      return {
+        recommendation: {
+          date: new Date().toISOString().slice(0, 10),
+          ticker: symbol,
+          action: "HOLD",
+          quantScore: null,
+          rationale: `NO_TRADE (universe gate): ${reason}`,
+          newsLinks: "",
+          status: "blocked",
+          entryPrice: candidateRaw.raw?.price?.regularMarketPrice ?? null,
+          spyEntryPrice: null,
+          targetWeight: 0,
+          confidence: null,
+          ruleCheck: `universe_gate_blocked: ${reason}`,
+        },
+        researchRecord: {
+          ticker: symbol,
+          action: "NO_TRADE",
+          quantScore: null,
+          confidence: null,
+          thesis: `NO_TRADE (universe gate): ${reason}`,
+          entryPrice: candidateRaw.raw?.price?.regularMarketPrice ?? null,
+        },
+        rec: null,
+        createdProposal: null,
+        evaluatorVerdict: "not run (universe gate)",
+        noProposalReason: `NO_TRADE (universe gate): ${reason}`,
+      };
     }
   }
 

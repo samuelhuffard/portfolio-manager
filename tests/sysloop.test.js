@@ -31,6 +31,13 @@ test("normalizeLine strips volatile tokens", () => {
   assert.ok(!/2026/.test(n) && !/190/.test(n) && !/4be2a1c9/.test(n), n);
 });
 
+test("normalizeLine collapses ticker-specific variants", () => {
+  assert.equal(
+    normalizeLine("[Athena] request for NVDA failed in news:NVDA"),
+    normalizeLine("[Athena] request for AMD failed in news:AMD")
+  );
+});
+
 test("clusterLogLines groups and counts", () => {
   const clusters = clusterLogLines([
     "[Research] error: 401 at 10:00:01", "[Research] error: 401 at 11:30:02", "[Holdings] ENOENT",
@@ -91,6 +98,22 @@ test("cron freshness: missing, missed, and failed runs are flagged", () => {
 test("cron freshness: weekend runs are quiet", () => {
   const out = checkJobFreshness({ lastRuns: {}, nowET: { ...ET, weekday: "Sat" }, isTradingDay: false });
   assert.equal(out.length, 0);
+});
+
+test("cron freshness does not expect Sun-Thu research jobs on Friday", () => {
+  const friday = { ...ET, date: "2026-07-10", weekday: "Fri", iso: "2026-07-10T22:15:00Z" };
+  const lastRuns = Object.fromEntries(
+    Object.keys({
+      "premarket-check": 1,
+      "holdings-sync": 1,
+      "intraday-monitor": 1,
+      "performance-review": 1,
+      "verify-ledgers": 1,
+    }).map((job) => [job, { dateET: friday.date, ok: true, ts: friday.iso }])
+  );
+  lastRuns["weekly-review"] = { dateET: "2026-07-03", ok: true, ts: "2026-07-03T22:30:00Z" };
+  const titles = checkJobFreshness({ lastRuns, nowET: friday, isTradingDay: true }).map((a) => a.title).join(" | ");
+  assert.doesNotMatch(titles, /exit-monitor|research-scan/);
 });
 
 test("dashboard: signed-out 200 on an auth route is P0", () => {
