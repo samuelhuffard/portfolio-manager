@@ -25,10 +25,10 @@ import { listAllProposals, createProposal, wasProposalNudged, markProposalNudged
 import { hasOpenProposal } from "../lib/proposal-sizing.js";
 import { selectExpiringProposals, formatExpiryNudge } from "../lib/proposal-nudge.js";
 import { sendMessage as sendTelegram } from "../lib/telegram.js";
+import { researchTickerForAgent } from "./research-scan.js";
 import {
   getServiceAccountClients,
   resolveSharedSpreadsheetId,
-  readCashBalance,
   readHoldingsAllocation,
   readHoldingsReturnPct,
 } from "../lib/sheets.js";
@@ -50,17 +50,12 @@ export async function runIntradayMonitor({ context = "intraday" } = {}) {
   const { sheets, drive } = getServiceAccountClients();
   const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
 
-  const [allocation, returnPct, cashBalance, openProposals, priceAlerts] = await Promise.all([
+  const [allocation, returnPct, openProposals, priceAlerts] = await Promise.all([
     readHoldingsAllocation(sheets, spreadsheetId),
     readHoldingsReturnPct(sheets, spreadsheetId),
-    readCashBalance(sheets, spreadsheetId),
     listAllProposals(),
     listPriceAlerts(),
   ]);
-  const acceptedBuyReserve = openProposals
-    .filter((p) => p.side === "BUY" && p.status === "ApprovedForBrokerReview" && !p.fulfilledAt)
-    .reduce((sum, p) => sum + (p.amountDollars ?? 0), 0);
-  let availableCashForBuys = Math.max(0, Math.round(((cashBalance ?? 0) - acceptedBuyReserve) * 100) / 100);
 
   const heldTickers = allocation.filter((h) => h.shares > 0).map((h) => h.ticker);
   const allTickers = [...new Set([...heldTickers, ...WATCHLIST_TICKERS, ...priceAlerts.map((a) => a.ticker)])];
@@ -87,64 +82,30 @@ export async function runIntradayMonitor({ context = "intraday" } = {}) {
       `[Intraday] ALERT triggered: ${alert.ticker} ${alert.direction} $${alert.targetPrice} (current $${price})`
     );
 
-    const side = alert.direction === "below" ? "BUY" : "SELL";
     const agentLabel = alert.agentId ? `Agent ${alert.agentId.split("-")[1]}` : "Agent";
-
-    if (!hasOpenProposal(openProposals, { agentId: alert.agentId, ticker: alert.ticker, side })) {
-      let amountDollars;
-      if (side === "BUY") {
-        amountDollars = Math.min(25, availableCashForBuys);
-      } else {
-        const pos = allocation.find((h) => h.ticker === alert.ticker);
-        amountDollars = pos?.marketValue ?? 25;
-      }
-      if (side === "BUY" && amountDollars <= 0) {
-        console.log(`[Intraday] ${alert.ticker}: BUY alert triggered but no free cash is available — skipping proposal.`);
-        continue;
-      }
-
-      const maxPrice = side === "BUY" ? Math.round(price * 1.01 * 100) / 100 : null;
-      const rationale =
-        `Price alert triggered: ${alert.ticker} reached $${price} (target ${alert.direction} $${alert.targetPrice}). ` +
-        (alert.note ? `Note: ${alert.note}` : "");
+    try {
+      const result = await researchTickerForAgent(alert.agentId, alert.ticker);
+      const finalAction = result.rec?.action ?? result.recommendation?.action ?? "NO_TRADE";
+      const proposalText = result.createdProposal
+        ? `proposal ${result.createdProposal.id} queued`
+        : result.noProposalReason ?? "no proposal created";
+      console.log(`[Intraday] ${alert.ticker}: canonical alert research returned ${finalAction} — ${proposalText}.`);
+      await removePriceAlert(alert.id);
 
       try {
-        const created = await createProposal({
-          agentId: alert.agentId,
-          ticker: alert.ticker,
-          side,
-          amountDollars,
-          maxPrice,
-          rationale,
-          riskSummary: `Intraday price alert. Full AI re-underwriting will run at EOD research scan.`,
-        });
-        if (created) {
-          openProposals.push(created);
-          if (created.side === "BUY") availableCashForBuys = Math.max(0, Math.round((availableCashForBuys - created.amountDollars) * 100) / 100);
-          console.log(`[Intraday] Queued ${side} ${alert.ticker} $${amountDollars} from price alert.`);
-        }
-      } catch (e) {
-        console.warn(`[Intraday] Failed to queue alert proposal for ${alert.ticker}:`, e.message);
-      }
-
-      // Telegram notification
-      try {
-        const directionEmoji = alert.direction === "below" ? "📉" : "📈";
         const msg =
-          `${directionEmoji} Price Alert Triggered\n` +
-          `${agentLabel} · ${alert.ticker}\n` +
-          `${alert.direction === "below" ? "Fell below" : "Rose above"} $${alert.targetPrice} → now $${price}\n` +
+          `Price alert evaluated\n` +
+          `${agentLabel} | ${alert.ticker}\n` +
+          `${alert.direction === "below" ? "Below" : "Above"} $${alert.targetPrice}; now $${price}\n` +
           (alert.note ? `Note: ${alert.note}\n` : "") +
-          `→ ${side} proposal queued ($${amountDollars})`;
+          `Canonical pipeline: ${finalAction} | ${proposalText}`;
         await sendTelegram(msg);
       } catch (e) {
-        console.warn(`[Intraday] Telegram notification failed:`, e.message);
+        console.warn("[Intraday] Telegram notification failed:", e.message);
       }
-    } else {
-      console.log(`[Intraday] ${alert.ticker}: open proposal already exists, skipping alert.`);
+    } catch (e) {
+      console.error(`[Intraday] Alert research failed for ${alert.ticker}; keeping alert active for retry:`, e.message);
     }
-
-    await removePriceAlert(alert.id);
   }
 
   if (!triggered.length) console.log("[Intraday] No price alerts triggered.");
