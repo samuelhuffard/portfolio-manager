@@ -8,6 +8,7 @@ import { runIntradayMonitor } from "./jobs/intraday-monitor.js";
 import { syncHoldings } from "./jobs/holdings-sync.js";
 import { runLedgerVerification } from "./scripts/verify-ledgers.js";
 import { runWeeklyReview } from "./jobs/weekly-review.js";
+import { runInvestorWeeklyUpdate } from "./jobs/investor-weekly-update.js";
 import { runSystemSentinel } from "./jobs/system-sentinel.js";
 import { runUniverseRefresh } from "./jobs/universe-refresh.js";
 import { getRedis, getResearchScanStatus, setResearchScanStatus } from "./lib/redis.js";
@@ -167,10 +168,17 @@ cron.schedule("30 19 * * 1-5", wrapJob("universe-refresh", "Universe", runUniver
 // books are checked before being summarized.
 cron.schedule("30 18 * * 5", wrapJob("weekly-review", "WeeklyReview", runWeeklyReview), TZ);
 
+// ── Investor weekly email update (Friday 6:45 PM ET) ─────────────────────────
+// Accounting update to each investor: executed BUY/SELL actions this week, their
+// unitized value/gain-loss, and largest pro-rata exposures. Explicitly opt-in via
+// INVESTOR_UPDATE_ENABLED=true so a new Resend key cannot accidentally blast emails.
+cron.schedule("45 18 * * 5", wrapJob("investor-weekly-update", "InvestorUpdate", runInvestorWeeklyUpdate), TZ);
+
 console.log(
   "[Portfolio Manager] Scheduler started — " +
   "pre-market 8:30 AM | opening 9:35 AM | holdings sync 11 AM/1 PM/3 PM | " +
   "intraday every 30 min 10 AM–3:30 PM | pre-close 3:50 PM | exit monitor 4:45 PM | " +
   "research scan 5:15 PM | perf review 5:45 PM | ledger verify 6:00 PM | " +
-  "system sentinel 6:15 PM | universe refresh 7:30 PM (Mon-Fri, ET) | weekly review Fri 6:30 PM ET"
+  "system sentinel 6:15 PM | universe refresh 7:30 PM (Mon-Fri, ET) | " +
+  "weekly review Fri 6:30 PM ET | investor update Fri 6:45 PM ET"
 );

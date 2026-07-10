@@ -38,6 +38,7 @@ Google Sheet: create a blank Sheet in a personal Drive, share it Editor with the
 | PORTFOLIO_BACKEND_URL | ✗ | ✅ | ✗ |
 | Clerk keys / FUND_MANAGER_EMAILS / AUDIT_ENFORCE / RATE_LIMIT_ENFORCE | ✗ | ✅ | ✗ |
 | TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID | ✅ | ✗ | ✅ (via cascade) |
+| RESEND_API_KEY / INVESTOR_UPDATE_* | opt ✅ | ✗ | ✗ |
 | CLAUDE_BIN | ✗ | ✗ | opt (default `~/.local/bin/claude`) |
 
 Companion env cascade: `portfolio-dashboard/.env.local` → `.env` → `../portfolio-manager/.env` (first hit wins per var). The Mac therefore needs a working `portfolio-manager` checkout as a **sibling directory** — `record-trade.js`/sync scripts are invoked at `../../portfolio-manager/`.
@@ -52,6 +53,7 @@ npm test                       # full suite
 node --check <file>.js         # syntax after edits
 npm run tavily:check           # Tavily key live check
 npm run proposals:approved     # queue state + signatureValid per proposal
+npm run investors:weekly-update # sends weekly investor emails only when enabled
 
 # Dashboard
 npm test && npm run lint && npm run build
