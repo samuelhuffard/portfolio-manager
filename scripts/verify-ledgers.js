@@ -1,7 +1,8 @@
 import "dotenv/config";
-import { getServiceAccountClients, resolveSharedSpreadsheetId, readInvestorLedger } from "../lib/sheets.js";
+import { getServiceAccountClients, resolveSharedSpreadsheetId, readAllLots, readInvestorLedger, readPerformanceHistory, readTradeLedger } from "../lib/sheets.js";
 import { getInvestorLedgerSecret } from "../lib/investor-ledger.js";
-import { verifyInvestorLedger, verifyAuditRows, computeAuditRowHmac } from "../lib/ledger-verify.js";
+import { verifyInvestorLedger, verifyAuditRows, computeAuditRowHmac, verifyOperationalLedgerEntries } from "../lib/ledger-verify.js";
+import { getOperationalLedgerSecret } from "../lib/operational-ledger.js";
 import { getRedis } from "../lib/redis.js";
 import { sendMessage } from "../lib/telegram.js";
 
@@ -15,15 +16,15 @@ const AUDIT_DAYS = Number(process.env.LEDGER_VERIFY_AUDIT_DAYS ?? 7);
 
 export async function runLedgerVerification() {
   const problems = [];
+  const { sheets, drive } = getServiceAccountClients();
+  const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
 
   // 1. Investor ledger
   const investorSecret = getInvestorLedgerSecret();
   if (!investorSecret) {
     problems.push("Investor ledger: no signing secret configured — cannot verify (ALLOW_UNSIGNED_INVESTOR_LEDGER mode).");
   } else {
-    const { sheets, drive } = getServiceAccountClients();
-    const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
-    const ledger = await readInvestorLedger(sheets, spreadsheetId);
+    const ledger = await readInvestorLedger(sheets, spreadsheetId, { verify: false });
     const result = verifyInvestorLedger(ledger, investorSecret);
     console.log(`[Verify] Investors: ${result.verified}/${result.total} verified, ${result.unsigned.length} unsigned, ${result.mismatched.length} MISMATCHED.`);
     for (const bad of result.mismatched) {
@@ -34,7 +35,26 @@ export async function runLedgerVerification() {
     }
   }
 
-  // 2. Audit log (last N days)
+  // 2. Money-state ledgers. Reads here bypass the normal fail-closed assertion
+  // only so this diagnostic can identify which store and rows need attention.
+  try {
+    const secret = getOperationalLedgerSecret();
+    const ledgers = [
+      ["Performance", "performance", await readPerformanceHistory(sheets, spreadsheetId, { verify: false })],
+      ["Trade Ledger", "trade", await readTradeLedger(sheets, spreadsheetId, { verify: false })],
+      ["Lots", "lot", await readAllLots(sheets, spreadsheetId, { verify: false })],
+    ];
+    for (const [label, kind, entries] of ledgers) {
+      const result = verifyOperationalLedgerEntries(kind, entries, secret);
+      console.log(`[Verify] ${label}: ${result.verified}/${result.total} verified, ${result.unsigned.length} unsigned, ${result.mismatched.length} MISMATCHED.`);
+      if (result.unsigned.length) problems.push(`${label}: ${result.unsigned.length} unsigned row(s); run ledgers:backfill-operational before normal operation.`);
+      if (result.mismatched.length) problems.push(`${label} TAMPER: ${result.mismatched.length} row(s) fail signature verification.`);
+    }
+  } catch (error) {
+    problems.push(`Operational ledgers: ${error.message}`);
+  }
+
+  // 3. Audit log (last N days)
   const auditSecret = process.env.AUDIT_HMAC_SECRET?.trim();
   if (!auditSecret) {
     problems.push("Audit log: AUDIT_HMAC_SECRET not configured — cannot verify.");
