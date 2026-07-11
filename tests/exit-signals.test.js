@@ -44,6 +44,39 @@ test("data unavailable => NO_TRADE", () => {
   assert.equal(r.action, "NO_TRADE");
 });
 
+test("partial-data score below 35 permits a full exit for existing holdings", () => {
+  const s = evaluateExitSignals({
+    closes: [],
+    partialData: { availableDataScore: 29, missing: ["forwardEps", "recentBars"] },
+  });
+  assert.equal(s.partialDataExit.action, "SELL");
+  assert.equal(s.dataUnavailable, false);
+  const r = resolveExitAction(s);
+  assert.equal(r.action, "SELL");
+  assert.match(r.reasons.join(" "), /available data score 29/);
+});
+
+test("partial-data score in the defensive band queues a trim", () => {
+  const s = evaluateExitSignals({
+    closes: [],
+    partialData: { availableDataScore: 50, missing: ["marginTrend"] },
+  });
+  const r = resolveExitAction(s);
+  assert.equal(r.action, "TRIM");
+  assert.equal(r.reducePct, 40);
+});
+
+test("fundamental deterioration outranks partial-data trim", () => {
+  const s = evaluateExitSignals({
+    closes: [],
+    fundamental: { epsSurprisePct: -8 },
+    partialData: { availableDataScore: 45, missing: ["marginTrend"] },
+  });
+  const r = resolveExitAction(s);
+  assert.equal(r.action, "SELL");
+  assert.equal(r.reducePct, 100);
+});
+
 // --- evaluateExitSignals: T3 fires from a fundamental event even without price history ---
 
 test("EPS miss > threshold sets T3 and is actionable without price data", () => {

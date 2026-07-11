@@ -22,6 +22,7 @@ test("passes a complete, fresh mid-cap candidate", () => {
   assert.equal(r.ok, true);
   assert.equal(r.stale, false);
   assert.deepEqual(r.missing, []);
+  assert.equal(r.availableDataScore, 100);
 });
 
 test("flags stale price data", () => {
@@ -40,6 +41,7 @@ test("missing required fields => not ok and stale", () => {
   assert.equal(r.stale, true);
   assert.ok(r.missing.includes("forwardEps"));
   assert.ok(r.missing.includes("rsi"));
+  assert.equal(r.availableDataScore, 71);
 });
 
 test("micro-cap below the ADDV floor fails", () => {
@@ -60,6 +62,7 @@ test("micro-cap with missing ADDV is a NO_TRADE", () => {
   );
   assert.equal(r.ok, false);
   assert.ok(r.missing.includes("avgDollarVolume"));
+  assert.equal(r.availableDataScore, 88);
 });
 
 test("micro-cap above the floor passes", () => {

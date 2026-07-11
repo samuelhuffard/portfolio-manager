@@ -17,7 +17,8 @@ import "dotenv/config";
 import { fileURLToPath } from "node:url";
 
 import { fetchDailyBars, fetchFundamentals, fetchEarningsSurprise } from "../lib/yahoo.js";
-import { classifySubVertical } from "../lib/indicators.js";
+import { avgDailyDollarVolume, classifySubVertical, rsi } from "../lib/indicators.js";
+import { evaluateDataGates } from "../lib/data-gates.js";
 import { evaluateExitSignals, resolveExitAction } from "../lib/exit-signals.js";
 import {
   getServiceAccountClients,
@@ -88,8 +89,28 @@ export async function runExitMonitor() {
       // compression / credibility events remain future AI-overlay + filing inputs (the
       // memo flags these as the highest-weight but least-automatable signals).
       const fundamental = surprise ? { epsSurprisePct: surprise.epsSurprisePct } : null;
+      const marketCap = fundamentals.raw?.price?.marketCap ?? fundamentals.raw?.summaryDetail?.marketCap ?? null;
+      const dataGate = evaluateDataGates({
+        price: fundamentals.raw?.price?.regularMarketPrice ?? closes.at(-1) ?? null,
+        trailingEps: fundamentals.raw?.defaultKeyStatistics?.trailingEps ?? null,
+        forwardEps: fundamentals.raw?.defaultKeyStatistics?.forwardEps ?? null,
+        grossMargins: fundamentals.raw?.financialData?.grossMargins ?? null,
+        profitMargins: fundamentals.raw?.financialData?.profitMargins ?? null,
+        rsi: rsi(closes, 14),
+        lastBarDate: bars.length ? bars[bars.length - 1].date : null,
+        marketCap,
+        avgDollarVolume: avgDailyDollarVolume(bars, 30),
+      });
 
-      const signals = evaluateExitSignals({ closes, benchmarkCloses, fundamental });
+      const signals = evaluateExitSignals({
+        closes,
+        benchmarkCloses,
+        fundamental,
+        partialData: {
+          availableDataScore: dataGate.availableDataScore,
+          missing: dataGate.missing,
+        },
+      });
       const decision = resolveExitAction(signals);
 
       const line = `${ticker} (${subVertical ?? "—"}, RS vs ${benchTicker}): ${decision.action}` +
