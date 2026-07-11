@@ -2,10 +2,10 @@ import "dotenv/config";
 import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
 import { AGENTS } from "../config/agents.js";
-import { computeWeeklyScorecard, formatScorecardForPrompt, parseWeeklyLessons } from "../lib/weekly-scorecard.js";
+import { classifyEvaluatorHealth, computeWeeklyScorecard, formatScorecardForPrompt, parseWeeklyLessons } from "../lib/weekly-scorecard.js";
 import { listAgentMemories, applyWeeklyLessons } from "../lib/agent-memory.js";
 import { recordAnthropicUsage } from "../lib/anthropic-usage.js";
-import { listAllProposals, setWeeklyReviewArtifact } from "../lib/redis.js";
+import { getWeeklyReviewArtifact, listAllProposals, setWeeklyReviewArtifact } from "../lib/redis.js";
 import { getServiceAccountClients, resolveSharedSpreadsheetId, readAgentRecommendationOutcomes } from "../lib/sheets.js";
 import { sendMessage as sendTelegram } from "../lib/telegram.js";
 
@@ -69,6 +69,8 @@ export async function runWeeklyReview({ now = Date.now() } = {}) {
   const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
   const proposals = await listAllProposals();
   const isoWeek = isoWeekOf(new Date(now));
+  const previousIsoWeek = isoWeekOf(new Date(now - 7 * 24 * 60 * 60 * 1000));
+  const previousArtifact = await getWeeklyReviewArtifact(previousIsoWeek);
 
   const summaryLines = [`📊 Weekly review — ${isoWeek}`];
   const artifact = { isoWeek, agents: {}, generatedAt: new Date(now).toISOString() };
@@ -77,6 +79,10 @@ export async function runWeeklyReview({ now = Date.now() } = {}) {
     try {
       const outcomes = await readAgentRecommendationOutcomes(sheets, spreadsheetId, agent.id);
       const scorecard = computeWeeklyScorecard({ agentId: agent.id, proposals, outcomes, now });
+      scorecard.evaluatorHealth = classifyEvaluatorHealth(
+        scorecard.weekActivity,
+        previousArtifact?.agents?.[agent.id]?.scorecard?.evaluatorHealth
+      );
 
       let lessonResult = { lessons: [], retire: [], parseError: false, skipped: false };
       const hasSignal =
@@ -98,8 +104,12 @@ export async function runWeeklyReview({ now = Date.now() } = {}) {
       summaryLines.push(
         `${agent.id}: ${p.created} proposals (${p.accepted} accepted, ${p.rejected} rejected), ` +
           `${scorecard.weekActivity.evaluatorRejected} evaluator-rejected, ` +
+          `evaluator ${scorecard.evaluatorHealth.status}, ` +
           `${lessonResult.skipped ? "no activity — lessons skipped" : `${lessonResult.lessons.length} new lesson(s)${lessonResult.parseError ? " (parse error — none saved)" : ""}`}`
       );
+      if (scorecard.evaluatorHealth.consecutiveOutOfBand) {
+        summaryLines.push(`  Evaluator health priority: ${scorecard.evaluatorHealth.reason} two weeks in a row.`);
+      }
       for (const lesson of lessonResult.lessons) summaryLines.push(`  • ${lesson}`);
     } catch (err) {
       // One agent's review failing must not block the others, but it must be visible.

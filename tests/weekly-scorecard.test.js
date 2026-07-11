@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeWeeklyScorecard, formatScorecardForPrompt, parseWeeklyLessons } from "../lib/weekly-scorecard.js";
+import { classifyEvaluatorHealth, computeWeeklyScorecard, formatScorecardForPrompt, parseWeeklyLessons } from "../lib/weekly-scorecard.js";
 import { mergeWeeklyLessons } from "../lib/agent-memory.js";
 
 const NOW = Date.parse("2026-07-03T22:30:00Z");
@@ -52,6 +52,7 @@ test("computes week activity from ruleCheck strings and track record from mature
   assert.equal(sc.weekActivity.dataGateBlocked, 1);
   assert.equal(sc.weekActivity.evaluatorRejected, 1);
   assert.equal(sc.weekActivity.evaluatorApproved, 1);
+  assert.equal(sc.evaluatorHealth.status, "insufficient_sample");
   assert.equal(sc.trackRecord[30].matured, 2);
   assert.equal(sc.trackRecord[30].hitRate, 50);
   assert.equal(sc.trackRecord[30].avgReturnPct, 2);
@@ -67,6 +68,28 @@ test("formatScorecardForPrompt renders the load-bearing numbers", () => {
   const text = formatScorecardForPrompt(sc);
   assert.ok(text.includes("agent-1"));
   assert.ok(text.includes("1 created"));
+  assert.ok(text.includes("Evaluator health"));
+});
+
+test("classifyEvaluatorHealth flags healthy and out-of-band evaluator mixes", () => {
+  assert.equal(
+    classifyEvaluatorHealth({ evaluatorApproved: 2, evaluatorRejected: 2 }).status,
+    "healthy"
+  );
+  const strict = classifyEvaluatorHealth({ evaluatorApproved: 0, evaluatorRejected: 4 });
+  assert.equal(strict.status, "too_strict");
+  assert.equal(strict.approvalRatePct, 0);
+  const permissive = classifyEvaluatorHealth({ evaluatorApproved: 5, evaluatorRejected: 0 });
+  assert.equal(permissive.status, "too_permissive");
+  assert.equal(permissive.approvalRatePct, 100);
+});
+
+test("classifyEvaluatorHealth escalates the same out-of-band condition two weeks in a row", () => {
+  const previous = classifyEvaluatorHealth({ evaluatorApproved: 0, evaluatorRejected: 4 });
+  const current = classifyEvaluatorHealth({ evaluatorApproved: 0, evaluatorRejected: 3 }, previous);
+  assert.equal(current.status, "critical");
+  assert.equal(current.band, "too_strict");
+  assert.equal(current.consecutiveOutOfBand, true);
 });
 
 test("parseWeeklyLessons caps at 3 lessons and fails closed on garbage", () => {
