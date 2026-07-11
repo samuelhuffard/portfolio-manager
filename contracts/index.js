@@ -4,3 +4,4 @@
 export * from "./proposal.js";
 export * from "./lot.js";
 export * from "./signature.js";
+export * from "./pipeline.js";
