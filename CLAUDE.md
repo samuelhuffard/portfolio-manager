@@ -16,7 +16,7 @@ AI portfolio research + execution backend. **Real money flows through this repo.
 - No autonomous trade execution. Python (`lib/robinhood-*.py`) stays read-only forever — `grep rh.order_` must return nothing (tested in `tests/read-only-broker.test.js`).
 - Execution ordering is the safety mechanism: `Executing` marker before order → ledger write before fulfillment → `ref_id = proposal.id`. Never reorder.
 - Security/signature checks fail CLOSED. Ledger tabs are append-only; corrections are new rows.
-- The proposal schema + decision-signature payload live in THREE copies (here `lib/redis.js` + `lib/proposal-signature.js`, dashboard `lib/proposals.ts`, companion `scripts/companion-core.mjs`). Any change ships to all copies in one commit — checklist at the bottom of CHANGE_MAP.
+- Cross-repo contracts are single-source in `contracts/` (canonical here), mirrored to `../portfolio-dashboard/lib/contracts/` via `npm run contracts:sync` (drift-tested). The decision-signature payload, proposal enums/limits/validation, and lot ownership now live there — edit in `contracts/`, run sync, commit both. The full `AllocationProposal` shape is still hand-declared (`lib/redis.js`, dashboard `lib/proposals.ts`) but field-set drift is caught by the dashboard's `proposal-shape.test.ts`. See CHANGE_MAP "Changing proposal approval / execution logic".
 - Money math goes in pure `lib/` functions with tests (`npm test`, ~100), then gets wired into `jobs/`.
 - Failure is loud: pipeline outputs that get dropped must `console.error` + Telegram. Missing model-output fields FAIL the checks that read them.
 - Never print secrets or full `.env`; `.trim()` every env read; check env presence per machine (local ≠ Jetson).
