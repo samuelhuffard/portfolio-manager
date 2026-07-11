@@ -58,6 +58,7 @@ import {
 import { AGENTS } from "../config/agents.js";
 import { canCreateActionableProposal, classifyResearchFailure, finiteNonNegative } from "../lib/research-run-health.js";
 import { withWorkflowLock } from "../lib/workflow-lock.js";
+import { BudgetExhaustedError, createResearchRunBudget } from "../lib/ai-budget.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_AGENT_IDS = AGENTS.map((agent) => agent.id);
@@ -508,7 +509,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     researchHistory: formatResearchHistoryForPrompt(ctx.researchLedger[c.ticker]),
     boundaryToken: ctx.boundaryToken,
   };
-  const proposal = await getAIRecommendation(overlayInput);
+  const proposal = await getAIRecommendation({ ...overlayInput, budget: ctx.budget });
   if (proposal.suspectEvidence?.length) {
     ctx.evidenceFlags.push({ kind: `model:${c.ticker}`, reasons: proposal.suspectEvidence });
     console.error(`[Evidence] ${agent.id}: model flagged suspect evidence for ${c.ticker}: ${proposal.suspectEvidence.join("; ")}`);
@@ -584,17 +585,17 @@ async function reviewCandidateForAgent(agent, c, ctx) {
       };
 
       let finalEval;
-      const first = await evaluateProposal({ ...evalContext, proposal: rec });
+      const first = await evaluateProposal({ ...evalContext, proposal: rec, budget: ctx.budget });
       if (first.verdict === "REVISE") {
         console.log(`[Evaluator] ${agent.id}: ${c.ticker} sent back for revision — ${first.critique.join("; ")}`);
-        const revisedRaw = await getAIRecommendation({ ...overlayInput, evaluatorCritique: first.critique, previousProposal: rec });
+        const revisedRaw = await getAIRecommendation({ ...overlayInput, evaluatorCritique: first.critique, previousProposal: rec, budget: ctx.budget });
         const revised = applyConvictionClamp(applyRiskChecks(revisedRaw, riskContext, riskLimits), agent, c, riskLimits);
         if (revised.action === "HOLD") {
           // Generator conceded (or the risk engine downgraded the revision) — final HOLD.
           finalEval = { ...first, verdict: "REJECT", revisions: 1, critique: [...first.critique, "generator conceded on revision"] };
           rec = revised;
         } else {
-          const second = await evaluateProposal({ ...evalContext, proposal: revised });
+          const second = await evaluateProposal({ ...evalContext, proposal: revised, budget: ctx.budget });
           finalEval = resolveFinalVerdict(first, second);
           if (finalEval.verdict === "APPROVE") rec = revised;
         }
@@ -628,6 +629,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
         noProposalReason = "evaluator sent the proposal back and the revised recommendation came back HOLD";
       }
     } catch (err) {
+      if (err instanceof BudgetExhaustedError) throw err;
       // Evaluator infrastructure failure (API down, 429): fail closed — an
       // unevaluated actionable proposal must not reach the approval queue.
       console.error(`[Evaluator] ${agent.id}: ${c.ticker} evaluation errored (failing closed to HOLD): ${err.message}`);
@@ -817,7 +819,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
  * three agents, and one agent's proposal can be downgraded because of another agent's
  * existing position. One agent's failure doesn't block the others (see runResearchScan).
  */
-async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, { breaker, boundaryToken } = {}) {
+async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, { breaker, boundaryToken, budget } = {}) {
   const summary = blankAgentScanSummary(agent.id);
   breaker = breaker ?? { tier: "NONE", drawdownPct: 0 };
   boundaryToken = boundaryToken ?? makeBoundaryToken();
@@ -976,6 +978,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
     researchLedger,
     breaker,
     boundaryToken,
+    budget,
     evidenceFlags,
   };
 
@@ -1109,11 +1112,14 @@ async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = 
     // boundary token for untrusted-evidence fencing.
     const breaker = await resolveCircuitBreaker(sheets, spreadsheetId);
     const boundaryToken = makeBoundaryToken();
+    const budget = createResearchRunBudget({
+      onWarning: ({ reservedUsd, maxUsd }) => sendTelegram(`⚠️ Research API budget is ${Math.round((reservedUsd / maxUsd) * 100)}% reserved ($${reservedUsd.toFixed(2)} of $${maxUsd.toFixed(2)}).`).catch((err) => console.error("[Research] Budget warning Telegram failed:", err.message)),
+    });
 
     const activeAgents = AGENTS.filter((a) => agentIds.includes(a.id));
     for (const agent of activeAgents) {
       try {
-        const summary = await runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, { breaker, boundaryToken });
+        const summary = await runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, { breaker, boundaryToken, budget });
         agentSummaries.push(summary);
       } catch (err) {
         console.error(`[Research] ${agent.id} failed:`, err.message);
@@ -1167,6 +1173,9 @@ async function researchTickerForAgentUnlocked(agentId, ticker) {
   const breaker = await resolveCircuitBreaker(sheets, spreadsheetId);
   const boundaryToken = makeBoundaryToken();
   const evidenceFlags = [];
+  const budget = createResearchRunBudget({
+    onWarning: ({ reservedUsd, maxUsd }) => sendTelegram(`⚠️ Lab research API budget is ${Math.round((reservedUsd / maxUsd) * 100)}% reserved ($${reservedUsd.toFixed(2)} of $${maxUsd.toFixed(2)}).`).catch((err) => console.error("[Research] Lab budget warning Telegram failed:", err.message)),
+  });
 
   const marketScans = await readMarketScans(sheets, spreadsheetId).catch((err) => {
     console.warn(`[Research] ${agent.id}: market scan context unavailable:`, err.message);
@@ -1247,6 +1256,7 @@ async function researchTickerForAgentUnlocked(agentId, ticker) {
     breaker,
     boundaryToken,
     evidenceFlags,
+    budget,
   };
 
   const result = await reviewCandidateForAgent(agent, candidate, ctx);
