@@ -42,7 +42,7 @@ if (missing.length) {
   process.exit(1);
 }
 
-const { trade, newLots, updatedLots, alreadyRecorded } = await withWorkflowLock("accounting", async () => {
+const { trade, newLots, updatedLots, alreadyRecorded, needsReconciliation } = await withWorkflowLock("accounting", async () => {
   const { sheets, drive } = getServiceAccountClients();
   const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
   const sheetIds = await getSheetIds(sheets, spreadsheetId);
@@ -59,11 +59,21 @@ const { trade, newLots, updatedLots, alreadyRecorded } = await withWorkflowLock(
     shares: sharesRaw,
     price: priceRaw,
   });
-  await markProposalFulfilled(proposalId, orderId);
+  // Do NOT mark fulfilled if the lot ledger could not be reconciled — the trade
+  // is recorded and a durable reconciliation record was persisted; the proposal
+  // stays open until the lots are repaired (Codex #1 / MCP path coverage).
+  if (recorded.needsReconciliation) {
+    console.error(`[record-trade] ${ticker} recorded but LOT LEDGER NOT UPDATED — proposal ${proposalId} left unfulfilled, reconciliation record persisted. Repair lots before it can close.`);
+  } else {
+    await markProposalFulfilled(proposalId, orderId);
+  }
   return recorded;
 }, { ttlSeconds: 5 * 60 });
 
-console.log(`${alreadyRecorded ? "Trade already recorded; proposal fulfilled" : "Trade recorded and proposal fulfilled"}: ${trade.side} ${trade.shares} ${trade.ticker} @ $${trade.price} = $${trade.amount}`);
+const fulfillMsg = needsReconciliation
+  ? "Trade recorded; proposal LEFT UNFULFILLED pending lot reconciliation"
+  : alreadyRecorded ? "Trade already recorded; proposal fulfilled" : "Trade recorded and proposal fulfilled";
+console.log(`${fulfillMsg}: ${trade.side} ${trade.shares} ${trade.ticker} @ $${trade.price} = $${trade.amount}`);
 console.log(`  Order ID:    ${orderId}`);
 console.log(`  Proposal ID: ${proposalId}`);
 console.log(`  Lots opened: ${newLots.length}`);

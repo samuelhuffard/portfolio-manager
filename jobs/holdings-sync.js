@@ -20,6 +20,7 @@ import { withWorkflowLock } from "../lib/workflow-lock.js";
 import { planFillProcessing } from "../lib/fill-processing.js";
 import { isValidApprovalSignature } from "../lib/proposal-signature.js";
 import { shadowWriteLot } from "../lib/pg/dual-write.js";
+import { ownershipEnforcementEnabled } from "../lib/ownership-flag.js";
 import { sendMessage as sendTelegram } from "../lib/telegram.js";
 import {
   getServiceAccountClients,
@@ -88,6 +89,10 @@ async function processFillsUnlocked(sheets, spreadsheetId, sheetIds, fills) {
     // Codex #3: attribute/fulfill only against a VALID signature, not merely a
     // present one — a forged decisionHmac must not be able to claim a fill.
     verifySignature: (p) => isValidApprovalSignature(p),
+    // Strategy-lot ownership enforcement (invariant #3) — ON by default now that
+    // the MCP path, fail-closed queue, and verify-on-read are in place. Kill
+    // switch: ENFORCE_OWNERSHIP=false.
+    enforceOwnership: ownershipEnforcementEnabled(),
   });
   for (const f of plan.skipped) console.log(`[Holdings] Skipping already-recorded fill ${f.side} ${f.ticker} (order ${f.orderId}).`);
   for (const warning of plan.warnings) console.warn(`[Holdings] ${warning}`);
@@ -122,7 +127,12 @@ async function processFillsUnlocked(sheets, spreadsheetId, sheetIds, fills) {
           side: row.side, shares: row.shares, reason: "ownership-scoped SELL could not consume owned/unattributed lots",
         });
       } catch (err) {
-        console.error(`[Holdings] FAILED to persist reconciliation record for order ${row.orderId} — mismatch now untracked: ${err.message}`);
+        // Write failed closed — the record could NOT be persisted. Escalate hard:
+        // the proposal is already left unfulfilled, but this mismatch is now
+        // untracked and needs manual attention.
+        const critical = `[Holdings] CRITICAL: could not persist reconciliation record for order ${row.orderId} (${row.side} ${row.ticker}) — mismatch is UNTRACKED. ${err.message}`;
+        console.error(critical);
+        try { await sendTelegram(critical); } catch { /* already logged */ }
       }
       try { await sendTelegram(alert); } catch (err) { console.error(`[Holdings] reconciliation alert failed: ${err.message}`); }
       continue;

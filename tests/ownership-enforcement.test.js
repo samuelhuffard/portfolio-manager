@@ -82,10 +82,14 @@ test("planFillProcessing enforceOwnership: attributed SELL within own lots consu
   assert.ok(!plan.lotUpdates.some((l) => l.lotId === "a2")); // agent-2 untouched
 });
 
-test("applyFillToLots enforceOwnership: agent-2 cannot over-sell into agent-1's lots", () => {
+test("applyFillToLots enforceOwnership: agent-2 over-sell flags NeedsReconciliation, no phantom gain, no cross-strategy", () => {
   const lots = mixedNvda();
   const trade = { ticker: "NVDA", side: "SELL", shares: 10, price: 130, date: "2026-07-11", agentId: "agent-2" };
-  assert.throws(() => applyFillToLots(trade, lots, { enforceOwnership: true }), /cannot be reconciled from ownership/);
+  const out = applyFillToLots(trade, lots, { enforceOwnership: true });
+  assert.equal(out.needsReconciliation, true);
+  assert.equal(out.trade.realizedGain, null);
+  assert.equal(out.updatedLots.length, 0); // agent-1's lot untouched
+  assert.match(out.reconciliationReason, /cannot be reconciled from ownership/);
 });
 
 test("enforceOwnership falls back to account-wide for an unattributed SELL", () => {

@@ -14,13 +14,29 @@ import {
 test("checkReconciliationQueue is quiet when empty, P1 per open item, fail-closed on unreadable", () => {
   assert.deepEqual(checkReconciliationQueue({ openReconciliations: [] }), []);
   const out = checkReconciliationQueue({
-    openReconciliations: [{ orderId: "o1", proposalId: "p1", ticker: "NVDA", reason: "lots not updated" }],
+    openReconciliations: [{ orderId: "o1", proposalId: "p1", ticker: "NVDA", reason: "lots not updated", verified: true }],
   });
   assert.equal(out.length, 1);
   assert.equal(out[0].severity, "P1");
   assert.match(out[0].title, /NVDA/);
-  assert.equal(checkReconciliationQueue({}).length, 1); // non-array → fail closed
-  assert.match(checkReconciliationQueue({})[0].title, /input UNKNOWN/);
+});
+
+test("checkReconciliationQueue fails closed when the queue is unreadable (null)", () => {
+  // Codex blocker 2: null (unreadable) must NOT read as all-clear.
+  const nullCase = checkReconciliationQueue({ openReconciliations: null });
+  assert.equal(nullCase.length, 1);
+  assert.match(nullCase[0].title, /input UNKNOWN/);
+  assert.equal(checkReconciliationQueue({}).length, 1); // undefined too
+});
+
+test("checkReconciliationQueue flags a record that failed verify-on-read as an integrity P1", () => {
+  // Codex blocker 3: an unverified/tampered record is MORE alarming, not dropped.
+  const out = checkReconciliationQueue({
+    openReconciliations: [{ orderId: "o2", ticker: "AMD", verified: false }],
+  });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].severity, "P1");
+  assert.match(out[0].title, /FAILED integrity check/);
 });
 
 test("checkPhase0Throughput stays quiet early in the window", () => {

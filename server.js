@@ -306,7 +306,7 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: "proposalId, orderId, ticker, side, shares, and price are required" }));
         return;
       }
-      const { trade, alreadyRecorded } = await withWorkflowLock("accounting", async () => {
+      const { trade, alreadyRecorded, needsReconciliation } = await withWorkflowLock("accounting", async () => {
         const proposal = await getProposalById(proposalId);
         const { sheets, drive } = getServiceAccountClients();
         const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
@@ -315,11 +315,14 @@ const server = http.createServer(async (req, res) => {
           sheets, spreadsheetId, sheetIds, proposal, orderId, ticker,
           side, shares, price, agentId: agentId ?? "agent-1",
         });
-        await markProposalFulfilled(proposalId, orderId);
+        // Do NOT mark fulfilled when the lot ledger couldn't be reconciled — the
+        // trade is recorded and a durable reconciliation record persisted; the
+        // proposal stays open until repaired (Codex MCP-path coverage).
+        if (!recorded.needsReconciliation) await markProposalFulfilled(proposalId, orderId);
         return recorded;
       }, { ttlSeconds: 5 * 60 });
       res.writeHead(200);
-      res.end(JSON.stringify({ ok: true, alreadyRecorded, trade }));
+      res.end(JSON.stringify({ ok: true, alreadyRecorded, needsReconciliation: Boolean(needsReconciliation), trade }));
       // Kick off a holdings sync so the dashboard reflects the new position immediately
       syncHoldings().catch((e) => console.error("[Server] Post-trade sync error:", e.message));
     } catch (e) {
