@@ -4,17 +4,244 @@
 
 # Portfolio Manager — Fix List
 
-_Regenerated 2026-07-07T01:06:41.784Z · 0 need attention · 2 acknowledged · 6 recently fixed_
+_Regenerated 2026-07-10T22:36:21.230Z · 88 need attention · 2 acknowledged · 5 recently fixed_
 
 **For Claude Code sessions:** these are system-loop findings (docs/SYSTEM-LOOP-PLAN.md), detected by deterministic checks and deduped by fingerprint. For each item under "Needs attention", judge whether it warrants fixing in your current session: read the linked finding file for evidence, verify against live state before acting (checks are point-in-time), and respect docs/INVARIANTS.md on anything money-path. When you fix one: set its `status: fixed`, note the fix in the finding file, run `npm run sysloop:fixlist`. If a fixed item's fingerprint reappears, the loop auto-escalates it to regressed.
 
 ## Needs attention
 
-(none — clean)
+- [ ] **P1** **REGRESSED** `F-2026-003` [approvals] 8 proposals expired without a decision — seen 4×, 2026-07-05 → 2026-07-10
+  - Details: `ops/findings/F-2026-003-8-proposals-expired-without-a-decision.md`
+- [ ] **P1** `F-2026-092` [bug] Job exit-monitor did not run today — seen 1×, 2026-07-10 → 2026-07-10
+  - Next step: Update the sentinel's cron-run-check (lib/sysloop/checks.js) to read expected days from the actual cron expression, or special-case exit-monitor/research-scan as Sun-Thu-only so Friday no longer triggers a false alert.
+  - Details: `ops/findings/F-2026-092-job-exit-monitor-did-not-run-today.md`
+- [ ] **P1** `F-2026-093` [bug] Job research-scan did not run today — seen 1×, 2026-07-10 → 2026-07-10
+  - Next step: Same fix as F-2026-092 — teach the cron-check the actual Sun-Thu schedule so Fridays don't page as missed runs.
+  - Details: `ops/findings/F-2026-093-job-research-scan-did-not-run-today.md`
+- [ ] **P2** `F-2026-009` [infra] PM2 process portfolio-manager is flapping — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Check `pm2 describe portfolio-manager` restart count and timestamps now, and confirm whether the uncommitted health-check fix resolves the crash loop before deploying.
+  - Details: `ops/findings/F-2026-009-pm2-process-portfolio-manager-is-flapping.md`
+- [ ] **P2** `F-2026-010` [unknown] Job weekly-review has never recorded a run — seen 3×, 2026-07-07 → 2026-07-10
+  - Next step: Check deploy history and Redis for the job's last-run key against the most recent Friday 18:30 ET to confirm whether a run was actually missed.
+  - Details: `ops/findings/F-2026-010-job-weekly-review-has-never-recorded-a-run.md`
+- [ ] **P2** `F-2026-011` [bug] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Exclude the sentinel's own log lines (or the [Sysloop]/findings-write output) from the log-cluster check's input source in lib/sysloop/checks.js.
+  - Details: `ops/findings/F-2026-011-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-012` [stale-surface] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Consider downgrading this line from console.error to console.warn/info so it stops surfacing as an error-cluster finding, since it documents working-as-intended defense behavior.
+  - Details: `ops/findings/F-2026-012-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-013` [stale-surface] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Same as F-2026-012 — treat as informational, not error-worthy.
+  - Details: `ops/findings/F-2026-013-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-014` [stale-surface] New error cluster in PM2 logs — seen 2×, 2026-07-07 → 2026-07-09
+  - Next step: No action needed on the underlying behavior; consider excluding this known log pattern from the log-cluster check so it stops generating findings.
+  - Details: `ops/findings/F-2026-014-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-015` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Confirm the uncommitted /health fix covers this specific agent/status probe path, then deploy and re-check.
+  - Details: `ops/findings/F-2026-015-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-016` [bug] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Fix the sentinel's log-clustering in lib/sysloop/checks.js to group multi-line console warnings into one cluster instead of one per line; separately confirm yahoo-finance2 validation errors aren't silently dropping quote data in lib/yahoo.js.
+  - Details: `ops/findings/F-2026-016-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-017` [bug] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Same as F-2026-016: fix multi-line log clustering; do not treat as a separate incident.
+  - Details: `ops/findings/F-2026-017-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-018` [bug] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Same as F-2026-016.
+  - Details: `ops/findings/F-2026-018-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-019` [bug] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Same as F-2026-016.
+  - Details: `ops/findings/F-2026-019-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-020` [bug] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Same as F-2026-016.
+  - Details: `ops/findings/F-2026-020-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-021` [bug] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Same as F-2026-016.
+  - Details: `ops/findings/F-2026-021-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-022` [bug] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Same as F-2026-016.
+  - Details: `ops/findings/F-2026-022-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-023` [bug] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Same as F-2026-016.
+  - Details: `ops/findings/F-2026-023-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-024` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Pull the full untruncated error message from PM2 logs to confirm whether this is a per-key rate limit or a hard spend cap, and check whether research-scan's concurrency/pacing needs throttling to avoid mass ticker failures in a single run.
+  - Details: `ops/findings/F-2026-024-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-025` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Do not triage individually; resolve as part of the single F-2026-024 investigation, then fix the sentinel's clustering so repeat tickers in one run collapse into one finding.
+  - Details: `ops/findings/F-2026-025-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-026` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-026-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-027` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-027-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-028` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-028-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-029` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-029-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-030` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-030-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-031` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-031-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-032` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-032-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-033` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-033-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-034` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-034-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-035` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-035-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-036` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; the cross-agent spread strengthens the case for a shared API budget/rate-limit hit rather than a single agent's bug.
+  - Details: `ops/findings/F-2026-036-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-037` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-037-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-038` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-038-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-039` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-039-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-040` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-040-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-041` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-041-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-042` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-042-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-043` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-043-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-044` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-044-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-045` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-045-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-046` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-046-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-047` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-047-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-048` [stale-surface] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Treat as informational; consider excluding from log-cluster check like the other evidence-flag summaries.
+  - Details: `ops/findings/F-2026-048-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-049` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-049-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-050` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-050-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-051` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-051-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-052` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-052-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-053` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Next step: Resolve as part of F-2026-024; no separate action.
+  - Details: `ops/findings/F-2026-053-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-054` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-054-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-055` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-055-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-056` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-056-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-057` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-057-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-058` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-058-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-059` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-059-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-060` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-060-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-061` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-061-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-062` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-062-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-063` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-063-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-064` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-064-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-065` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-065-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-066` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-066-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-067` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-067-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-068` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-068-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-069` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-069-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-070` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-070-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-071` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-071-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-072` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-072-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-073` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-073-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-074` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-074-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-075` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-075-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-076` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-076-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-077` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-077-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-078` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-078-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-079` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-079-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-080` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-080-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-081` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-081-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-082` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-082-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-083` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-083-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-084` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-084-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-085` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-085-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-086` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-086-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-087` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-087-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-088` [logs] New error cluster in PM2 logs — seen 1×, 2026-07-07 → 2026-07-07
+  - Details: `ops/findings/F-2026-088-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-089` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-09 → 2026-07-09
+  - Next step: Tune the log-scan sentinel to not classify the '[Evidence]' safety-check console.error lines as error clusters, since they are intentional telemetry for a working control, not failures.
+  - Details: `ops/findings/F-2026-089-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-090` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-09 → 2026-07-09
+  - Next step: Exclude this expected console.warn line from the log-scan sentinel's error-cluster matching, or add a duplicate-title suppression since 25+ prior findings (F-2026-011 through 035) already cover this same noisy pattern.
+  - Details: `ops/findings/F-2026-090-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-091` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-09 → 2026-07-09
+  - Next step: Same as the other two: adjust the sentinel so '[Evidence] ... model flagged suspect evidence' / exclusion logs are not treated as error clusters — consider a shared allowlist for known-intentional log prefixes to stop this recurring flood of duplicate P2 findings.
+  - Details: `ops/findings/F-2026-091-new-error-cluster-in-pm2-logs.md`
+- [ ] **P2** `F-2026-094` [infra] Companion heartbeat never seen — seen 1×, 2026-07-10 → 2026-07-10
+  - Next step: On the Mac, check `pm2 status portfolio-executor` and `pm2 logs portfolio-executor --lines 20` to confirm the process is running and successfully writing the heartbeat key to Redis; restart it if stopped or crash-looping.
+  - Details: `ops/findings/F-2026-094-companion-heartbeat-never-seen.md`
+- [ ] **P2** `F-2026-095` [infra] New error cluster in PM2 logs — seen 1×, 2026-07-10 → 2026-07-10
+  - Next step: Check Telegram for the reportSyncFailure alert and confirm whether Robinhood is requiring a fresh manual login/MFA challenge; re-authenticate lib/robinhood-sync.py's session if so.
+  - Details: `ops/findings/F-2026-095-new-error-cluster-in-pm2-logs.md`
 
 ## Acknowledged (known, deliberately not fixed yet)
 
-- **P1** `F-2026-001` [lifecycle] Approved proposal NVDA BUY has no decision signature — seen 1×, 2026-07-05 → 2026-07-05
+- **P1** `F-2026-001` [lifecycle] Approved proposal NVDA BUY has no decision signature — seen 4×, 2026-07-05 → 2026-07-10
   - Details: `ops/findings/F-2026-001-approved-proposal-nvda-buy-has-no-decision-signa.md`
 - **P1** `F-2026-002` [sheets] Sheet tab "Investors" header drift at column 8 — seen 1×, 2026-07-05 → 2026-07-05
   - Details: `ops/findings/F-2026-002-sheet-tab-investors-header-drift-at-column-8.md`
@@ -25,8 +252,6 @@ _Regenerated 2026-07-07T01:06:41.784Z · 0 need attention · 2 acknowledged · 6
 
 ## Recently fixed (watching for regression)
 
-- **P2** `F-2026-003` [approvals] 8 proposals expired without a decision — seen 1×, 2026-07-05 → 2026-07-05
-  - Details: `ops/findings/F-2026-003-8-proposals-expired-without-a-decision.md`
 - **P3** `F-2026-004` [docs] Doc references missing file: config/weights.json — seen 1×, 2026-07-05 → 2026-07-05
   - Details: `ops/findings/F-2026-004-doc-references-missing-file-config-weights-json.md`
 - **P3** `F-2026-005` [docs] Doc references missing file: lib/deep-research.js — seen 1×, 2026-07-05 → 2026-07-05

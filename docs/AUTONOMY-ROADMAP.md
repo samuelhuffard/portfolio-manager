@@ -1,109 +1,123 @@
-# Autonomy Roadmap — North Star
+# Portfolio Manager — Roadmap to Supervised Autonomy
 
-**The goal:** an agent that trades its mandate fully autonomously — discovers across the entire market, researches deeply enough to act with confidence, and executes without Sam's per-trade approval — earning that autonomy from evidence, not optimism.
+**Goal:** build a professional, observable, and reversible autonomous investment operating system. The near-term destination is a system that can research, allocate, approve, and execute within tested mandates; it is **not** a roadmap to accepting capital or becoming a fund. The long-term fund ambition raises the standard for controls, recordkeeping, attribution, and clarity now.
 
-**How to use this doc:** this is the project's north star for future sessions. Before starting significant work, find the current phase (check the Status lines), verify its entry criteria are actually met against live state, and work on THAT phase. Resist skipping ahead — each phase's exit criteria are the next phase's foundation. When a phase completes, update its Status here in the same commit as the work.
+The operating model is deliberately asymmetric:
 
-**What never changes, in any phase** (see `INVARIANTS.md`; these survive full autonomy):
+- **Agents 1–3 are specialist strategies.** Each researches its versioned mandate and may only create proposals.
+- **Agent 4 is the portfolio manager.** It evaluates those proposals in portfolio context, dynamically assigns each strategy a virtual risk/capital budget, accepts or rejects proposals, and authorizes accepted orders for the deterministic execution service.
+- **The execution service is mechanical.** It submits only Agent 4-authorized, signed orders and reconciles them to the broker. It never interprets strategy or invents a trade.
+- **Sam retains the promotion and emergency authority** until a later evidence-based autonomy level explicitly changes that policy.
 
-- Nothing upgrades: risk engine, evaluator, conviction, breaker can only block/shrink/downgrade.
-- Everything fails closed: missing config, unparseable model output, absent fields → refuse, loudly.
-- Deterministic gates before expensive AI; deterministic checks after.
-- Untrusted text is fenced before any model sees it.
-- Money math lives in pure, tested `lib/` functions.
-- Ledgers are append-only and signed; execution ordering (`Executing` → order → ledger → fulfilled, `ref_id` = proposal id) is never reordered.
-- Autonomy changes the *approver*, never the *pipeline*.
+## Binding control model
 
----
+```text
+Agent 1 / Agent 2 / Agent 3
+  mandate + evidence -> BUY / SELL / HOLD proposal
+                              |
+                              v
+                         Agent 4
+  performance + holdings + macro + portfolio risk -> accept / reject
+                              |
+                              v
+                 signed immutable OrderIntent
+                              |
+                              v
+            deterministic executor -> broker -> ledger -> reconciliation
+```
 
-## Phase 0 — Full-market discovery funnel ✅ SHIPPED 2026-07-05 (`bc7dbb7`)
+### Ownership and authority rules
 
-Catalog (nightly NYSE/NASDAQ listing + quotes + paced sector enrichment) → philosophy screen → daily slate (holdings → movers → ranked → exploration) → 12-review AI budget → research ledger memory. Agent-1 on `source: catalog`; watchlist is loud fallback only.
+1. A specialist never executes an order and cannot approve its own proposal.
+2. Every BUY creates strategy-owned lot records. **Only the specialist that owns those lots may propose a SELL or reduction.**
+3. Agent 4 cannot create a new trade, alter a proposed side/ticker/size, or force a sale. It can accept or reject the specialist's exact proposal within the active policy.
+4. Agent 4 may dynamically allocate virtual strategy budgets using attributable performance, current holdings/exposures, mandate fit, and macro/regime evidence. The decision must be explainable, versioned, bounded by hard portfolio limits, and never become simple return chasing.
+5. Global deterministic controls can block, shrink, expire, or demote an order; they cannot manufacture a substitute order or bypass strategy ownership.
+6. Missing, stale, ambiguous, unsigned, or inconsistent state blocks action loudly. Ledger and broker reconciliation failures immediately return the system to human-supervised mode.
 
-**Status: deployed, enrichment converging (249/4392 on night one).**
-
-## Phase 1 — Prove the funnel at full width (~2–4 weeks of runtime, near-zero build)
-
-The discovery machinery must be *observed* working before deeper layers are built on it.
-
-Exit criteria (all from live evidence, not code reading):
-
-- Sector enrichment plateaus (≥90% of catalog enriched; `/health` `universe.sectorEnriched`).
-- Screened pool reaches steady state (expect low hundreds for the tech mandate) and the 5:15pm slate log shows all four buckets populating daily.
-- Exploration rotation demonstrably cycles: research ledger accumulates names/week ≈ budget minus holdings/movers, with no ticker starving the rotation.
-- Research cooldown observed working (a HOLD is not re-reviewed within 14 days except via movers).
-- Evaluator rejection rate is neither 0% (too soft) nor so high that nothing ever reaches the queue — track weekly via the scorecard.
-- No missed crons (`pm:job:universe-refresh:last-run` fresh every weeknight).
-
-Build items allowed in this phase: observability only (e.g., surface slate composition + ledger coverage in the dashboard or weekly review). No pipeline changes.
-
-## Phase 2 — Stage-2 deep dossier loop (the confidence gap)
-
-**Why this is the binding constraint:** proposal-time analysis today is one pass at headline depth (quant + 3 Tavily headlines + filing *titles* + macro). The evaluator correctly rejects theses the system cannot evidence (see the MU rejection, 2026-07-05: right verdict, but the system *couldn't* have verified the claim either way). Full autonomy needs evidence depth, not more trust. This was deferred by design in `LOOP-DESIGN.md` §7 — build it here.
-
-Spec (two-stage research; stage 1 is the existing scan, unchanged):
-
-- **Trigger:** stage-1 output of BUY/SELL intent (before the evaluator) promotes the ticker to a dossier pass. HOLDs never pay for depth.
-- **Evidence fetch (deterministic):** EDGAR full-text sections (MD&A, risk factors, latest 10-Q/10-K financial highlights) via `lib/edgar.js` extension; earnings surprise history (`fetchEarningsSurprise` exists); analyst trend + insider activity (already fetched, currently underused); optionally transcript/news beyond headlines (Tavily full-content mode). ALL of it through `sanitizeEvidenceItems` fencing — no exceptions.
-- **Dossier (one structured LLM call):** bull case, bear case, variant view vs. consensus, each claim carrying an `evidenceId` pointing at a fetched item. Claims without an evidenceId are auto-prefixed UNVERIFIED and cannot support the action (extends the existing rule).
-- **Evaluator upgrade:** grades the dossier against its evidence list — "is every load-bearing claim evidenced?" becomes checkable instead of judgment. Downgrade-only, fail-closed, one revision max: unchanged.
-- **Persistence:** dossier stored (Redis, TTL ~90d, keyed `pm:dossier:<agentId>:<ticker>:<date>`), linked from the proposal's rationale so the approval queue (and later, the audit trail of an autonomous trade) shows the full case. Research ledger entry gains `dossierRef`.
-- **Cost control:** dossiers only on actionable intents (historically 0–5/day), hard daily cap (config key, consumed-verified), Opus for the dossier evaluator only if scan volume stays low.
-
-Exit criteria: ≥2 weeks where every queued proposal carries a dossier; evaluator critiques cite evidenceIds; Sam's subjective read is that proposals are decision-grade without him doing his own research.
-
-**Status: not started.**
-
-## Phase 3 — Enforcement completeness (a machine can't be trusted with rules a human was silently covering)
-
-The human gate currently absorbs every gap between what the mandate *says* and what code *enforces*. Close the gaps before measuring autonomy readiness:
-
-- Config-claims audit: every key in `risk-limits.json` either enforced in code or deleted (`rebalanceFlagPct`, `maxCashReservePct`, etc. are known dead). Grep-consumed check per CHANGE_MAP rule.
-- Memo-vs-code audit: every clause in `AGENT-ONE-PLAN.md` entry gates maps to a named code check (e.g., "≥2 kill criteria" — code historically accepted 1).
-- Ledger verify-on-read: HMAC verification wherever ledgers are *read* for decisions, not just the nightly job.
-- Agents 2/3 decision: either give them real mandates + the same gate parity as agent-1, or disable their scans. A mandate-less agent proposing trades is noise in the autonomy data.
-- Alerting completeness: every dropped OUTPUT path Telegrams (re-audit against mistake class #1); a silent failure under autonomy is an unbounded loss window.
-
-Exit criteria: a written pass over memo + configs with zero unenforced claims; tests for each newly enforced gate.
-
-**Status: not started.**
-
-## Phase 4 — Autonomy readiness measurement (no build beyond metrics; the phase IS the data)
-
-The gate is retired from evidence. The metric: **agreement rate** — of proposals where generator proposed and evaluator APPROVED, what fraction did Sam also approve, and did Sam ever approve something the evaluator rejected?
-
-- Add agreement tracking to the weekly scorecard (approve/reject splits already exist; add the conditional-on-evaluator cut).
-- Also track matured outcomes: 30d hit-rate and alpha of Sam-approved vs. Sam-rejected proposals. If Sam's rejections aren't adding alpha over the evaluator's, the gate is provably redundant.
-- Readiness threshold (proposed, revisit when data exists): ≥8 consecutive weeks of ≥95% agreement on evaluator-approved proposals, ≥20 decisions in sample, zero evaluator-rejected proposals Sam overrode to approve, and no breaker tier ≥ REDUCE during the window caused by agent trades.
-
-Exit criteria: the threshold met, or a documented decision that it wasn't and why (that's a Phase 2/3 regression signal, not a failure).
-
-**Status: not started — data collection effectively began when the evaluator shipped (2026-07-02).**
-
-## Phase 5 — Graduated autonomy (the only phase that touches INVARIANTS.md)
-
-Never binary. Sequence, each step gated on weeks of clean history at the prior step:
-
-1. **Auto-execute small BUYs:** evaluator-APPROVED proposals below a dollar cap (start ~$250) execute without approval; everything above still queues. SELLs still queue (exits are already automated via the exit monitor's separate path).
-2. **Raise the cap stepwise** ($250 → $1k → position-sizing limit) on clean history.
-3. **Auto-execute ordinary SELLs** under the same regime.
-4. **Full autonomy** with Sam on notification-only (Telegram per trade, daily digest, weekly review unchanged).
-
-Non-negotiable design constraints for the executor change:
-
-- This revises invariant #1 — the change MUST update `INVARIANTS.md`, `read-only-broker.test.js` expectations, and the three proposal-schema copies deliberately and in one reviewed change. It is a project, not a patch.
-- The signing discipline stays: an auto-approved proposal gets a *system* HMAC signature (new key, distinct from Sam's approval key) so the executor still refuses unsigned work and the audit trail distinguishes human from system approvals.
-- Kill switches, pre-wired and tested BEFORE step 1: breaker tier ≥ REDUCE pauses all auto-execution (queue-only mode); a Telegram command and a dashboard toggle both flip the system back to human-gate instantly; auto-execution has a daily dollar budget and a max-trades/day cap.
-- Any reconciliation mismatch, ledger verification failure, or evaluator-bypass detection → immediate fallback to human gate + Telegram.
-
-**Status: not started. Do not begin any part of this phase without Sam explicitly initiating it in-session.**
+The existing safety invariants remain: downgrade-only risk controls, deterministic gates around model calls, fenced untrusted evidence, pure tested money math, append-only signed ledgers, and the `Executing -> order -> ledger -> fulfilled` sequence with an exact broker reference.
 
 ---
 
-## Standing guidance for sessions using this doc
+## Phase 0 — Stabilize the live supervised system
 
-- Verify phase status against live state (health endpoint, Redis, logs, scorecards) before building — statuses here are point-in-time.
-- Read `CHANGE_MAP.md` for the files each change touches; `portfolio-manager-code-lessons` memory for the mistake classes.
-- Prefer finishing the current phase's exit criteria over starting the next phase's build.
-- Cost discipline: every new LLM call gets a consumed, budget-style config cap (Sam's standing guardrail).
-- When Sam asks "can it trade on its own yet?", the answer is this doc's Phase 4 metrics — pull the real numbers.
+**Status:** Current. The Phase 0A local work is not yet deployed; its observation clock has not started. Preserve existing WIP and verify runtime health before any diagnosis.
+
+Finish the existing 0A/0B/0C work: fail-closed research and fill attribution, signed ledger reads, truthful degraded-run status, Jetson-owned monitoring/reconciliation, live companion health, budget governance, and a unified manager surface.
+
+**Exit gate:** 10 consecutive trading days after deployment with no missed critical job, ambiguous fill, manual ledger repair, hidden failure, or unsafe client exposure; at least three genuine actionable proposals and one evaluator approval; every holding monitored despite quote failures; health, dashboard, logs, and reconciliation agree.
+
+---
+
+## Phase 1 — Mandate onboarding and proposal ownership
+
+**Goal:** make the incoming Agent 2, Agent 3, and Agent 4 personalities operationally precise before reactivating strategy proposals.
+
+For each specialist mandate, capture and version: universe, horizon, edge hypothesis, benchmark, entry/exit/abstention rules, evidence requirements, liquidity/turnover constraints, position limits, expected regimes, invalidation conditions, and evaluation criteria.
+
+For Agent 4, capture and version: portfolio objective, permitted accept/reject criteria, dynamic allocation inputs, allocation bounds, rebalance cadence, conflict treatment, macro/regime framework, escalation rules, and explanation requirements. Agent 4's mandate must explicitly prohibit forced sales and self-originated trades.
+
+Build the contract required for the model:
+
+- `StrategyProposal` contains mandate/version, thesis, evidence IDs, requested action, requested size, owned-lot references for SELLs, and expiry.
+- `StrategyLot` records the originating agent, remaining shares, and realized attribution. A SELL fails closed unless it consumes that agent's owned lots.
+- `PortfolioDecision` records Agent 4's accept/reject result, allocation snapshot, portfolio/risk snapshot, explanations, policy version, and signature.
+- The dashboard shows proposal lineage, lot ownership, active strategy budgets, Agent 4 decisions, conflicts, and decision rationale as authoritative state—not separate agent chats.
+
+**Exit gate:** all three incoming mandates have a written, testable version; every BUY/SELL proposal and fill can be traced to one strategy and mandate version; Agent 4 cannot authorize an unowned SELL, changed proposal, or self-originated trade; the dashboard can explain every accepted/rejected decision.
+
+---
+
+## Phase 2 — One contract, one pipeline, one financial truth
+
+**Goal:** eliminate cross-runtime schema drift and mutable accounting before authority expands.
+
+- Create shared contracts for mandates, proposals, ownership lots, portfolio decisions, signatures, risk snapshots, broker events, and financial precision.
+- Route scheduled research, Lab requests, price alerts, exit signals, and manual requests through the same compiler.
+- Use typed state/version checks; invalidation follows material quote, portfolio, mandate, or allocation-policy changes.
+- Move canonical accounting to Postgres through an audited dual-write/shadow-read migration; retain Sheets as a read-only reporting projection.
+- Use append-only double-entry events, exact broker IDs, idempotency, locks/fencing, backups, restore tests, and broker/order/position reconciliation.
+
+**Exit gate:** no executable proposal bypasses the compiler; schema copies are removed or generated; 30 days of zero unexplained broker/Postgres/Sheet differences; crash-injection and clean restore prove no duplicate order or partial book.
+
+---
+
+## Phase 3 — Portfolio-manager shadow coordination
+
+**Goal:** prove that Agent 4 makes better-coordinated decisions without gaining execution autonomy yet.
+
+- Run all specialists with their mandates; keep their proposals individually attributable.
+- Have Agent 4 produce shadow accept/reject decisions and virtual strategy allocations alongside Sam's supervised decisions.
+- Measure proposal quality and outcomes by specialist, mandate version, allocation state, market regime, and Agent 4 decision.
+- Require Agent 4 to surface—not silently net—duplicate theses, conflicts, concentration, cash pressure, and unowned sell attempts.
+- Prevent performance chasing: allocations use a documented rolling evidence window, minimum sample rules, capped change size, drawdown/regime controls, and diversification limits.
+
+**Exit gate:** at least 8–12 weeks plus a meaningful current-version sample (minimum 30 evaluator-graded actionable proposals and 10 filled trades); no ownership violations, accounting incidents, or unresolved reconciliation; Agent 4's shadow decisions are explainable and demonstrably aligned with portfolio limits.
+
+---
+
+## Phase 4 — Bounded Agent 4 autonomy
+
+**Goal:** transition only the approval/authorization role from Sam to Agent 4, in reversible increments.
+
+1. **Shadow manager:** Agent 4 records decisions and allocations; Sam approves every order.
+2. **Bounded accepts:** Agent 4 may accept eligible specialist BUYs within strict daily, per-strategy, and portfolio caps; specialist SELL proposals remain human-supervised initially.
+3. **Bounded specialist exits:** Agent 4 may accept a SELL only when proposed by the owner strategy and all lot, risk, and reconciliation gates pass.
+4. **Full mandate autonomy:** Agent 4 authorizes eligible specialist proposals; Sam supervises health, allocations, performance, and policy versions rather than each trade.
+
+Every promotion requires a written policy version, capital/risk caps, observation window, live rollback drill, and clean evidence at the prior level. A reconciliation, ledger, heartbeat, signature, contract, stale-state, risk, or mandate anomaly immediately demotes to human-supervised mode.
+
+---
+
+## Immediate next milestone — mandates arriving tomorrow
+
+When the Agent 2, Agent 3, and Agent 4 personalities arrive:
+
+1. Convert each into the Phase 1 mandate template; identify every ambiguous rule before code changes.
+2. Add the registry/contract/lot-ownership design and tests before re-enabling Agent 2 or 3 proposals.
+3. Initially run Agent 4 in shadow-manager mode while Sam remains the final approver.
+4. Do not implement autonomous execution, portfolio-wide forced sells, new outside-capital features, or fund structure work while Phase 0 is incomplete.
+
+## Standing session protocol
+
+Before meaningful Portfolio Manager work: read this roadmap, `CLAUDE.md`, `docs/INVARIANTS.md`, `docs/CHANGE_MAP.md`, and `ops/FIXLIST.md`; protect existing WIP; verify runtime evidence; state the phase and exit criterion advanced; add money-math and failure-path tests; obtain independent review before financial/autonomous-write deployment; and update the canonical vault roadmap when reality changes.
