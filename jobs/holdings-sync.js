@@ -17,6 +17,7 @@ import {
 } from "../lib/redis.js";
 import { withWorkflowLock } from "../lib/workflow-lock.js";
 import { planFillProcessing } from "../lib/fill-processing.js";
+import { isValidApprovalSignature } from "../lib/proposal-signature.js";
 import { sendMessage as sendTelegram } from "../lib/telegram.js";
 import {
   getServiceAccountClients,
@@ -82,6 +83,9 @@ async function processFillsUnlocked(sheets, spreadsheetId, sheetIds, fills) {
     existingOrderIds: existingLedger.map((t) => t.orderId).filter(Boolean),
     openProposals,
     lots: allLots,
+    // Codex #3: attribute/fulfill only against a VALID signature, not merely a
+    // present one — a forged decisionHmac must not be able to claim a fill.
+    verifySignature: (p) => isValidApprovalSignature(p),
   });
   for (const f of plan.skipped) console.log(`[Holdings] Skipping already-recorded fill ${f.side} ${f.ticker} (order ${f.orderId}).`);
   for (const warning of plan.warnings) console.warn(`[Holdings] ${warning}`);

@@ -59,3 +59,22 @@ test("does not attribute an exact refId to an unsigned proposal", () => {
   const trade = { ticker: "AAPL", side: "BUY", shares: 6.5, price: 153.5, amount: 998.0, date: "2026-06-20", refId: "proposal-1" };
   assert.equal(matchTradeToApprovedProposal(trade, [proposal({ decisionHmac: null })]).proposalId, null);
 });
+
+// Codex #3: with a verifySignature verifier, a candidate needs a VALID signature,
+// not just a present one — a forged/random decisionHmac must not attribute.
+test("verifySignature rejects a forged signature and accepts a valid one", () => {
+  const trade = { ticker: "AAPL", side: "BUY", shares: 6.5, price: 153.5, amount: 998.0, date: "2026-06-20", refId: "p1" };
+
+  // Forged: presence-only would have matched; the verifier drops it.
+  const forged = proposal({ id: "p1", decisionHmac: "deadbeef" });
+  assert.equal(
+    matchTradeToApprovedProposal(trade, [forged], { verifySignature: () => false }).proposalId,
+    null
+  );
+
+  // Valid: verifier passes → attributed.
+  const valid = proposal({ id: "p1" });
+  const res = matchTradeToApprovedProposal(trade, [valid], { verifySignature: (p) => p.id === "p1" });
+  assert.equal(res.proposalId, "p1");
+  assert.equal(res.agentId, "agent-1");
+});
