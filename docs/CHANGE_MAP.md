@@ -43,6 +43,8 @@ Gotchas:
 
 ## Changing proposal approval / execution logic
 
+> **Shared contract (Phase 1):** the proposal enums (`AGENT_IDS`, `PROPOSAL_STATUSES`, `PROPOSAL_SIDES`), limits (`MAX_PROPOSALS`, `MAX_AMOUNT_DOLLARS`, `PROPOSAL_EXPIRY_MS`), the ticker rule (`TICKER_RE`), and the input validator (`validateProposalInput`) now live single-source in `contracts/proposal.js` (canonical here) and are mirrored to `../portfolio-dashboard/lib/contracts/` by `npm run contracts:sync`; `tests/contracts-drift.test.ts` (dashboard) enforces equality. Edit those in `contracts/` only, then sync. **Still triplicated by hand (pending later Phase 1 slices):** the full `AllocationProposal` shape, `computeDecisionSignature`, and the companion's raw-JSON handling — the list below still applies to those.
+
 Files (ALL THREE, always):
 - `../portfolio-dashboard/lib/proposals.ts` — canonical schema, validation, decisions, `computeDecisionSignature`.
 - `lib/redis.js` (this repo) — backend mirror (`createProposal`, `markProposalFulfilled`, expiry).

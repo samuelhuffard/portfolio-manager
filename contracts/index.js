@@ -1,0 +1,4 @@
+// CANONICAL — edit here only. Mirrored to portfolio-dashboard/lib/contracts/.
+// Barrel for the shared cross-repo contracts. See ./README.md.
+
+export * from "./proposal.js";
