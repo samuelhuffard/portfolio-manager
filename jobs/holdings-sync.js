@@ -97,6 +97,15 @@ async function processFillsUnlocked(sheets, spreadsheetId, sheetIds, fills) {
   // (e.g. companion already marked it) must not abort accounting for other fills.
   for (const row of plan.tradeRows) {
     if (!row.proposalId) continue;
+    // A SELL whose lot ledger could not be reconciled (Codex #1 / Decision A):
+    // the trade is recorded but the proposal must NOT be marked fulfilled until
+    // the lot accounting is repaired, or we'd hide a real broker/ledger mismatch.
+    if (row.needsReconciliation) {
+      const alert = `[Holdings] SELL ${row.ticker} (proposal ${row.proposalId}, order ${row.orderId ?? "?"}) recorded but LOT LEDGER NOT UPDATED — needs reconciliation. Proposal left unfulfilled. Repair lots before it can close.`;
+      console.error(alert);
+      try { await sendTelegram(alert); } catch (err) { console.error(`[Holdings] reconciliation alert failed: ${err.message}`); }
+      continue;
+    }
     try {
       await markProposalFulfilled(row.proposalId, row.orderId ?? null);
     } catch (err) {

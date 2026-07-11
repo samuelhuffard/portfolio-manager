@@ -42,14 +42,34 @@ test("applyFillToLots default: SELL consumes account-wide (no regression)", () =
 
 // --- flag on enforces ownership ------------------------------------------------
 
-test("planFillProcessing enforceOwnership: attributed SELL beyond own lots warns, does not cross strategies", () => {
+test("planFillProcessing enforceOwnership: attributed SELL beyond own lots flags NeedsReconciliation, does not cross strategies", () => {
   const lots = mixedNvda();
   const plan = planFillProcessing({ fills: [sellFill("p2")], openProposals: [sellProposal("p2", "agent-2")], lots, enforceOwnership: true });
-  // agent-2 owns only 8 → ownership violation → warning, no realized gain, agent-1's lot untouched.
-  assert.equal(plan.tradeRows[0].agentId, "agent-2"); // attribution succeeded
+  // agent-2 owns only 8, no unattributed lots → cannot reconcile → row is recorded
+  // but flagged NeedsReconciliation, no realized gain, agent-1's lot untouched.
+  const row = plan.tradeRows[0];
+  assert.equal(row.agentId, "agent-2"); // attribution succeeded
+  assert.equal(row.needsReconciliation, true);
+  assert.equal(row.realizedGain, null);
   assert.ok(plan.warnings.some((w) => w.includes("NVDA")));
-  assert.equal(plan.tradeRows[0].realizedGain, null);
-  assert.ok(!plan.lotUpdates.some((l) => l.lotId === "a1"));
+  assert.ok(!plan.lotUpdates.some((l) => l.lotId === "a1")); // never touches agent-1's lot
+})
+
+test("planFillProcessing enforceOwnership: attributed SELL tops up from unattributed, never another strategy", () => {
+  // agent-1 owns 4 NVDA; 6 NVDA are unattributed; agent-2 owns 8. A 9-share
+  // agent-1 SELL must take 4 own + 5 unattributed (never agent-2's).
+  const lots = [
+    openLot({ ticker: "NVDA", shares: 4, costPerShare: 100, date: "2026-06-01", agentId: "agent-1", lotId: "a1" }),
+    openLot({ ticker: "NVDA", shares: 6, costPerShare: 90, date: "2026-06-03", agentId: "unattributed", lotId: "u1" }),
+    openLot({ ticker: "NVDA", shares: 8, costPerShare: 120, date: "2026-06-05", agentId: "agent-2", lotId: "a2" }),
+  ];
+  const fill = { orderId: "s9", refId: "p1", ticker: "NVDA", side: "SELL", shares: 9, price: 130, amount: 1170, date: "2026-07-11" };
+  const proposal = { id: "p1", agentId: "agent-1", ticker: "NVDA", side: "SELL", status: "ApprovedForBrokerReview", amountDollars: 1170, maxPrice: null, decisionHmac: "sig" };
+  const plan = planFillProcessing({ fills: [fill], openProposals: [proposal], lots, enforceOwnership: true });
+  assert.equal(plan.tradeRows[0].needsReconciliation, false);
+  // gain: 4*(130-100) own + 5*(130-90) unattributed = 120 + 200 = 320.
+  assert.equal(plan.tradeRows[0].realizedGain, 320);
+  assert.ok(!plan.lotUpdates.some((l) => l.lotId === "a2")); // agent-2 untouched
 });
 
 test("planFillProcessing enforceOwnership: attributed SELL within own lots consumes only its own", () => {
@@ -65,7 +85,7 @@ test("planFillProcessing enforceOwnership: attributed SELL within own lots consu
 test("applyFillToLots enforceOwnership: agent-2 cannot over-sell into agent-1's lots", () => {
   const lots = mixedNvda();
   const trade = { ticker: "NVDA", side: "SELL", shares: 10, price: 130, date: "2026-07-11", agentId: "agent-2" };
-  assert.throws(() => applyFillToLots(trade, lots, { enforceOwnership: true }), /ownership violation/);
+  assert.throws(() => applyFillToLots(trade, lots, { enforceOwnership: true }), /cannot be reconciled from ownership/);
 });
 
 test("enforceOwnership falls back to account-wide for an unattributed SELL", () => {
