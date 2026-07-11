@@ -7,8 +7,35 @@ import { normalizeLine, fingerprintLine, clusterLogLines } from "../lib/sysloop/
 import {
   checkPm2, checkHealthDeps, checkJobFreshness, checkDashboard, checkApprovalsFlow,
   checkCompanionHeartbeat, checkRedisQueue, checkProposalLifecycle, checkSheetsSchema,
-  checkSheetsFreshness, checkLogClusters, checkDocPaths, runChecks,
+  checkSheetsFreshness, checkLogClusters, checkDocPaths, runChecks, checkPhase0Throughput,
 } from "../lib/sysloop/checks.js";
+
+test("checkPhase0Throughput stays quiet early in the window", () => {
+  assert.deepEqual(
+    checkPhase0Throughput({ actionableProposals: 0, evaluatorApprovals: 0, tradingDaysElapsed: 3 }),
+    []
+  );
+});
+
+test("checkPhase0Throughput flags a maturing window that hasn't proven throughput", () => {
+  const out = checkPhase0Throughput({ actionableProposals: 1, evaluatorApprovals: 0, tradingDaysElapsed: 9 });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].severity, "P2");
+  assert.match(out[0].detail, /1\/3 actionable proposals and 0\/1 evaluator APPROVE/);
+});
+
+test("checkPhase0Throughput passes when the bar is met", () => {
+  assert.deepEqual(
+    checkPhase0Throughput({ actionableProposals: 4, evaluatorApprovals: 2, tradingDaysElapsed: 10 }),
+    []
+  );
+});
+
+test("checkPhase0Throughput fails closed on unreadable counts", () => {
+  const out = checkPhase0Throughput({ tradingDaysElapsed: 9 });
+  assert.equal(out.length, 1);
+  assert.match(out[0].title, /input UNKNOWN/);
+});
 import { upsertFindings, loadFindings, openFindingsSummary, renderFixlist } from "../lib/sysloop/findings.js";
 
 const NOW = Date.parse("2026-07-06T22:15:00Z"); // 18:15 ET on a Monday
