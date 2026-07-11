@@ -1,7 +1,8 @@
 # ADR 0001 — Postgres as the canonical financial store
 
-- **Status:** PROPOSED (draft — awaiting Sam's provider decision). Cutover is gated on Phase 1 completion; do not start the migration before then.
+- **Status:** ACCEPTED — provider = **Neon** (Sam, 2026-07-11). Cutover is still gated on Phase 1 completion; do not start the dual-write migration before then. Schema drafting from the contracts package may proceed now as prep.
 - **Date:** 2026-07-11
+- **Decision rationale:** we need exactly one thing — transactional Postgres. Auth stays with Clerk (dedicated auth beats a bundled one; RLS remains available on Neon if per-user row isolation is ever needed). Neon's branching directly serves the shadow-read migration. Auth and DB decisions are independent and were kept so.
 - **Context source:** roadmap Phase 2 ([[portfolio-manager-autonomy-roadmap]] / `docs/AUTONOMY-ROADMAP.md`).
 
 ## Context
