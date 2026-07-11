@@ -44,7 +44,7 @@ test("applyFillToLots default: SELL consumes account-wide (no regression)", () =
 
 test("planFillProcessing enforceOwnership: attributed SELL beyond own lots flags NeedsReconciliation, does not cross strategies", () => {
   const lots = mixedNvda();
-  const plan = planFillProcessing({ fills: [sellFill("p2")], openProposals: [sellProposal("p2", "agent-2")], lots, enforceOwnership: true });
+  const plan = planFillProcessing({ fills: [sellFill("p2")], openProposals: [sellProposal("p2", "agent-2")], lots, enforceOwnership: true, verifySignature: () => true });
   // agent-2 owns only 8, no unattributed lots → cannot reconcile → row is recorded
   // but flagged NeedsReconciliation, no realized gain, agent-1's lot untouched.
   const row = plan.tradeRows[0];
@@ -65,7 +65,7 @@ test("planFillProcessing enforceOwnership: attributed SELL tops up from unattrib
   ];
   const fill = { orderId: "s9", refId: "p1", ticker: "NVDA", side: "SELL", shares: 9, price: 130, amount: 1170, date: "2026-07-11" };
   const proposal = { id: "p1", agentId: "agent-1", ticker: "NVDA", side: "SELL", status: "ApprovedForBrokerReview", amountDollars: 1170, maxPrice: null, decisionHmac: "sig" };
-  const plan = planFillProcessing({ fills: [fill], openProposals: [proposal], lots, enforceOwnership: true });
+  const plan = planFillProcessing({ fills: [fill], openProposals: [proposal], lots, enforceOwnership: true, verifySignature: () => true });
   assert.equal(plan.tradeRows[0].needsReconciliation, false);
   // gain: 4*(130-100) own + 5*(130-90) unattributed = 120 + 200 = 320.
   assert.equal(plan.tradeRows[0].realizedGain, 320);
@@ -76,7 +76,7 @@ test("planFillProcessing enforceOwnership: attributed SELL within own lots consu
   const lots = mixedNvda();
   const sell = { orderId: "s1", refId: "p1", ticker: "NVDA", side: "SELL", shares: 6, price: 130, amount: 780, date: "2026-07-11" };
   const proposal = { id: "p1", agentId: "agent-1", ticker: "NVDA", side: "SELL", status: "ApprovedForBrokerReview", amountDollars: 780, maxPrice: null, decisionHmac: "sig" };
-  const plan = planFillProcessing({ fills: [sell], openProposals: [proposal], lots, enforceOwnership: true });
+  const plan = planFillProcessing({ fills: [sell], openProposals: [proposal], lots, enforceOwnership: true, verifySignature: () => true });
   assert.equal(plan.tradeRows[0].realizedGain, 6 * (130 - 100));
   assert.ok(plan.lotUpdates.some((l) => l.lotId === "a1"));
   assert.ok(!plan.lotUpdates.some((l) => l.lotId === "a2")); // agent-2 untouched

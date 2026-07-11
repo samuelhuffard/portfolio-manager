@@ -14,6 +14,7 @@ import {
   setCachedPortfolioTotalValue,
   bumpRobinhoodSyncFailureStreak,
   clearRobinhoodSyncFailureStreak,
+  recordReconciliationNeeded,
 } from "../lib/redis.js";
 import { withWorkflowLock } from "../lib/workflow-lock.js";
 import { planFillProcessing } from "../lib/fill-processing.js";
@@ -107,6 +108,17 @@ async function processFillsUnlocked(sheets, spreadsheetId, sheetIds, fills) {
     if (row.needsReconciliation) {
       const alert = `[Holdings] SELL ${row.ticker} (proposal ${row.proposalId}, order ${row.orderId ?? "?"}) recorded but LOT LEDGER NOT UPDATED — needs reconciliation. Proposal left unfulfilled. Repair lots before it can close.`;
       console.error(alert);
+      // Durable, signed record FIRST — it must survive a missed alert and the
+      // order-id dedupe on later syncs (Codex re-review). sysloop surfaces it
+      // until a repair clears it; the Telegram is a courtesy on top.
+      try {
+        await recordReconciliationNeeded({
+          orderId: row.orderId, proposalId: row.proposalId, ticker: row.ticker,
+          side: row.side, shares: row.shares, reason: "ownership-scoped SELL could not consume owned/unattributed lots",
+        });
+      } catch (err) {
+        console.error(`[Holdings] FAILED to persist reconciliation record for order ${row.orderId} — mismatch now untracked: ${err.message}`);
+      }
       try { await sendTelegram(alert); } catch (err) { console.error(`[Holdings] reconciliation alert failed: ${err.message}`); }
       continue;
     }

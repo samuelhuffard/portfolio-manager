@@ -8,7 +8,20 @@ import {
   checkPm2, checkHealthDeps, checkJobFreshness, checkDashboard, checkApprovalsFlow,
   checkCompanionHeartbeat, checkRedisQueue, checkProposalLifecycle, checkSheetsSchema,
   checkSheetsFreshness, checkLogClusters, checkDocPaths, runChecks, checkPhase0Throughput,
+  checkReconciliationQueue,
 } from "../lib/sysloop/checks.js";
+
+test("checkReconciliationQueue is quiet when empty, P1 per open item, fail-closed on unreadable", () => {
+  assert.deepEqual(checkReconciliationQueue({ openReconciliations: [] }), []);
+  const out = checkReconciliationQueue({
+    openReconciliations: [{ orderId: "o1", proposalId: "p1", ticker: "NVDA", reason: "lots not updated" }],
+  });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].severity, "P1");
+  assert.match(out[0].title, /NVDA/);
+  assert.equal(checkReconciliationQueue({}).length, 1); // non-array → fail closed
+  assert.match(checkReconciliationQueue({})[0].title, /input UNKNOWN/);
+});
 
 test("checkPhase0Throughput stays quiet early in the window", () => {
   assert.deepEqual(

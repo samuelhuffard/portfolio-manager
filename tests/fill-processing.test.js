@@ -63,6 +63,7 @@ test("BUY opens a lot attributed to the matched proposal's agent", () => {
   const plan = planFillProcessing({
     fills: [fill()],
     openProposals: [proposal()],
+    verifySignature: () => true, // passthrough: attribution matching, not crypto
   });
   assert.equal(plan.newLots.length, 1);
   assert.equal(plan.newLots[0].agentId, "agent-1");
@@ -76,6 +77,7 @@ test("a proposal fulfills at most one fill — the second same-ticker/side fill 
   const plan = planFillProcessing({
     fills: [fill({ orderId: "o1" }), fill({ orderId: "o2" })],
     openProposals: [proposal()],
+    verifySignature: () => true,
   });
   assert.equal(plan.tradeRows[0].proposalId, "prop-1");
   assert.equal(plan.tradeRows[1].proposalId, null);

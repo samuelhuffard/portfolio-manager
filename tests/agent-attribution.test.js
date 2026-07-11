@@ -20,9 +20,16 @@ function proposal(overrides = {}) {
 test("matches a fill only to the exact signed proposal broker refId", () => {
   const trade = { ticker: "AAPL", side: "BUY", shares: 6.5, price: 153.5, amount: 998.0, date: "2026-06-20", refId: "p1" };
   const proposals = [proposal({ id: "p1", amountDollars: 1000 }), proposal({ id: "p2", amountDollars: 5000 })];
-  const { agentId, proposalId } = matchTradeToApprovedProposal(trade, proposals);
+  // Passthrough verifier stands in for a valid signature — this test exercises
+  // matching, not crypto. The fail-closed no-verifier default is asserted below.
+  const { agentId, proposalId } = matchTradeToApprovedProposal(trade, proposals, { verifySignature: () => true });
   assert.equal(agentId, "agent-1");
   assert.equal(proposalId, "p1");
+});
+
+test("fails closed when no verifier is supplied (cannot confirm the signature)", () => {
+  const trade = { ticker: "AAPL", side: "BUY", shares: 6.5, price: 153.5, amount: 998.0, date: "2026-06-20", refId: "p1" };
+  assert.equal(matchTradeToApprovedProposal(trade, [proposal({ id: "p1" })]).proposalId, null);
 });
 
 test("falls back to unattributed when no proposal matches ticker/side", () => {
