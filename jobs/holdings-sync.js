@@ -105,7 +105,11 @@ async function processFillsUnlocked(sheets, spreadsheetId, sheetIds, fills) {
     for (const lot of plan.newLots) await shadowWriteLot(lot);
   }
   const lotUpdates = plan.lotUpdates.filter((l) => l.rowIndex != null);
-  if (lotUpdates.length) await applyLotUpdatesToSheet(sheets, spreadsheetId, lotUpdates);
+  if (lotUpdates.length) {
+    await applyLotUpdatesToSheet(sheets, spreadsheetId, lotUpdates);
+    // Mirror lifecycle mutations only after the signed Sheet ledger succeeds.
+    for (const lot of lotUpdates) await shadowWriteLot(lot);
+  }
 
   // Mark fulfillment only after the ledger write succeeded — the reverse order
   // could leave a proposal "fulfilled" with no ledger row. A fulfillment failure
@@ -124,7 +128,7 @@ async function processFillsUnlocked(sheets, spreadsheetId, sheetIds, fills) {
       try {
         await recordReconciliationNeeded({
           orderId: row.orderId, proposalId: row.proposalId, ticker: row.ticker,
-          side: row.side, shares: row.shares, reason: "ownership-scoped SELL could not consume owned/unattributed lots",
+          side: row.side, shares: row.shares, reason: "ownership-scoped SELL could not consume strategy-owned lots",
         });
       } catch (err) {
         // Write failed closed — the record could NOT be persisted. Escalate hard:

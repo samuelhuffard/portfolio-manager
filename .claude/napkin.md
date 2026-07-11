@@ -11,15 +11,17 @@
    Do instead: run `npm test` after changing contributions, withdrawals, NAV, investor IDs, or ledger signing.
 
 ## Domain Behavior Guardrails
-1. **[2026-07-11] Strategy ownership governs exits**
+1. **[2026-07-11] Unattributed lots are quarantined until explicitly resolved**
+   Do instead: require a signed, auditable assignment or manual/reconciled exit policy before a strategy may consume a legacy `unattributed` lot; never silently use it as ownership top-up.
+2. **[2026-07-11] Strategy ownership governs exits**
    Do instead: record the originating agent on every BUY lot; permit a SELL proposal only from that agent, while Agent 4 may accept/reject the exact proposal but cannot create or force an exit.
-2. **[2026-07-11] Agent 4 is a bounded portfolio manager**
+3. **[2026-07-11] Agent 4 is a bounded portfolio manager**
    Do instead: use versioned, explainable performance/holding/macro inputs with hard allocation limits; keep Agent 4 unable to originate or mutate trades until its shadow evidence earns promotion.
-3. **[2026-06-18] Backend is read-only with Robinhood**
+4. **[2026-06-18] Backend is read-only with Robinhood**
    Do instead: keep `robinhood-sync.py` limited to holdings/cash reads and search for `rh.order_` before Robinhood-related changes.
-4. **[2026-06-18] Contributions record confirmed transfers only**
+5. **[2026-06-18] Contributions record confirmed transfers only**
    Do instead: keep `record-contribution.js` as accounting for money already received/sent, never as a money-movement command.
-5. **[2026-06-29] Pending proposals are competing alternatives**
+6. **[2026-06-29] Pending proposals are competing alternatives**
    Do instead: let all agents create pending proposals against the shared cash pool; only accepted, unfilled BUY proposals reserve cash.
-6. **[2026-06-29] Backend reads durable agent memories**
+7. **[2026-06-29] Backend reads durable agent memories**
    Do instead: pull global `pm:agent-memory:<agentId>:global` memories into `research-scan.js` so proposal generation reflects Sam's durable feedback.

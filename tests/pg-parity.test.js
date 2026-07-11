@@ -34,3 +34,12 @@ test("renderParityReport is a readable per-key summary", () => {
   assert.match(text, /DIVERGENCE/);
   assert.match(text, /✗ proposals/);
 });
+
+test("compareParity detects equal-count lifecycle inventory drift", () => {
+  const r = compareParity(
+    { proposals: { count: 2, digest: "authoritative" } },
+    { proposals: { count: 2, digest: "stale-shadow" } }
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.divergences[0].reason, /digest authoritative vs stale-shadow/);
+});

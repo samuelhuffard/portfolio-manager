@@ -14,7 +14,13 @@
 
 import "dotenv/config";
 import { pgConfigured } from "../lib/pg/client.js";
-import { dualWriteEnabled, shadowWriteProposal, shadowWriteLot, shadowWriteCapitalEntry } from "../lib/pg/dual-write.js";
+import {
+  dualWriteEnabled,
+  shadowWriteProposal,
+  shadowWriteLot,
+  shadowWriteCapitalEntry,
+  shadowReplacePositions,
+} from "../lib/pg/dual-write.js";
 
 if (!pgConfigured()) {
   console.error("DATABASE_URL not set — nothing to back fill into.");
@@ -68,6 +74,30 @@ if (sheetsCtx) {
   const { s, sheets, spreadsheetId } = sheetsCtx;
   await backfill("lots", () => s.readAllLots(sheets, spreadsheetId), (l) => shadowWriteLot(l));
   await backfill("capital_entries", () => s.readInvestorLedger(sheets, spreadsheetId), (e) => shadowWriteCapitalEntry(e));
+
+  // Holdings is a replaceable current-state projection, so shadow it as one
+  // transaction rather than treating rows as an append-only backfill.
+  try {
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "Holdings!A2:G",
+      valueRenderOption: "UNFORMATTED_VALUE",
+    });
+    const positions = (res.data.values || [])
+      .filter((row) => row[0] && row[0] !== "Cash" && !String(row[0]).startsWith("Last synced") && !String(row[0]).startsWith("⚠️"))
+      .map((row) => ({
+        ticker: String(row[0]).trim().toUpperCase(),
+        name: row[1] == null ? undefined : String(row[1]),
+        shares: Number(row[2]),
+        avgCost: Number(row[3]),
+        marketValue: row[5] === "" || row[5] == null ? null : Number(row[5]),
+        costBasis: Number(row[6]),
+      }));
+    const result = await shadowReplacePositions(positions);
+    console.log(`[backfill] positions: ${result.ok ? positions.length : 0} shadowed, ${result.ok ? 0 : positions.length} skipped, of ${positions.length}`);
+  } catch (err) {
+    console.warn(`[backfill] positions: could not read source (skipped): ${err.message}`);
+  }
 }
 
 const { closePool } = await import("../lib/pg/client.js");

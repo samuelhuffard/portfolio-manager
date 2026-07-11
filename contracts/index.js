@@ -6,3 +6,4 @@ export * from "./lot.js";
 export * from "./signature.js";
 export * from "./pipeline.js";
 export * from "./accounting.js";
+export * from "./portfolio-decision.js";

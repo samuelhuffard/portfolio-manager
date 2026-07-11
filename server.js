@@ -12,6 +12,8 @@ import { validateResearchTickerRequest, buildLabOutcome } from "./lib/lab-resear
 import { fetchAthenaStatus } from "./lib/athena.js";
 import { AGENTS } from "./config/agents.js";
 import { withWorkflowLock } from "./lib/workflow-lock.js";
+import { shadowWriteProposal } from "./lib/pg/dual-write.js";
+import { getPortfolioManagerShadowState } from "./lib/portfolio-manager-shadow-store.js";
 
 const PORT = process.env.PORTFOLIO_SERVER_PORT ?? 3200;
 const SECRET = process.env.PORTFOLIO_WEBHOOK_SECRET?.trim();
@@ -150,6 +152,36 @@ const server = http.createServer(async (req, res) => {
     }
     res.writeHead(200);
     res.end(JSON.stringify({ activity, scanRunning, syncRunning }));
+    return;
+  }
+
+  // Agent 4 remains shadow-only. This state endpoint exposes versioned policy,
+  // immutable snapshots, and recorded shadow decisions; it never reads or
+  // writes the live approval signature/execution queue.
+  if (req.method === "GET" && url.pathname === "/portfolio-manager/shadow") {
+    try {
+      res.writeHead(200);
+      res.end(JSON.stringify(await getPortfolioManagerShadowState()));
+    } catch (e) {
+      res.writeHead(500);
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // Dashboard-authored proposal decisions/edits are authoritative in Redis.
+  // Once that write succeeds, this endpoint mirrors the resulting full object
+  // into Postgres. Shadow failure never changes the dashboard response.
+  if (req.method === "POST" && url.pathname === "/shadow/proposal") {
+    try {
+      const body = await readBody(req);
+      const result = await shadowWriteProposal(body?.proposal);
+      res.writeHead(200);
+      res.end(JSON.stringify(result));
+    } catch (e) {
+      res.writeHead(400);
+      res.end(JSON.stringify({ error: e.message }));
+    }
     return;
   }
 

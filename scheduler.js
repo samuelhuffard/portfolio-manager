@@ -12,6 +12,7 @@ import { runInvestorWeeklyUpdate } from "./jobs/investor-weekly-update.js";
 import { runSystemSentinel } from "./jobs/system-sentinel.js";
 import { runUniverseRefresh } from "./jobs/universe-refresh.js";
 import { runOrderReconciliation } from "./jobs/order-reconciliation.js";
+import { runDailyDbParityCheck } from "./jobs/db-parity-check.js";
 import { getRedis, getResearchScanStatus, setResearchScanStatus } from "./lib/redis.js";
 import { marketHolidayNameET } from "./lib/market-calendar.js";
 import { startServer } from "./server.js";
@@ -167,6 +168,11 @@ cron.schedule("15 18 * * 1-5", wrapJob("system-sentinel", "Sysloop", runSystemSe
 // Not market-day-gated — enrichment on a holiday evening is harmless and useful.
 cron.schedule("30 19 * * 1-5", wrapJob("universe-refresh", "Universe", runUniverseRefresh), TZ);
 
+// ── Postgres shadow parity (8:00 PM ET, daily) ──────────────────────────────
+// Sheets/Redis remain authoritative. Missing sources and mismatches fail this
+// observational job loudly; the result is retained for the 30-day shadow gate.
+cron.schedule("0 20 * * *", wrapJob("db-parity", "Parity", runDailyDbParityCheck), TZ);
+
 // ── Weekly review (Friday 6:30 PM ET) ────────────────────────────────────────
 // Closes the feedback loop: deterministic per-agent scorecard (proposals,
 // decisions, matured track record, calibration) → ≤3 durable lessons written
@@ -186,5 +192,5 @@ console.log(
   "intraday every 30 min 10 AM–3:30 PM | pre-close 3:50 PM | exit monitor 4:45 PM | " +
   "research scan 5:15 PM | perf review 5:45 PM | ledger verify 6:00 PM | " +
   "system sentinel 6:15 PM | universe refresh 7:30 PM (Mon-Fri, ET) | " +
-  "weekly review Fri 6:30 PM ET | investor update Fri 6:45 PM ET"
+  "weekly review Fri 6:30 PM ET | investor update Fri 6:45 PM ET | shadow parity 8:00 PM daily"
 );
