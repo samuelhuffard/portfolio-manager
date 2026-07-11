@@ -101,6 +101,7 @@ pm2 describe portfolio-executor
 ## Sysloop (system autoresearch loop)
 
 - Jetson sentinel runs 6:15 PM ET Mon–Fri (`npm run sysloop:check`, or `--dry-run` for a no-publish smoke test). Snapshot → `pm:sysloop:snapshot:<date>` (7d TTL) + `ops/health/<date>.json`; heartbeat → `pm:sysloop:last-run`.
+- Jetson runs report-only broker-vs-ledger reconciliation at 4:40 PM ET over a rolling 72-hour window. It uses the existing read-only Robinhood sync credential, alerts and fails job health on a missing or malformed ledger match, and never records a trade or alters an order.
 - Mac PM2 process `portfolio-sysloop` (this repo's working tree): cross-watch every 30 min, triage 6:35 PM Mon–Fri (`npm run sysloop:triage`), weekly Sun 10 AM (`npm run sysloop:weekly`). Both accept `--force` to bypass the once-per-period Redis rate cap.
 - Findings ledger: `ops/findings/*.md` (git-tracked). To close one, edit `status: open` → `fixed`; if the fingerprint reappears it auto-flips to `regressed` and escalates. Weekly artifacts: `ops/reports/`, `ops/proposed-tests/`, `ops/proposed-patches/` — all propose-only, nothing is applied automatically.
 - **`ops/FIXLIST.md` is the single readable view** of everything above — regenerated after every triage/weekly pass, or manually via `npm run sysloop:fixlist` after editing a finding's status. Claude Code sessions read it at session start (pointer in `CLAUDE.md`).

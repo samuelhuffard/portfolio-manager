@@ -11,6 +11,7 @@ import { runWeeklyReview } from "./jobs/weekly-review.js";
 import { runInvestorWeeklyUpdate } from "./jobs/investor-weekly-update.js";
 import { runSystemSentinel } from "./jobs/system-sentinel.js";
 import { runUniverseRefresh } from "./jobs/universe-refresh.js";
+import { runOrderReconciliation } from "./jobs/order-reconciliation.js";
 import { getRedis, getResearchScanStatus, setResearchScanStatus } from "./lib/redis.js";
 import { marketHolidayNameET } from "./lib/market-calendar.js";
 import { startServer } from "./server.js";
@@ -87,6 +88,11 @@ cron.schedule("30 9 * * 1-5", wrapJob("holdings-sync", "Holdings", syncHoldings,
 
 // ── Holdings sync (4:30 PM ET — after close) ────────────────────────────────
 cron.schedule("30 16 * * 1-5", wrapJob("holdings-sync", "Holdings", syncHoldings, MARKET_DAY_ONLY), TZ);
+
+// ── Broker-vs-ledger reconciliation (4:40 PM ET) ───────────────────────────
+// Jetson-owned, read-only rolling-window comparison. The Mac remains solely
+// the signed-order executor; a sleeping laptop cannot hide a booking failure.
+cron.schedule("40 16 * * 1-5", wrapJob("order-reconciliation", "Reconcile", runOrderReconciliation, MARKET_DAY_ONLY), TZ);
 
 // ── Pre-market (8:30 AM ET) ──────────────────────────────────────────────────
 // Macro snapshot refresh, regime check, overnight news on held positions.
@@ -176,7 +182,7 @@ cron.schedule("45 18 * * 5", wrapJob("investor-weekly-update", "InvestorUpdate",
 
 console.log(
   "[Portfolio Manager] Scheduler started — " +
-  "pre-market 8:30 AM | opening 9:35 AM | holdings sync 11 AM/1 PM/3 PM | " +
+  "pre-market 8:30 AM | opening 9:35 AM | holdings sync 11 AM/1 PM/3 PM | reconciliation 4:40 PM | " +
   "intraday every 30 min 10 AM–3:30 PM | pre-close 3:50 PM | exit monitor 4:45 PM | " +
   "research scan 5:15 PM | perf review 5:45 PM | ledger verify 6:00 PM | " +
   "system sentinel 6:15 PM | universe refresh 7:30 PM (Mon-Fri, ET) | " +

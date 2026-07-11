@@ -111,10 +111,12 @@ def main():
                     fills.append({
                         "ticker": instrument.get("symbol"),
                         "side": (o.get("side") or "").upper(),
+                        "state": "filled",
                         "shares": shares,
                         "price": price,
                         "amount": round(shares * price, 2),
                         "date": updated_at[:10],
+                        "filledAt": updated_at,
                         "orderId": o.get("id"),
                     })
             except Exception as e:
