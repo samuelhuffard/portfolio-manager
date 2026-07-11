@@ -19,6 +19,7 @@ import {
 import { withWorkflowLock } from "../lib/workflow-lock.js";
 import { planFillProcessing } from "../lib/fill-processing.js";
 import { isValidApprovalSignature } from "../lib/proposal-signature.js";
+import { shadowWriteLot } from "../lib/pg/dual-write.js";
 import { sendMessage as sendTelegram } from "../lib/telegram.js";
 import {
   getServiceAccountClients,
@@ -93,7 +94,11 @@ async function processFillsUnlocked(sheets, spreadsheetId, sheetIds, fills) {
   if (!plan.freshFills.length) return;
 
   await appendTradeLedgerEntries(sheets, spreadsheetId, sheetIds["Trade Ledger"], plan.tradeRows);
-  if (plan.newLots.length) await appendLots(sheets, spreadsheetId, sheetIds["Lots"], plan.newLots);
+  if (plan.newLots.length) {
+    await appendLots(sheets, spreadsheetId, sheetIds["Lots"], plan.newLots);
+    // Dual-write shadow (ADR 0001): OFF unless PG_DUAL_WRITE=true; never throws.
+    for (const lot of plan.newLots) await shadowWriteLot(lot);
+  }
   const lotUpdates = plan.lotUpdates.filter((l) => l.rowIndex != null);
   if (lotUpdates.length) await applyLotUpdatesToSheet(sheets, spreadsheetId, lotUpdates);
 

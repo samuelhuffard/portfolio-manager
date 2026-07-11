@@ -89,6 +89,8 @@ if (result.seeded) {
 }
 
 await appendInvestorLedgerEntry(sheets, spreadsheetId, sheetIds["Investors"], result.entry);
+// Dual-write shadow (ADR 0001): OFF unless PG_DUAL_WRITE=true; never throws.
+await (await import("../lib/pg/dual-write.js")).shadowWriteCapitalEntry(result.entry);
 
 console.log(
   `${isWithdrawal ? "Withdrew" : "Recorded"} investor ledger entry for ${name}. ` +
