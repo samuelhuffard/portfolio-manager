@@ -27,6 +27,7 @@
     "contracts:sync": "node contracts/sync.mjs",
     "db:migrate": "node lib/pg/migrate.js",
     "db:parity": "node scripts/db-parity.mjs",
+    "db:backfill": "node scripts/db-backfill.mjs",
     "ledgers:verify": "node scripts/verify-ledgers.js",
     "ledgers:backfill-operational": "node scripts/backfill-operational-ledgers.js",
     "orders:reconcile": "node scripts/reconcile-orders.js",
