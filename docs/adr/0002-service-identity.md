@@ -69,6 +69,37 @@ of a build batch would risk an outage during the observation window.
 4. Once every caller presents a scoped identity, flip off legacy-bearer
    acceptance. Codex-reviewed deploy, with the legacy re-enable as the rollback.
 
+## Codex review refinements (2026-07-11)
+
+Codex reviewed this ADR (Decision B). Incorporated:
+
+- **The legacy bearer must NOT bypass the new route allowlist.** This is the
+  critical one: in compat mode, a request authenticated by the legacy bearer must
+  still be checked against a route allowlist, or "compatibility" just preserves a
+  universal credential that reaches every route — defeating the whole change. The
+  legacy bearer maps to a specific (broad-but-bounded) identity, not to "all routes".
+- **Corrected caller matrix (verified in code, not assumed):** the Mac companion
+  (`scripts/mac-companion.mjs`) calls **only** Upstash Redis (REST) and Telegram —
+  it does **not** call the backend's HTTP API. So **`svc-executor` does not need to
+  exist yet.** The only external HTTP caller of the backend is the Vercel dashboard
+  proxy (`/api/scan`, `/api/alerts*`) → that's the one identity, `svc-dashboard`,
+  that must exist. Ops scripts run locally on the Jetson (same host) and can use a
+  local `svc-ops` identity or the bearer during compat. Re-verify this matrix
+  before implementing — if the companion ever gains a backend HTTP call, it needs
+  its own identity then, not before.
+- **Identity allowlist keys on method + exact path**, including dynamic route
+  segments (not prefix globs that accidentally widen scope).
+- **Test matrix required before enabling:** scoped-identity correct-use,
+  cross-use (identity A calling identity B's route → denied), missing identity,
+  wrong identity, legacy-bearer mode, and legacy-disabled mode.
+- **Telemetry:** log every legacy-bearer use (route + caller fingerprint, never
+  the secret) so the migration's tail is visible and the removal deadline is
+  data-driven.
+- **Hard removal deadline + rollback switch** for the legacy bearer — compat mode
+  is temporary, not permanent.
+- **Body-size limits before JSON parsing** and **atomic idempotency** on
+  money-mutating routes ship independently of the identity split (safe, additive).
+
 ## Consequences
 
 - Least-privilege at the backend boundary; a leaked dashboard key can't drive the
