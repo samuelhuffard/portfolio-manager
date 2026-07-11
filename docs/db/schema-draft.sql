@@ -144,9 +144,53 @@ CREATE TABLE audit_events (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- ── TODO — need contracts first, then add here ───────────────────────────────
---   accounts, investors, capital_entries (double-entry cash/units event ledger),
---   positions (broker-reconciled), snapshots (point-in-time NAV), evidence,
---   risk_snapshots. These carry the NAV/units math; drafting them before their
---   Zod contracts exist would just re-create the drift the contracts package
---   removes, so they wait for the accounting-contract slice.
+-- ── Accounting (contracts/accounting.js) ─────────────────────────────────────
+CREATE TYPE capital_entry_type AS ENUM ('contribution', 'withdrawal');
+
+CREATE TABLE investors (
+  investor_id TEXT PRIMARY KEY,
+  email       TEXT NOT NULL,          -- normalized lowercase
+  name        TEXT NOT NULL
+);
+
+-- Append-only, HMAC-signed capital ledger (InvestorLedgerEntrySchema). One row
+-- per contribution/withdrawal; the double-entry cash/units event ledger.
+CREATE TABLE capital_entries (
+  entry_id     TEXT PRIMARY KEY,
+  investor_id  TEXT NOT NULL REFERENCES investors(investor_id),
+  entry_date   DATE NOT NULL,
+  type         capital_entry_type NOT NULL,
+  amount       NUMERIC(16,2) NOT NULL CHECK (amount >= 0),
+  nav_per_unit NUMERIC(18,6),
+  units        NUMERIC(20,6) NOT NULL,
+  row_hmac     TEXT,                  -- integrity signature; never UPDATEd
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Current holdings (PositionSchema). market_value is NULLABLE on purpose — a
+-- missing quote must never be inferred as a zero/absent position.
+CREATE TABLE positions (
+  ticker       TEXT PRIMARY KEY,
+  name         TEXT,
+  shares       NUMERIC(18,4) NOT NULL CHECK (shares >= 0),
+  avg_cost     NUMERIC(14,4) NOT NULL,
+  cost_basis   NUMERIC(16,2) NOT NULL,
+  market_value NUMERIC(16,2),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Point-in-time fund valuation (NavSnapshotSchema) — reproducible NAV.
+CREATE TABLE nav_snapshots (
+  id                BIGSERIAL PRIMARY KEY,
+  snapshot_date     DATE NOT NULL,
+  total_value       NUMERIC(18,2) NOT NULL,
+  cash              NUMERIC(18,2) NOT NULL,
+  units_outstanding NUMERIC(20,6) NOT NULL,
+  nav_per_unit      NUMERIC(18,6),
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX nav_snapshots_date_idx ON nav_snapshots(snapshot_date DESC);
+
+-- ── Still TODO (no contract yet) ─────────────────────────────────────────────
+--   evidence (research evidence snapshots), risk_snapshots (point-in-time risk
+--   inputs). Add here once their Zod contracts land.
