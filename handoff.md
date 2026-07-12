@@ -20,17 +20,17 @@ This is not an authorization to add autonomous execution, accept outside capital
 
 ### Deployed production
 
-- Jetson backend: `8de7b5f`, PM2 `portfolio-manager` online.
-- Vercel dashboard: `6854f3a` live.
+- Jetson backend: `81e7719` code deployed (roadmap/handoff docs subsequently recorded in `9d5f4be`), PM2 `portfolio-manager` online.
+- Vercel dashboard: `f0a5c03` live.
 - Mac PM2: `portfolio-executor` and `portfolio-sysloop` online after restart.
 - Phase 0A safety controls are deployed. The 10-trading-day observation window may begin Monday, 2026-07-13 if Monday's critical jobs run clean and no later safety-affecting release resets it.
 
 ### Deployed foundation
 
-- Backend `main` is 20 commits ahead of origin; dashboard `main` is 6 ahead. Both trees were clean when this handoff was written.
+- Backend and dashboard release branches are synchronized with origin. The backend worktree retains unrelated user WIP in `docs/CHANGE_MAP.md` and `config/agents/_TEMPLATE-STRATEGY-SPEC.md`; those files were deliberately not included in the release commit.
 - Backend: shared proposal/signature/lot/pipeline/accounting contracts; approval-validity checks; ownership-scoped SELL logic; signed durable reconciliation; crash-injection tests; Neon migration/backfill/parity and create-path shadow writers behind an off flag.
 - Dashboard: generated contract mirrors, signature delegation, proposal-shape/drift tests, companion contract changes.
-- Local verification on 2026-07-11: backend 338/338 tests; dashboard 89/89 tests; `tsc --noEmit` clean; `npm run predeploy` clean.
+- Release verification on 2026-07-11: backend 363/363 tests; dashboard 92/92 tests; `tsc --noEmit`, `npm run predeploy`, and production build clean.
 - Neon is accepted, migrations are applied, and the full proposal/capital/lot/position shadow is backfilled. Production parity is clean. Sheets/Redis remain canonical; persistent dual-write is enabled for shadow writes only.
 
 ### Fresh runtime evidence reviewed

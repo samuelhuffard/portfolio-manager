@@ -50,7 +50,7 @@ Work is gate-sequenced, not strictly code-sequenced: production remains in Phase
 - **Runtime evidence:** Jetson and both Mac PM2 processes are online; the July 10 weekly review and signed-ledger verification completed, and the companion's July 10 reconciliation found no filled broker orders. Remaining operational concerns are Robinhood re-auth failures, Athena timeouts, Yahoo validation chatter, and Mac sysloop missed ticks while the Mac was unavailable. These must be adjudicated from fresh logs, not inherited FIXLIST counts.
 - **Authority:** Sam still signs every live order. Agents 2/3 remain non-actionable and Agent 4 has no runtime authority.
 
-### Local autonomy foundation completed — awaiting coordinated deploy
+### Autonomy foundation deployed — observation now active
 
 - The unattributed-lot mismatch is resolved: named strategies consume only their own lots; unresolved legacy inventory routes to signed durable reconciliation. `ENFORCE_OWNERSHIP=false` remains the exact legacy rollback.
 - Agent 4 now has shared shadow-only policy/allocation/risk/decision contracts, a pure deterministic bounds engine, immutable content-fingerprinted decision lineage, explicit freshness gates, Redis persistence, and a FundManager-only read surface in the dashboard. There is no HTTP decision-write endpoint, approval HMAC, order intent, scheduler, or live authority. Policy activation waits for the reviewed mandate.
@@ -78,7 +78,7 @@ Finish the existing 0A/0B/0C work: fail-closed research and fill attribution, si
 
 **Goal:** make the incoming Agent 2, Agent 3, and Agent 4 personalities operationally precise before reactivating strategy proposals.
 
-**Local progress, not yet deployed:** shared proposal/signature/lot/pipeline/accounting contracts; generated dashboard mirrors and drift guards; approval state-version checks; ownership-scoped SELL accounting; signed durable reconciliation; crash-injection coverage. Still incomplete: versioned Agent 2/3/4 mandates, the unattributed-lot policy, Agent 4 `PortfolioDecision` and allocation contracts, proof that every proposal source uses one compiler, dashboard lineage/budget/rationale surfaces, and scoped backend service identity.
+**Deployed progress:** shared proposal/signature/lot/pipeline/accounting contracts; generated dashboard mirrors and drift guards; approval state-version checks; ownership-scoped SELL accounting; signed durable reconciliation; crash-injection coverage; Agent 4 shadow `PortfolioDecision` and allocation contracts; and the manager control-room surface. Still incomplete: versioned Agent 2/3/4 mandates, proof that every proposal source uses one compiler, full lineage/budget/rationale explainability, and scoped backend service identity.
 
 For each specialist mandate, capture and version: universe, horizon, edge hypothesis, benchmark, entry/exit/abstention rules, evidence requirements, liquidity/turnover constraints, position limits, expected regimes, invalidation conditions, and evaluation criteria.
 
@@ -142,7 +142,7 @@ Every promotion requires a written policy version, capital/risk caps, observatio
 
 Execute in this order:
 
-1. Resolve the unattributed-lot policy mismatch and independently review the exact money-path diff. Keep ownership enforcement behind its rollback switch.
+1. Keep the resolved unattributed-lot policy under observation and retain `ENFORCE_OWNERSHIP=false` as the emergency rollback switch.
 2. Maintain the observation window: inspect fresh Jetson/companion logs and the scheduled parity report each trading day; reset the 10-day clock only for a safety-affecting release.
 3. Convert the Agent 2, Agent 3, and Agent 4 inputs into versioned mandate templates. Record ambiguities for Sam/his friend; do not invent investment rules. Keep Agents 2/3 non-actionable and Agent 4 shadow-only.
 4. Finish Phase 1's `PortfolioDecision`/allocation contract, unified-compiler proof, ownership lineage, and manager UI before adding Agent 4 runtime behavior.
