@@ -191,3 +191,74 @@ export const ABSOLUTE_RULE_TABLES = Object.freeze({
     thirteenF,
   }),
 });
+
+const growthBands = (field, full, strong, adequate) => ({
+  rules: [rule(1, f(field, { gte: full })), rule(0.75, f(field, { gte: strong })), rule(0.5, f(field, { gte: adequate })), rule(0, f(field, { lt: adequate }))],
+});
+
+/** Shared special-sector §5 tables. Agent Three applies its long-horizon overlay separately. */
+export const SPECIAL_SECTOR_RULE_TABLES = Object.freeze({
+  banks: Object.freeze({
+    revGrowth: growthBands("bankRevenueGrowthPct", 10, 6, 2),
+    epsTrajectory: growthBands("adjustedEpsOrTbvpsGrowthPct", 12, 8, 3),
+    marginTrend: {
+      rules: [
+        rule(1, f("netInterestMarginChangeBps", { gte: 20 })),
+        rule(0.75, f("netInterestMarginChangeBps", { gte: 10 })),
+        rule(0.5, f("netInterestMarginChangeBps", { gte: -9, lte: 9 })),
+        rule(0, f("netInterestMarginChangeBps", { lte: -10 })),
+      ],
+    },
+    balanceSheet: {
+      rules: [
+        rule(1, all(f("cet1Pct", { gte: 12 }), f("creditQualityStableOrImproving", { eq: true }))),
+        rule(0.75, all(f("cet1Pct", { gte: 10.5 }), f("materialCreditDeterioration", { eq: false }))),
+        rule(0.5, f("cet1Pct", { gte: 9 })),
+        rule(0, any(f("cet1Pct", { lt: 9 }), f("materialCreditDeterioration", { eq: true }))),
+      ],
+    },
+  }),
+  insurers: Object.freeze({
+    revGrowth: growthBands("netPremiumGrowthPct", 10, 6, 2),
+    epsTrajectory: {
+      rules: [
+        rule(1, any(all(f("combinedRatioApplicable", { eq: true }), f("combinedRatioPct", { lte: 90 })), all(f("combinedRatioApplicable", { eq: false }), f("adjustedEpsOrBvpsGrowthPct", { gte: 12 })))),
+        rule(0.75, any(all(f("combinedRatioApplicable", { eq: true }), f("combinedRatioPct", { gt: 90, lte: 95 })), all(f("combinedRatioApplicable", { eq: false }), f("adjustedEpsOrBvpsGrowthPct", { gte: 8 })))),
+        rule(0.5, any(all(f("combinedRatioApplicable", { eq: true }), f("combinedRatioPct", { gt: 95, lte: 100 })), all(f("combinedRatioApplicable", { eq: false }), f("adjustedEpsOrBvpsGrowthPct", { gte: 3 })))),
+        rule(0, any(all(f("combinedRatioApplicable", { eq: true }), f("combinedRatioPct", { gt: 100 })), all(f("combinedRatioApplicable", { eq: false }), f("adjustedEpsOrBvpsGrowthPct", { lt: 3 })))),
+      ],
+    },
+    balanceSheet: {
+      rules: [
+        rule(1, all(f("rbcAboveTarget", { eq: true }), f("rbcComfortablyAboveTarget", { eq: true }), f("reserveDevelopment", { eq: "favorable" }))),
+        rule(0.75, all(f("rbcAboveTarget", { eq: true }), f("reserveDevelopment", { eq: "stable" }))),
+        rule(0.5, any(f("rbcNearTarget", { eq: true }), f("reserveDevelopment", { eq: "mildly_adverse" }))),
+        rule(0, any(f("rbcBelowTarget", { eq: true }), f("reserveDevelopment", { eq: "materially_adverse" }))),
+      ],
+    },
+  }),
+  reits: Object.freeze({
+    revGrowth: growthBands("sameStoreNoiOrFfoGrowthPct", 8, 5, 2),
+    epsTrajectory: {
+      rules: [
+        rule(1, all(f("occupancyPct", { gte: 95 }), f("leasingSpreadsStableOrImproving", { eq: true }))),
+        rule(0.75, f("occupancyPct", { gte: 92 })),
+        rule(0.5, f("occupancyPct", { gte: 88 })),
+        rule(0, any(f("occupancyPct", { lt: 88 }), f("leasingSpreadsMateriallyDeteriorating", { eq: true }))),
+      ],
+    },
+    balanceSheet: {
+      rules: [
+        rule(1, all(f("netDebtEbitda", { lt: 5 }), f("fixedChargeCoverage", { gt: 4 }))),
+        rule(0.75, all(f("netDebtEbitda", { gte: 5, lt: 6 }), f("fixedChargeCoverage", { gt: 3 }))),
+        rule(0.5, all(f("netDebtEbitda", { gte: 6, lte: 7 }), f("fixedChargeCoverage", { gt: 2 }))),
+        rule(0, any(f("netDebtEbitda", { gt: 7 }), f("fixedChargeCoverage", { lt: 2 }))),
+      ],
+    },
+  }),
+});
+
+export function absoluteRuleTableFor(agentId, metricId, sector = null) {
+  if (sector && SPECIAL_SECTOR_RULE_TABLES[sector]?.[metricId]) return SPECIAL_SECTOR_RULE_TABLES[sector][metricId];
+  return ABSOLUTE_RULE_TABLES[agentId]?.[metricId] ?? null;
+}

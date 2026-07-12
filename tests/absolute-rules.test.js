@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { evaluateCondition, scoreAbsoluteRuleTable, scoreAbsoluteEvidence } from "../lib/absolute-rules.js";
-import { ABSOLUTE_RULE_TABLES } from "../config/scoring/absolute-thresholds.js";
+import { ABSOLUTE_RULE_TABLES, SPECIAL_SECTOR_RULE_TABLES, absoluteRuleTableFor } from "../config/scoring/absolute-thresholds.js";
 import { AGENT_SCORING } from "../config/scoring/mandate-v2.js";
 
 const fraction = (agentId, metricId, input) => scoreAbsoluteRuleTable(input, ABSOLUTE_RULE_TABLES[agentId][metricId]).fraction;
@@ -152,4 +152,53 @@ test("absolute evidence converts a matched fraction into mandate points", () => 
   const result = scoreAbsoluteEvidence({ beatPct: 2 }, { points: 10 }, ABSOLUTE_RULE_TABLES["agent-1"].revBeat);
   assert.equal(result.points, 7.5);
   assert.equal(result.method, "absolute");
+});
+
+test("Banks special-sector growth, NIM, CET1 and credit-quality bands match §5", () => {
+  const bank = SPECIAL_SECTOR_RULE_TABLES.banks;
+  assert.deepEqual([10, 6, 2, 1.99].map((bankRevenueGrowthPct) => scoreAbsoluteRuleTable({ bankRevenueGrowthPct }, bank.revGrowth).fraction), [1, 0.75, 0.5, 0]);
+  assert.deepEqual([12, 8, 3, 2.99].map((adjustedEpsOrTbvpsGrowthPct) => scoreAbsoluteRuleTable({ adjustedEpsOrTbvpsGrowthPct }, bank.epsTrajectory).fraction), [1, 0.75, 0.5, 0]);
+  assert.deepEqual([20, 10, -9, -10].map((netInterestMarginChangeBps) => scoreAbsoluteRuleTable({ netInterestMarginChangeBps }, bank.marginTrend).fraction), [1, 0.75, 0.5, 0]);
+  assert.deepEqual([
+    { cet1Pct: 12, creditQualityStableOrImproving: true, materialCreditDeterioration: false },
+    { cet1Pct: 10.5, creditQualityStableOrImproving: false, materialCreditDeterioration: false },
+    { cet1Pct: 9, creditQualityStableOrImproving: false, materialCreditDeterioration: false },
+    { cet1Pct: 8.99, creditQualityStableOrImproving: false, materialCreditDeterioration: true },
+  ].map((x) => scoreAbsoluteRuleTable(x, bank.balanceSheet).fraction), [1, 0.75, 0.5, 0]);
+});
+
+test("Insurers special-sector premium, underwriting, and reserve bands match §5", () => {
+  const insurers = SPECIAL_SECTOR_RULE_TABLES.insurers;
+  assert.deepEqual([10, 6, 2, 1.99].map((netPremiumGrowthPct) => scoreAbsoluteRuleTable({ netPremiumGrowthPct }, insurers.revGrowth).fraction), [1, 0.75, 0.5, 0]);
+  assert.deepEqual([90, 95, 100, 100.01].map((combinedRatioPct) => scoreAbsoluteRuleTable({ combinedRatioApplicable: true, combinedRatioPct }, insurers.epsTrajectory).fraction), [1, 0.75, 0.5, 0]);
+  assert.deepEqual([12, 8, 3, 2.99].map((adjustedEpsOrBvpsGrowthPct) => scoreAbsoluteRuleTable({ combinedRatioApplicable: false, adjustedEpsOrBvpsGrowthPct }, insurers.epsTrajectory).fraction), [1, 0.75, 0.5, 0]);
+  assert.deepEqual([
+    { rbcAboveTarget: true, rbcComfortablyAboveTarget: true, rbcNearTarget: false, rbcBelowTarget: false, reserveDevelopment: "favorable" },
+    { rbcAboveTarget: true, rbcComfortablyAboveTarget: false, rbcNearTarget: false, rbcBelowTarget: false, reserveDevelopment: "stable" },
+    { rbcAboveTarget: false, rbcComfortablyAboveTarget: false, rbcNearTarget: true, rbcBelowTarget: false, reserveDevelopment: "mildly_adverse" },
+    { rbcAboveTarget: false, rbcComfortablyAboveTarget: false, rbcNearTarget: false, rbcBelowTarget: true, reserveDevelopment: "materially_adverse" },
+  ].map((x) => scoreAbsoluteRuleTable(x, insurers.balanceSheet).fraction), [1, 0.75, 0.5, 0]);
+});
+
+test("REIT special-sector NOI, occupancy, and leverage bands match §5", () => {
+  const reits = SPECIAL_SECTOR_RULE_TABLES.reits;
+  assert.deepEqual([8, 5, 2, 1.99].map((sameStoreNoiOrFfoGrowthPct) => scoreAbsoluteRuleTable({ sameStoreNoiOrFfoGrowthPct }, reits.revGrowth).fraction), [1, 0.75, 0.5, 0]);
+  assert.deepEqual([
+    { occupancyPct: 95, leasingSpreadsStableOrImproving: true, leasingSpreadsMateriallyDeteriorating: false },
+    { occupancyPct: 92, leasingSpreadsStableOrImproving: false, leasingSpreadsMateriallyDeteriorating: false },
+    { occupancyPct: 88, leasingSpreadsStableOrImproving: false, leasingSpreadsMateriallyDeteriorating: false },
+    { occupancyPct: 87.99, leasingSpreadsStableOrImproving: false, leasingSpreadsMateriallyDeteriorating: true },
+  ].map((x) => scoreAbsoluteRuleTable(x, reits.epsTrajectory).fraction), [1, 0.75, 0.5, 0]);
+  assert.deepEqual([
+    { netDebtEbitda: 4.9, fixedChargeCoverage: 4.1 },
+    { netDebtEbitda: 5, fixedChargeCoverage: 3.1 },
+    { netDebtEbitda: 6, fixedChargeCoverage: 2.1 },
+    { netDebtEbitda: 7.1, fixedChargeCoverage: 1.9 },
+  ].map((x) => scoreAbsoluteRuleTable(x, reits.balanceSheet).fraction), [1, 0.75, 0.5, 0]);
+});
+
+test("special-sector selection is deterministic and falls back to the agent table", () => {
+  assert.equal(absoluteRuleTableFor("agent-1", "revGrowth", "banks"), SPECIAL_SECTOR_RULE_TABLES.banks.revGrowth);
+  assert.equal(absoluteRuleTableFor("agent-1", "revBeat", "banks"), ABSOLUTE_RULE_TABLES["agent-1"].revBeat);
+  assert.equal(absoluteRuleTableFor("agent-1", "unknown", "banks"), null);
 });
