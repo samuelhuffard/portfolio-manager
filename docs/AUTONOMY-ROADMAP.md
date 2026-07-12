@@ -39,14 +39,14 @@ The existing safety invariants remain: downgrade-only risk controls, determinist
 
 ---
 
-## Status snapshot — 2026-07-11
+## Status snapshot — 2026-07-11 (post-release)
 
-Work is gate-sequenced, not strictly code-sequenced: production is in Phase 0 stabilization, substantial Phase 1 foundations exist locally, and Phase 2 infrastructure has been prepared in inactive shadow mode. Building later-phase scaffolding does not satisfy an earlier phase's exit gate.
+Work is gate-sequenced, not strictly code-sequenced: production remains in Phase 0 stabilization while the Phase 1 ownership/contracts foundation and Phase 2 shadow infrastructure now run in production without canonical-read cutover.
 
-- **Production:** backend `8de7b5f` is live on the Jetson and dashboard `6854f3a` is live on Vercel. The Phase 0A control batch is deployed; its 10-trading-day observation window begins Monday, 2026-07-13 only if that day's critical jobs run clean and no safety-affecting release lands afterward. Such a release resets the clock to the next clean trading day.
-- **Unreleased backend:** local `main` is 20 commits ahead of origin with shared contracts, typed pipeline/state checks, ownership-scoped SELL accounting, signed durable reconciliation records, crash tests, and inactive Neon shadow-write/backfill/parity tooling. Ownership enforcement is currently default-on in code with `ENFORCE_OWNERSHIP=false` as the rollback switch.
-- **Unreleased dashboard:** local `main` is 6 commits ahead of origin with generated contract mirrors, signature delegation, shape/drift guards, and companion contract changes. Backend and dashboard contract commits must ship together.
-- **Verified locally:** backend 338/338 tests; dashboard 89/89 tests, clean `tsc --noEmit`, and clean contract predeploy check.
+- **Production:** backend `81e7719` is live on the Jetson and dashboard `f0a5c03` is live on Vercel. The Phase 0A control batch is deployed; its 10-trading-day observation window begins Monday, 2026-07-13 only if that day's critical jobs run clean and no safety-affecting release lands afterward.
+- **Ownership/contracts:** strict owner-scoped SELL accounting is live with `ENFORCE_OWNERSHIP=false` as the rollback switch; Agent 4 remains shadow-only with no approval key or order authority.
+- **Postgres shadow:** migration `0003_shadow_precision.sql` is applied, all 14 proposals/5 capital entries/1 lot/1 position were backfilled, and production parity is `MATCH` across all four domains. `PG_DUAL_WRITE=true` is enabled persistently, while Sheets/Redis remain canonical.
+- **Verified:** backend 363/363 tests; dashboard 92/92 tests, clean TypeScript, contract predeploy checks, and production build. Jetson health is green; Vercel sign-in returns 200 and signed-out `/api/portfolio` returns 401.
 - **Runtime evidence:** Jetson and both Mac PM2 processes are online; the July 10 weekly review and signed-ledger verification completed, and the companion's July 10 reconciliation found no filled broker orders. Remaining operational concerns are Robinhood re-auth failures, Athena timeouts, Yahoo validation chatter, and Mac sysloop missed ticks while the Mac was unavailable. These must be adjudicated from fresh logs, not inherited FIXLIST counts.
 - **Authority:** Sam still signs every live order. Agents 2/3 remain non-actionable and Agent 4 has no runtime authority.
 
@@ -56,7 +56,7 @@ Work is gate-sequenced, not strictly code-sequenced: production is in Phase 0 st
 - Agent 4 now has shared shadow-only policy/allocation/risk/decision contracts, a pure deterministic bounds engine, immutable content-fingerprinted decision lineage, explicit freshness gates, Redis persistence, and a FundManager-only read surface in the dashboard. There is no HTTP decision-write endpoint, approval HMAC, order intent, scheduler, or live authority. Policy activation waits for the reviewed mandate.
 - Postgres shadow plumbing covers proposal lifecycle updates, lots, signed capital entries, and atomic current positions. Parity uses key-aware digests, treats unreadable stores as divergence, exits nonzero, and is scheduled on the Jetson for 8 PM daily. Migration `0002` preserves legacy lot dates and adds fulfillment fields. Sheets/Redis remain canonical.
 - Independent review initially found four blockers; all were fixed and the focused re-review returned **SHIP**. Verification: backend 363/363; dashboard 92/92 in the independent pass; TypeScript clean; production build clean; shared contracts byte-identical.
-- The coordinated push/deploy, live migration, backfill, persistent `PG_DUAL_WRITE=true`, and first parity baseline are not complete. The execution environment's external-action usage limit blocked Neon/network approval and therefore the release remains local rather than partially deployed.
+- The coordinated release is complete. Remaining work is observation: retain Postgres as shadow-only, review daily parity evidence, and do not promote Agent 4 or Postgres reads without a separate reviewed gate.
 
 ### Resolved pre-deploy ownership policy
 
@@ -66,7 +66,7 @@ Work is gate-sequenced, not strictly code-sequenced: production is in Phase 0 st
 
 ## Phase 0 — Stabilize the live supervised system
 
-**Status:** Current. Phase 0A deployed on 2026-07-11. The observation clock is scheduled to start on the first clean trading day, 2026-07-13; deploy the coordinated ownership/contracts release before then or explicitly reset the clock after it. Preserve existing WIP and verify runtime health before any diagnosis.
+**Status:** Current. Phase 0A plus the coordinated ownership/contracts release are deployed on 2026-07-11. The observation clock starts on the first clean trading day, 2026-07-13, provided critical jobs remain clean.
 
 Finish the existing 0A/0B/0C work: fail-closed research and fill attribution, signed ledger reads, truthful degraded-run status, Jetson-owned monitoring/reconciliation, live companion health, budget governance, and a unified manager surface.
 
@@ -99,7 +99,7 @@ Build the contract required for the model:
 
 **Goal:** eliminate cross-runtime schema drift and mutable accounting before authority expands.
 
-**Inactive preparation, not a phase promotion:** Neon is the accepted provider; the migration has been applied, historical proposals were backfilled, proposal parity matched, and create-path shadow writers exist behind an off flag. Sheets/Redis remain authoritative. Do not persistently enable Postgres dual writes until the ownership policy and Phase 1 contracts are resolved, the coordinated release is deployed, proposal decision/update shadow writes exist, a full financial backfill/parity baseline is accepted, and rollback/restore behavior is tested.
+**Shadow mode active, not a phase promotion:** Neon is the accepted provider; migrations, full financial backfill, and daily fail-closed parity are live. Sheets/Redis remain authoritative and Postgres reads are not used for money decisions. Keep `PG_DUAL_WRITE=true` only while parity remains clean; any divergence disables promotion and triggers investigation.
 
 - Create shared contracts for mandates, proposals, ownership lots, portfolio decisions, signatures, risk snapshots, broker events, and financial precision.
 - Route scheduled research, Lab requests, price alerts, exit signals, and manual requests through the same compiler.
@@ -143,10 +143,10 @@ Every promotion requires a written policy version, capital/risk caps, observatio
 Execute in this order:
 
 1. Resolve the unattributed-lot policy mismatch and independently review the exact money-path diff. Keep ownership enforcement behind its rollback switch.
-2. Verify the coordinated backend/dashboard release, scan the diff for sensitive files, push both repos, deploy before the observation window if possible, and prove Jetson health, fresh logs, ledger verification, companion heartbeat, and reconciliation. If the release lands after Monday's jobs begin, reset the 10-day clock.
+2. Maintain the observation window: inspect fresh Jetson/companion logs and the scheduled parity report each trading day; reset the 10-day clock only for a safety-affecting release.
 3. Convert the Agent 2, Agent 3, and Agent 4 inputs into versioned mandate templates. Record ambiguities for Sam/his friend; do not invent investment rules. Keep Agents 2/3 non-actionable and Agent 4 shadow-only.
 4. Finish Phase 1's `PortfolioDecision`/allocation contract, unified-compiler proof, ownership lineage, and manager UI before adding Agent 4 runtime behavior.
-5. Complete Postgres shadow plumbing and daily parity evidence without changing canonical reads. Enable persistent shadow writes only as a separate reviewed release; no cutover occurs during this milestone.
+5. Keep Postgres shadow plumbing and daily parity evidence healthy without changing canonical reads. A read cutover remains a later, separately reviewed milestone.
 6. Rebuild the FIXLIST from fresh runtime evidence after the release, closing false positives only when logs/job state prove they are stale.
 
 The detailed multi-model execution guide lives in repo-root `handoff.md`. Do not implement autonomous execution, forced portfolio-wide sells, new outside-capital features, or fund structure work while Phase 0/1 gates remain open.

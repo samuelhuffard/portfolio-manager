@@ -1,14 +1,14 @@
 # Portfolio Manager — Multi-Model Execution Handoff
 
 **Prepared:** 2026-07-11
-**Program state:** Phase 0 stabilization is live; Phase 1 foundations and inactive Phase 2 shadow infrastructure are local/unreleased.
+**Program state:** Phase 0 stabilization is live; the coordinated Phase 1 ownership/contracts release and Phase 2 Postgres shadow are deployed. Agent 4 remains shadow-only.
 **North star:** `docs/AUTONOMY-ROADMAP.md` and `~/Claude Memory/Projects/portfolio-manager-autonomy-roadmap.md`.
 
 ## Execution update — 2026-07-11
 
-WP1, the Agent 4 shadow foundation, and the Postgres shadow-completeness build are complete locally. Strict ownership quarantines unattributed lots; Agent 4 decisions are shadow-only/content-fingerprinted/staleness-gated and have no public write endpoint or live authority; Postgres mirrors proposal lifecycle, lot state, capital entries, and positions with fail-closed daily parity evidence. Independent re-review verdict: **SHIP** after all four initial blockers were fixed. Backend 363/363 and dashboard 92/92 tests passed across the implementation/review runs; TypeScript, contract drift, and production build passed.
+WP1, the Agent 4 shadow foundation, and the Postgres shadow-completeness build are deployed. Strict ownership quarantines unattributed lots; Agent 4 decisions are shadow-only/content-fingerprinted/staleness-gated and have no public write endpoint or live authority; Postgres mirrors proposal lifecycle, lot state, capital entries, and positions with fail-closed daily parity evidence. Independent re-review verdict: **SHIP** after all four initial blockers were fixed. Backend 363/363 and dashboard 92/92 tests passed; TypeScript, contract drift, and production build passed.
 
-Do not push one repo alone. The remaining work is a single coordinated release: push both repos, apply migration `0002`, deploy Jetson + Vercel + Mac companion, backfill shadow state, verify parity, then persistently enable `PG_DUAL_WRITE=true` and verify parity again. This was not executed because the current environment external-action usage limit rejected the required network approvals. No workaround or partial auto-deploy is allowed.
+The coordinated release is complete: backend `81e7719` and dashboard `f0a5c03` are pushed and deployed; migrations `0002` and `0003` are applied; Jetson health is green; the Mac companion is online; all shadow domains backfilled; parity is `MATCH`; and `PG_DUAL_WRITE=true` is persistent. Continue with observation only—do not cut canonical reads over or grant Agent 4 live authority.
 
 ## Mission for the next meta-agent
 
@@ -25,13 +25,13 @@ This is not an authorization to add autonomous execution, accept outside capital
 - Mac PM2: `portfolio-executor` and `portfolio-sysloop` online after restart.
 - Phase 0A safety controls are deployed. The 10-trading-day observation window may begin Monday, 2026-07-13 if Monday's critical jobs run clean and no later safety-affecting release resets it.
 
-### Local unreleased work
+### Deployed foundation
 
 - Backend `main` is 20 commits ahead of origin; dashboard `main` is 6 ahead. Both trees were clean when this handoff was written.
 - Backend: shared proposal/signature/lot/pipeline/accounting contracts; approval-validity checks; ownership-scoped SELL logic; signed durable reconciliation; crash-injection tests; Neon migration/backfill/parity and create-path shadow writers behind an off flag.
 - Dashboard: generated contract mirrors, signature delegation, proposal-shape/drift tests, companion contract changes.
 - Local verification on 2026-07-11: backend 338/338 tests; dashboard 89/89 tests; `tsc --noEmit` clean; `npm run predeploy` clean.
-- Neon is accepted and its migration has been applied. Historical proposal parity matched. Sheets/Redis are still canonical; persistent dual-write is not enabled; proposal approve/reject/fulfill updates are not yet shadowed.
+- Neon is accepted, migrations are applied, and the full proposal/capital/lot/position shadow is backfilled. Production parity is clean. Sheets/Redis remain canonical; persistent dual-write is enabled for shadow writes only.
 
 ### Fresh runtime evidence reviewed
 
