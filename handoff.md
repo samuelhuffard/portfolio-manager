@@ -6,7 +6,7 @@ Replace the broken unattended Robinhood Python login with a safe, read-only MCP 
 
 ## Current State
 
-The migration is implemented locally in `portfolio-manager` and `portfolio-dashboard`, independently reviewed **SHIP**, and not yet committed, pushed, or deployed. Jetson queues typed `holdings-sync`/`order-reconciliation` requests; the authenticated Mac companion claims them and has exact read-only MCP allowlists. Every account-scoped tool call is now verified from Claude `stream-json` to include the configured `ROBINHOOD_ACCOUNT_NUMBER`; a model's final text alone is insufficient. Snapshot retries are idempotent and request IDs are HMAC-bound to Performance rows.
+The migration is committed, pushed, independently reviewed **SHIP**, and deployed: backend `e4e173e`, companion `6dc8a3f`. Jetson queues typed `holdings-sync`/`order-reconciliation` requests; the authenticated Mac companion claims them and has exact read-only MCP allowlists. Every account-scoped tool call is verified from Claude `stream-json` to include the configured `ROBINHOOD_ACCOUNT_NUMBER`; a model's final text alone is insufficient. Snapshot retries are idempotent and request IDs are HMAC-bound to Performance rows.
 
 ## Files in Flight
 
@@ -16,7 +16,7 @@ The migration is implemented locally in `portfolio-manager` and `portfolio-dashb
 
 ## Verification
 
-Backend `npm test`: 371/371 passed. Dashboard MCP policy test passes via Node type stripping; prior full dashboard suite: 94/94, lint/predeploy clean. `git diff --check` and companion syntax checks clean. Full dashboard rerun is constrained by sandbox `tsx` IPC, not a test failure.
+Backend `npm test`: 371/371 passed. Dashboard MCP policy tests and syntax checks pass; prior full dashboard suite: 94/94, lint/predeploy clean. Production smoke passed both read-only jobs; all signed ledgers verify clean (Performance 40/40, Trade 1/1, Lots 1/1, Investors 5/5, Audit 2,586 rows).
 
 ## Failed Attempts
 
@@ -24,4 +24,4 @@ Do not restore a TOTP secret or use cached Robinhood sessions: this account uses
 
 ## Next Step
 
-Commit the exact migration files in each repo, scan staged files for secrets, push/deploy both sides, then run one real **read-only** MCP smoke and verify account trace, one idempotent snapshot, receipt freshness, and report-only reconciliation before starting the new 10-trading-day observation window.
+Begin the 10-trading-day Phase 0 observation window on the next clean trading day. Review MCP receipts, companion/Jetson logs, and daily parity evidence; do not grant Agent 4 authority or cut canonical reads to Postgres.
