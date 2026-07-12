@@ -175,15 +175,18 @@ engine, then Agent 4.
    `lib/peer-resolve.js` implements the deterministic **peer-set resolution + widening**
    (industry → sector until ≥8 data-complete peers) and the **tier mapping** (≥8 →
    peer_relative · 6–7 → blended_50_50 · <6 → absolute) + the 84 cap
-   (`pickFallbackMode`, `resolvePeerSet`, tested). **Still to do:** the per-agent
-   **absolute-threshold tables** (transcribe from each mandate §5), the `blended_50_50`
-   + `absolute` scorers that consume them, the **valuation fallback cascade**, and the
-   **special-sector absolute thresholds**. Then extend `lib/peer-scoring.js`:
+   (`pickFallbackMode`, `resolvePeerSet`, tested). `lib/peer-scoring.js` now also has
+   pure `absolute`, `blended_50_50`, final 84-cap, and valuation-cascade primitives;
+   `config/scoring/mandate-v2.js` contains the universal and Banks/Insurers/REITs
+   valuation bands. **Still to do:** bind the full per-agent multi-input absolute
+   table rows to actual metric adapters (never collapse persistence/coverage rules
+   into a weaker scalar proxy), then aggregate these per-submetric results into the
+   future inert scoring pass. Then extend `lib/peer-scoring.js`:
    deterministic `peer_count` (true operating-company comparables with current data,
    candidate excluded); mode by count **≥8 → peer_relative · 6–7 → blended_50_50 ·
    <6 → absolute**; implement `blended_50_50` (½ peer + ½ absolute per submetric) and
    `absolute`; add the **per-agent absolute-threshold tables** (One/Two/Three each have
-   their own in the v3 mandates) as config data; enforce the **84-conviction cap** when
+   their own in the v3 mandates) as executable config data; enforce the **84-conviction cap** when
    `thin_peer_set:true` (no Tier 1 without recorded human override); implement the
    **valuation fallback cascade** (company 5yr history percentile → broad-sector
    benchmark → universal absolute P/E/EV-EBITDA/FCF-yield/PS) and the **special-sector

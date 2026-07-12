@@ -5,10 +5,15 @@ import {
   bandFraction,
   percentileRank,
   scoreMetricPeerRelative,
+  scoreMetricAbsolute,
+  scoreMetricWithFallback,
+  fallbackMethodForPeerCount,
+  applyThinPeerConvictionCap,
+  scoreValuationCascade,
   scoreCategoriesPeerRelative,
 } from "../lib/peer-scoring.js";
 import { buildIndustryDistributions } from "../lib/peer-source.js";
-import { AGENT_SCORING, METRIC_IDS, toInternalAgentId } from "../config/scoring/mandate-v2.js";
+import { AGENT_SCORING, METRIC_IDS, toInternalAgentId, ABSOLUTE_VALUATION_TABLES } from "../config/scoring/mandate-v2.js";
 
 test("bandFraction maps the mandate bands", () => {
   assert.equal(bandFraction(0.95), 1.0); // top decile
@@ -70,6 +75,64 @@ test("scoreMetricPeerRelative marks missing values (vendor-lag input)", () => {
   const r = scoreMetricPeerRelative(null, [1, 2, 3, 4, 5, 6, 7, 8], spec, 7);
   assert.equal(r.missing, true);
   assert.equal(r.points, 0);
+});
+
+test("thin-peer routing follows the mandate's 8 / 6–7 / under-6 boundaries", () => {
+  assert.equal(fallbackMethodForPeerCount(8), "peer_relative");
+  assert.equal(fallbackMethodForPeerCount(7), "blended_50_50");
+  assert.equal(fallbackMethodForPeerCount(6), "blended_50_50");
+  assert.equal(fallbackMethodForPeerCount(5), "absolute");
+  assert.equal(fallbackMethodForPeerCount(-1), "unavailable");
+  assert.equal(applyThinPeerConvictionCap(92, { thinPeerSet: true }), 84);
+  assert.equal(applyThinPeerConvictionCap(92, { thinPeerSet: true, humanOverride: true }), 92);
+  assert.equal(applyThinPeerConvictionCap(92, { thinPeerSet: false }), 92);
+});
+
+test("absolute scoring honors the universal valuation boundaries", () => {
+  const spec = { points: 10 };
+  const pe = ABSOLUTE_VALUATION_TABLES.universal.forwardPE;
+  assert.equal(scoreMetricAbsolute(15, spec, pe).points, 10);
+  assert.equal(scoreMetricAbsolute(20, spec, pe).points, 7.5);
+  assert.equal(scoreMetricAbsolute(25, spec, pe).points, 5);
+  assert.equal(scoreMetricAbsolute(25.01, spec, pe).points, 0);
+  assert.equal(scoreMetricAbsolute(null, spec, pe).missing, true);
+});
+
+test("blended fallback uses equal peer and absolute components", () => {
+  const spec = { points: 10, higherIsBetter: true };
+  const absolute = { higherIsBetter: true, bands: [{ threshold: 10, fraction: 1 }, { threshold: 5, fraction: 0.5 }] };
+  const full = scoreMetricWithFallback(10, [1, 2, 3, 4, 5, 6], spec, absolute);
+  assert.equal(full.method, "blended_50_50");
+  assert.equal(full.points, 10);
+  const mixed = scoreMetricWithFallback(6, [1, 2, 3, 4, 5, 0], spec, absolute);
+  assert.equal(mixed.points, 7.5);
+  assert.equal(mixed.thinPeerSet, true);
+});
+
+test("absolute fallback is used under six true peers and never fabricates missing values", () => {
+  const spec = { points: 10, higherIsBetter: true };
+  const absolute = { higherIsBetter: true, bands: [{ threshold: 10, fraction: 1 }] };
+  const result = scoreMetricWithFallback(10, [1, 2, 3, 4], spec, absolute);
+  assert.equal(result.method, "absolute");
+  assert.equal(result.points, 10);
+  assert.equal(scoreMetricWithFallback(null, [1, 2, 3, 4, 5], spec, absolute).missing, true);
+});
+
+test("valuation cascade prefers adequate company history, then sector, then universal absolutes", () => {
+  const absolute = ABSOLUTE_VALUATION_TABLES.universal.forwardPE;
+  const history = Array.from({ length: 12 }, (_, i) => 10 + i);
+  assert.equal(scoreValuationCascade({
+    value: 10,
+    companyHistory: history,
+    companyHistoryCoverage: { years: 3, quarterlyObservations: 12 },
+    absoluteSpec: absolute,
+  }).source, "company_history");
+  assert.equal(scoreValuationCascade({ value: 10, companyHistory: history, absoluteSpec: absolute }).source, "universal_absolute");
+  assert.equal(scoreValuationCascade({ value: 10, sectorValues: [11, 12, 13, 14, 15, 16, 17, 18], absoluteSpec: absolute }).source, "sector_benchmark");
+  const universal = scoreValuationCascade({ value: 20, absoluteSpec: absolute });
+  assert.deepEqual(universal, { fraction: 0.75, source: "universal_absolute", missing: false });
+  assert.equal(scoreValuationCascade({ value: 1.5, absoluteSpec: ABSOLUTE_VALUATION_TABLES.banks.priceToTangibleBook, absoluteSource: "banks_absolute" }).source, "banks_absolute");
+  assert.equal(scoreValuationCascade({ value: 20 }).missing, true);
 });
 
 // --- category-level scoring -------------------------------------------------

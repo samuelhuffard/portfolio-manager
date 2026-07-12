@@ -134,3 +134,42 @@ export const TIER_SIZING = Object.freeze({
   "agent-2": { t1: [8, 12], t2: [4, 8], t3: [2, 4], noTradeBelow: 45, maxSingle: 12, minCashPct: 5, minMarketCap: 300e6 },
   "agent-3": { entry: [5, 15], noTradeBelow: 65, maxSingle: 15, driftTrimAbove: 25, targetHoldings: [8, 15], noSpeculativeTier: true, hardValuationGate: true },
 });
+
+/**
+ * Machine-readable, scalar portions of mandate v3 §5. Complex table rows (for
+ * example revenue acceleration plus a persistence requirement) are deliberately
+ * not collapsed into a single number here: their named inputs must be supplied by
+ * the mandate-metrics adapter before they can be scored. This keeps an absent
+ * observation unscored instead of silently weakening a rule.
+ */
+const band = (threshold, fraction) => ({ threshold, fraction });
+export const ABSOLUTE_VALUATION_TABLES = Object.freeze({
+  universal: Object.freeze({
+    forwardPE: { higherIsBetter: false, bands: [band(15, 1), band(20, 0.75), band(25, 0.5)] },
+    forwardEvEbitda: { higherIsBetter: false, bands: [band(10, 1), band(13, 0.75), band(16, 0.5)] },
+    fcfYield: { higherIsBetter: true, bands: [band(0.08, 1), band(0.06, 0.75), band(0.04, 0.5)] },
+    forwardPS: { higherIsBetter: false, bands: [band(2, 1), band(4, 0.75), band(6, 0.5)] },
+  }),
+  banks: Object.freeze({ priceToTangibleBook: { higherIsBetter: false, bands: [band(1.2, 1), band(1.6, 0.75), band(2, 0.5)] } }),
+  insurers: Object.freeze({ priceToBook: { higherIsBetter: false, bands: [band(1.2, 1), band(1.6, 0.75), band(2, 0.5)] } }),
+  reits: Object.freeze({ priceToAffoOrFfo: { higherIsBetter: false, bands: [band(12, 1), band(16, 0.75), band(20, 0.5)] } }),
+});
+
+/** Exact §5 source labels for the non-scalar portions to be bound by the next metrics-adapter pass. */
+export const ABSOLUTE_TABLE_REQUIREMENTS = Object.freeze({
+  "agent-1": Object.freeze({
+    revBeat: "beatPct", revGrowth: "yoyGrowthPct + accelerationPoints", epsTrajectory: "epsGrowthPct + accelerationPoints",
+    estimateRevisions: "consensusChangePct + positiveRevisionBreadth", marginTrend: "marginChangeBps",
+    balanceSheet: "leverage + interestCoverage OR cashRunwayQuarters", instOwnershipDir: "ownershipChangePoints", thirteenF: "13fQuarterlyChange + 13fPriorQuarterChange",
+  }),
+  "agent-2": Object.freeze({
+    revBeat: "threeQuarterBeatHistory", revGrowth: "yoyGrowthPct + growthPersistence", epsTrajectory: "epsGrowthPct + epsPersistence",
+    estimateRevisions: "60dConsensusChangePct + positiveRevisionBreadth + no30dReversal", marginTrend: "marginChangeBps",
+    balanceSheet: "leverage + interestCoverage OR cashRunwayQuarters", instOwnershipDir: "ownershipChangePoints", thirteenF: "13fQuarterlyChange + 13fPriorQuarterChange",
+  }),
+  "agent-3": Object.freeze({
+    revBeat: "latestBeatPct + yoyGrowthNonDecelerating", revGrowth: "threeYearRevenueCagr + annualGrowthHistory", epsTrajectory: "threeYearNormalizedEpsCagr + annualEpsHistory",
+    estimateRevisions: "90dConsensusChangePct + positiveRevisionBreadth + no30dReversal", marginTrend: "threeYearMarginChangeBps + contractionHistory",
+    balanceSheet: "threeYearLeverageAndCoverageHistory", instOwnershipDir: "ownershipChangePoints", thirteenF: "13fQuarterlyChange + 13fPriorQuarterChange",
+  }),
+});
