@@ -9,6 +9,7 @@
     "research:scan": "node jobs/research-scan.js",
     "exit:monitor": "node jobs/monitor-positions.js",
     "performance:review": "node jobs/performance-review.js",
+    "peer:dist": "node jobs/peer-distributions.js",
     "weekly:review": "node jobs/weekly-review.js",
     "investors:weekly-update": "node jobs/investor-weekly-update.js",
     "tavily:check": "node scripts/check-tavily.js",

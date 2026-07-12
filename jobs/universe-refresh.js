@@ -3,12 +3,21 @@ import { fileURLToPath } from "node:url";
 import { fetchUsListing, mergeCatalog, applyQuotes, dropJunk, selectEnrichmentBatch } from "../lib/universe.js";
 import { fetchQuotes, fetchFundamentals } from "../lib/yahoo.js";
 import { classifySubVertical } from "../lib/indicators.js";
-import { getUniverseCatalog, setUniverseCatalog, setUniverseStatus } from "../lib/redis.js";
+import { getUniverseCatalog, setUniverseCatalog, setUniverseStatus, getPeerMetrics, setPeerMetrics } from "../lib/redis.js";
+import { peerMetricsRow } from "../lib/mandate-metrics.js";
+import { fetchCompanyFacts } from "../lib/edgar.js";
 import { sendMessage as sendTelegram } from "../lib/telegram.js";
 
 const QUOTE_CHUNK_SIZE = 200;
 const QUOTE_CHUNK_DELAY_MS = 400;
 const ENRICH_PER_RUN = Math.max(1, Number(process.env.UNIVERSE_ENRICH_PER_RUN?.trim()) || 250);
+// Mandate v2.1 Phase A/W2: when set, cache each enriched name's peer-scoring metric
+// vector. Off by default; jobs/peer-distributions.js turns the accumulated vectors into
+// industry distributions.
+const PEER_METRICS_ENABLED = process.env.PEER_METRICS_ENABLED?.trim() === "1";
+// Additionally fetch SEC EDGAR companyfacts per enriched name (the mandated primary
+// fundamentals source). Separate flag: it adds one paced SEC call per name.
+const PEER_METRICS_EDGAR = process.env.PEER_METRICS_EDGAR?.trim() === "1";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -48,6 +57,7 @@ export async function runUniverseRefresh() {
 
     const toEnrich = selectEnrichmentBatch(catalog, { perRun: ENRICH_PER_RUN });
     let enriched = 0;
+    const peerRows = {}; // ticker → peerMetricsRow, when PEER_METRICS_ENABLED
     for (const ticker of toEnrich) {
       const f = await fetchFundamentals(ticker);
       if (!f.error) {
@@ -58,12 +68,28 @@ export async function runUniverseRefresh() {
           entry.v = classifySubVertical(f) ?? null;
           entry.ea = new Date().toISOString().slice(0, 10);
           enriched++;
+          if (PEER_METRICS_ENABLED) {
+            const companyfacts = PEER_METRICS_EDGAR ? await fetchCompanyFacts(ticker) : null;
+            peerRows[ticker] = peerMetricsRow(f, companyfacts);
+          }
         }
       }
       await sleep(250);
     }
 
     await setUniverseCatalog(catalog);
+
+    // Merge this run's peer-metric vectors into the accumulating store. Isolated:
+    // a peer-metrics failure is logged but never fails the catalog refresh.
+    if (PEER_METRICS_ENABLED && Object.keys(peerRows).length) {
+      try {
+        const existingPeer = await getPeerMetrics();
+        await setPeerMetrics({ ...existingPeer, ...peerRows });
+        console.log(`[Universe] Peer metrics: cached ${Object.keys(peerRows).length} vectors this run.`);
+      } catch (peerErr) {
+        console.error("[Universe] Peer-metrics cache failed (catalog refresh unaffected):", peerErr.message);
+      }
+    }
     const total = Object.keys(catalog).length;
     const sectorEnriched = Object.values(catalog).filter((e) => e.ea).length;
     const status = {

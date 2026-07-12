@@ -1,0 +1,117 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  rawFacts,
+  quarterlySeries,
+  annualSeries,
+  instantSeries,
+  latestInstant,
+  CONCEPTS,
+} from "../lib/edgar-facts.js";
+import { ttm, yoyGrowthSeries, deriveFundamentalMetrics, edgarMetricSubset } from "../lib/edgar-metrics.js";
+
+// --- synthetic companyfacts fixture -----------------------------------------
+const QUARTER_ENDS = [
+  "2023-03-31", "2023-06-30", "2023-09-30", "2023-12-31",
+  "2024-03-31", "2024-06-30", "2024-09-30", "2024-12-31",
+];
+const startFor = (end) => new Date(Date.parse(end) - 91 * 86400000).toISOString().slice(0, 10);
+const flow = (end, val, fp = "Q1", form = "10-Q") => ({ start: startFor(end), end, val, fy: Number(end.slice(0, 4)), fp, form, filed: end, frame: null });
+const instant = (end, val) => ({ end, val, fy: Number(end.slice(0, 4)), fp: "Q4", form: "10-Q", filed: end });
+
+function facts(overrides = {}) {
+  const rev = QUARTER_ENDS.map((e, i) => flow(e, [100, 100, 100, 100, 110, 120, 130, 140][i]));
+  // A 6-month YTD fact for the same period — must be EXCLUDED by the duration filter.
+  rev.push({ start: "2024-01-01", end: "2024-06-30", val: 230, fy: 2024, fp: "Q2", form: "10-Q", filed: "2024-07-01", frame: null });
+  const gp = QUARTER_ENDS.map((e, i) => flow(e, [40, 40, 40, 40, 55, 60, 65, 70][i])); // 0.4× then 0.5× revenue
+  const eps = QUARTER_ENDS.map((e, i) => flow(e, [1, 1, 1, 1, 1.1, 1.2, 1.3, 1.4][i]));
+  const opInc = QUARTER_ENDS.map((e) => flow(e, 25));
+  const intExp = QUARTER_ENDS.map((e) => flow(e, 5));
+  const ocf = QUARTER_ENDS.map((e) => flow(e, 30));
+  const g = {
+    Revenues: { units: { USD: rev } }, // 2nd in the chain → tests fallback past the 1st
+    GrossProfit: { units: { USD: gp } },
+    EarningsPerShareDiluted: { units: { "USD/shares": eps } },
+    OperatingIncomeLoss: { units: { USD: opInc } },
+    InterestExpense: { units: { USD: intExp } },
+    NetCashProvidedByUsedInOperatingActivities: { units: { USD: ocf } },
+    Assets: { units: { USD: [instant("2024-12-31", 1000)] } },
+    StockholdersEquity: { units: { USD: [instant("2024-12-31", 400)] } },
+    CashAndCashEquivalentsAtCarryingValue: { units: { USD: [instant("2024-12-31", 200)] } },
+    ...overrides,
+  };
+  return { cik: 1, entityName: "Test Co", facts: { "us-gaap": g } };
+}
+
+test("rawFacts falls through the concept chain to the first with data", () => {
+  const r = rawFacts(facts(), CONCEPTS.revenue);
+  assert.equal(r.concept, "Revenues"); // 1st (RevenueFromContract…) absent → falls to Revenues
+  assert.ok(r.facts.length);
+});
+
+test("quarterlySeries keeps 3-month facts and drops the YTD fact", () => {
+  const q = quarterlySeries(facts(), CONCEPTS.revenue);
+  assert.equal(q.length, 8); // 8 quarters; the 181-day YTD fact excluded
+  assert.ok(!q.some((f) => f.end === "2024-06-30" && f.val === 230));
+  assert.deepEqual(q.map((f) => f.val), [100, 100, 100, 100, 110, 120, 130, 140]);
+});
+
+test("quarterlySeries dedups a restated period, keeping the latest filed", () => {
+  const restated = facts();
+  restated.facts["us-gaap"].Revenues.units.USD.push({ start: startFor("2024-12-31"), end: "2024-12-31", val: 145, fy: 2024, fp: "Q4", form: "10-K", filed: "2025-02-01", frame: null });
+  const q = quarterlySeries(restated, CONCEPTS.revenue);
+  assert.equal(q.find((f) => f.end === "2024-12-31").val, 145); // restatement (later filed) wins
+});
+
+test("instant vs latestInstant", () => {
+  assert.equal(instantSeries(facts(), CONCEPTS.assets).length, 1);
+  assert.equal(latestInstant(facts(), CONCEPTS.assets).val, 1000);
+});
+
+test("ttm sums the last four quarters", () => {
+  assert.equal(ttm(quarterlySeries(facts(), CONCEPTS.operatingIncome)), 100);
+  assert.equal(ttm([{ val: 1 }, { val: 2 }]), null); // <4
+});
+
+test("yoyGrowthSeries matches each quarter to ~1 year prior", () => {
+  const s = yoyGrowthSeries(quarterlySeries(facts(), CONCEPTS.revenue));
+  // 2024 quarters vs 2023 (all 100): 10%, 20%, 30%, 40%
+  assert.deepEqual(s.map((x) => Math.round(x.growth * 100)), [10, 20, 30, 40]);
+});
+
+test("deriveFundamentalMetrics computes the v2.1 quantities", () => {
+  const m = deriveFundamentalMetrics(facts());
+  assert.equal(Math.round(m.revYoY * 100), 40); // latest YoY
+  assert.equal(Math.round(m.revAccel * 100), 10); // 40% − 30%
+  assert.equal(Math.round(m.epsYoY * 100), 40);
+  assert.ok(Math.abs(m.grossMarginTrendYoY - 0.1) < 1e-9); // 0.5 − 0.4
+  assert.equal(m.interestCoverage, 5); // ttm opInc 100 / ttm intExp 20
+  assert.equal(m.cashRunwayQuarters, 999); // positive OCF → sentinel
+  assert.equal(m.equityRatio, 0.4);
+});
+
+test("zero-debt company gets the strong interest-coverage sentinel", () => {
+  const f = facts({ InterestExpense: { units: { USD: [] } } });
+  assert.equal(deriveFundamentalMetrics(f).interestCoverage, 999);
+});
+
+test("cash-burning company gets a finite runway", () => {
+  const burn = QUARTER_ENDS.map((e) => flow(e, -40)); // −160 TTM → −40/qtr
+  const f = facts({ NetCashProvidedByUsedInOperatingActivities: { units: { USD: burn } } });
+  assert.equal(deriveFundamentalMetrics(f).cashRunwayQuarters, 200 / 40); // cash 200 / 40 = 5 quarters
+});
+
+test("edgarMetricSubset maps to config metric ids (first-cut YoY defaults)", () => {
+  const s = edgarMetricSubset(facts());
+  assert.equal(Math.round(s.revGrowth * 100), 40);
+  assert.equal(Math.round(s.epsTrajectory * 100), 40);
+  assert.equal(s.balanceSheet, 5);
+  assert.ok(s._derived); // full bundle available for later per-agent binding
+});
+
+test("missing concepts degrade to null, never throw", () => {
+  assert.doesNotThrow(() => deriveFundamentalMetrics({ facts: { "us-gaap": {} } }));
+  const m = deriveFundamentalMetrics({ facts: { "us-gaap": {} } });
+  assert.equal(m.revYoY, null);
+  assert.equal(m.interestCoverage, null);
+});

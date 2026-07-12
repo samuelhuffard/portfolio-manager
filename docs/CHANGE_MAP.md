@@ -105,6 +105,90 @@ Files: `lib/sysloop/*` (pure checks — unit-test with fixtures in `tests/sysloo
 Backend: `tests/*.test.js`, node:test, `npm test`. Dashboard: `tests/*.test.ts`, `npm test` (tsx), plus `npm run lint` (= `tsc --noEmit`) and `npm run build`.
 Pattern that works here: money math lives in pure functions (`lib/tax-lots.js`, `proposal-sizing.js`, `mcp-accounting.js`, `risk-engine.js`, `investor-ledger.js`) — put new logic in a pure lib, test it, then wire it into jobs. The mcp-accounting test fixture signs proposals with a test secret (`computeDecisionSignature`) — copy that pattern for anything touching approvals. See `docs/TEST_PLAN.md` for the missing-test priority list.
 
+## Changing peer-relative scoring (Mandate v2 — Phase A, inert)
+
+The v2 mandates score every metric by percentile rank within the candidate's industry
+peer set (not the daily slate — that's `lib/quant-scorer.js`). Full plan +
+status: `docs/MANDATE-V2-INGESTION.md`.
+
+Files: `lib/peer-scoring.js` (pure engine: `percentileRank`, `BANDS`,
+`scoreCategoriesPeerRelative` — thin-peer fallback, vendor-lag rescale, sector
+substitution), `config/scoring/mandate-v2.js` (per-agent category/point maps + id map),
+`lib/peer-source.js` (`PeerSource` interface + `YahooIndustryPeerSource`;
+`buildIndustryDistributions`), `lib/mandate-metrics.js` (`extractMetricVector` — Yahoo
+`raw` → metric vector), `jobs/peer-distributions.js` (`npm run peer:dist`), the
+`PEER_METRICS_ENABLED` hook in `jobs/universe-refresh.js`, Redis `pm:peer-metrics:*` /
+`pm:peer-dist:*` helpers in `lib/redis.js`. Tests: `tests/peer-scoring.test.js`,
+`tests/mandate-metrics.test.js`.
+
+Gotchas:
+- Two off-by-default flags gate this end to end: `PEER_METRICS_ENABLED` (accumulate
+  per-name vectors nightly) then a future `PEER_SCORING` (make the engine live). Nothing
+  on the scan/money path imports these modules yet — keep it that way until Phase A is
+  verified on real distributions.
+- Deterministic code computes the percentiles; the analyst LLM must never rank peers
+  (invariant #4). It consumes sub-scores and may only downgrade.
+- Missing metric ⇒ vendor-lag rescale (excluded from numerator AND denominator), never
+  scored zero. Thin peer set (<~7 comps) ⇒ reported for absolute fallback, not guessed.
+- `extractMetricVector` only reads Yahoo fields already fetched by
+  `FUNDAMENTALS_MODULES`; 5 metrics are deliberately `null` pending new modules — add
+  them by verifying yahoo-finance2 v3 field shapes first, never by guessing names.
+- Peer distributions are advisory discovery data (like the universe catalog): money
+  paths never read them, and `pm:peer-*` keys stay out of any signed/ledger path.
+
+## Changing EDGAR/XBRL fundamentals ingestion (Mandate v2.1, inert)
+
+The mandated primary fundamentals source (free). Files: `lib/edgar.js` (I/O — CIK
+lookup + `fetchCompanyFacts`, SEC User-Agent, `EDGAR_RATE_MS` pacing), `lib/edgar-facts.js`
+(pure XBRL parser — concept fallback chains in `CONCEPTS`, quarterly/annual/instant
+series, duration-based quarter isolation, dedup-by-period), `lib/edgar-metrics.js` (pure
+derivations → `deriveFundamentalMetrics` / `edgarMetricSubset`), consumed by
+`lib/mandate-metrics.js` `extractMetricVector(fundamentals, companyfacts?)`. Enabled by
+`PEER_METRICS_EDGAR` in `jobs/universe-refresh.js`. Tests: `tests/edgar.test.js`.
+
+Gotchas:
+- A 10-Q reports BOTH the 3-month quarter and the 6-/9-month year-to-date for the same
+  concept; `quarterlySeries` keeps only ~90-day-duration facts. Don't remove that filter.
+- Revenue/cost/equity concepts vary by filer — extend the `CONCEPTS` chains, don't
+  hardcode one tag. Instant (balance-sheet) facts have no `start`.
+- Missing concepts/periods return null/empty and flow to the engine's vendor-lag rescale
+  — never fabricate. Keep SEC calls paced (`EDGAR_RATE_MS`) and the User-Agent descriptive.
+- `edgarMetricSubset` uses first-cut YoY defaults shared across agents; the per-agent
+  definitions (accel / YoY / multi-year) are in `_derived` and bind via config later.
+
+## Onboarding a specialist mandate (agent-2 / agent-3)
+
+Turning an incoming friend-authored personality into a live specialist. **Order matters — do not skip to activation.**
+
+Files: `config/agents/agent-N/personality.md` (the compact mandate the runtime loads every scan — `jobs/research-scan.js` reads it, `lib/ai-overlay.js` puts it in the cached system block, `lib/evaluator.js` grades "mandate fit" against it), `config/agents/agent-N/AGENT-<NAME>-PLAN.md` (full versioned spec — copy `config/agents/_TEMPLATE-STRATEGY-SPEC.md`), `config/agents/agent-N/universe.json` (`source`, `slateSize`, `aiReviewBudget`, `researchCooldownDays`, `explorationSlots`), `config/agents/agent-N/weights.json` (quant weights, must sum to 1.0), `config/agents/agent-N/risk-limits.json`, `config/agents.js` (registry: `name`, `executionEligibility`).
+
+Steps:
+1. Fill `AGENT-<NAME>-PLAN.md` from the template, then write the compact `personality.md` to match it. The compact file is what the model sees — if the two disagree, the model follows the compact one.
+2. Tune `weights.json` (sum to 1.0) and `risk-limits.json` to the mandate. Grep that any new risk-limit key is actually consumed by `lib/risk-engine.js` — this file accretes dead keys.
+3. Set the agent's `name` in `config/agents.js`. **Leave `executionEligibility: "paper"`** — 2/3 stay propose-only until their mandate + ownership tests pass (roadmap Phase 1 gate).
+4. Universe: keep `source: "watchlist"` unless you also add a mandate-specific catalog screen. Catalog mode is driven by `lib/candidate-slate.js` + a philosophy screen; agent-1's is `screenUniverse` in `lib/universe.js`/`jobs/research-scan.js`. Without an equivalent, `source: "catalog"` screens nothing coherent. Flipping to catalog is its own change — see "Changing universe discovery".
+5. Add mandate tests before activation: the evaluator must reject an out-of-universe or missing-kill-criteria proposal for this agent (pattern in existing `tests/`), and ownership must hold (`tests/ownership-enforcement.test.js`, `tests/owned-lots.test.js`).
+
+Gotchas:
+- Agents share ONE real portfolio; risk limits check the shared position/sector sizes, so a new agent can block/downgrade another's proposals. Set `maxSectorPct`/`maxPositionPct` with that overlap in mind.
+- Empty `personality.md` = the model runs against "general prudence" (evaluator says so explicitly). An empty file is a silent no-mandate, not a safe default — don't half-activate.
+- `aiReviewBudget` is the Anthropic spend guardrail (holdings exempt). Adding a live agent adds cost; confirm the per-day budget across all agents is acceptable.
+
+## Onboarding / changing the Agent 4 allocation policy (portfolio manager)
+
+Agent 4 is the shadow portfolio manager, NOT a specialist — no `config/agents/agent-4/` dir, not in `AGENTS`. It reviews an immutable specialist `StrategyProposal` and may only ACCEPT/REJECT it; it can never originate a trade, mutate a proposal, or authorize an unowned SELL.
+
+Files: `contracts/portfolio-decision.js` (canonical — `AllocationPolicySchema`, `StrategyBudgetSchema`, `AllocationSnapshotSchema`, `PortfolioRiskSnapshotSchema`, reason codes; mirrored to the dashboard via `npm run contracts:sync`), Redis keys `pm:allocation-policy:active` / `pm:allocation-policy:<version>` / `pm:allocation-snapshot:*` / `pm:portfolio-risk-snapshot:*` / `pm:portfolio-decision:*` (`PORTFOLIO_SHADOW_KEYS`), plus the dashboard's Agent 4 shadow control room. Tests: `tests/portfolio-manager-shadow.test.js`, `tests/ownership-enforcement.test.js`.
+
+Steps:
+1. Convert the friend's Agent 4 personality into a versioned `AllocationPolicy` object: `mode: "SHADOW"` (do not change), `version`, and every hard bound (`maxSingleProposalDollars`, `maxStrategyAllocationPct`, `maxTickerExposurePct`, `minCashReservePct`, `maxGrossExposurePct`, `maxBudgetChangePct`, `evidenceWindowDays`, snapshot-age caps, `minEvaluatedProposals`, `minFilledTrades`). The schema validates numeric ranges only — it does not choose a policy; the numbers are the mandate.
+2. Keep Agent 4 in **shadow mode with Sam as final approver**. No live approval authority until the policy passes shadow-mode evidence (roadmap Phase 2/3 gate). There is deliberately no order-authorization or approval-signature field in these contracts.
+3. Any contract shape change: edit `contracts/portfolio-decision.js`, run `npm run contracts:sync`, commit both repos together (drift-tested).
+
+Gotchas:
+- `AllocationSnapshot.budgets` must contain exactly one `StrategyBudget` per specialist in `AGENT_IDS` (currently agent-1/2/3) — adding/removing a specialist changes this invariant and its test.
+- Reason codes are an enum (`PORTFOLIO_DECISION_REASON_CODES`); a new rejection cause needs a new code in the canonical file + sync, not a free-text string.
+
 ## Cross-repo schema-change checklist (run every time)
 
 1. `grep -rn "<field-or-key>" lib/ jobs/ scripts/` in BOTH repos + `scripts/mac-companion.mjs`.
