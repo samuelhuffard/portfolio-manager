@@ -10,6 +10,7 @@
     "exit:monitor": "node jobs/monitor-positions.js",
     "performance:review": "node jobs/performance-review.js",
     "peer:dist": "node jobs/peer-distributions.js",
+    "peer:probe": "node scripts/peer-probe.mjs",
     "weekly:review": "node jobs/weekly-review.js",
     "investors:weekly-update": "node jobs/investor-weekly-update.js",
     "tavily:check": "node scripts/check-tavily.js",

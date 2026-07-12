@@ -196,6 +196,65 @@ engine, then Agent 4.
    activation.
 9. **Checkpoint** — commit the stack on a `mandate-v3` branch; log the session to the vault.
 
+## 9. Cost model — where LLM tokens are (and are NOT) spent
+
+**Everything built in this plan spends $0 in LLM/API tokens.** The peer-scoring engine,
+EDGAR/XBRL ingestion, distribution builder, and the probe are pure deterministic code
+over the FREE SEC EDGAR + yfinance + FRED HTTP APIs. No Claude/Sonnet/Opus call anywhere
+in Phase A, W2, or the probe. Run them as often as you like.
+
+This is by design, and it *reduces* system LLM cost rather than adding to it:
+- The v3 mandates (Agent §2, Agent Four §8) require peer classification, percentile
+  ranking, technical calcs, screening, and estimate storage to run **deterministically,
+  outside the language models**. Pushing that work out of the LLM is cheaper than asking
+  an LLM to reason over raw market data per name.
+- Agent Four §8 also forbids any **paid** data API → $0 data-vendor cost (EDGAR, yfinance,
+  FRED, SEC 13F are all free).
+
+The ONLY LLM spend in the PM system is unchanged by this work: the research-scan
+**generator** (Sonnet) and **evaluator** (Opus), already hard-capped —
+`aiReviewBudget: 12` AI reviews/day (holdings exempt), evaluator runs only on the 0–5
+actionable proposals/day. Peer scoring adds nothing to that; it feeds the generator
+better deterministic inputs. Adding agents 2/3 or Agent 4 later raises LLM cost only to
+the extent they generate/evaluate proposals — governed by the same budget, not by any of
+the deterministic machinery here.
+
+Separate from the *product's* runtime cost: this build was done in a Claude Code session
+(that's a different meter). Going forward we keep those sessions bounded — probes and
+tests are free to re-run; only the eventual live generator/evaluator loop costs product tokens.
+
+## 10. Probe results (2026-07-12) — `npm run peer:probe`, 48 tickers, $0 tokens
+
+Runtime evidence that reorders the roadmap:
+
+- **Classification is fine-grained → peer cohorts are small.** Yahoo split our 4 sample
+  sectors into 13 industries: Semiconductors (12), Software‑Infrastructure (6),
+  Software‑Application (6), Banks‑Diversified (4), Banks‑Regional (4), Capital Markets
+  (3), REIT‑Industrial (3), REIT‑Specialty (3), REIT‑Retail (2), REIT‑Residential (2),
+  plus singletons. Only Semis cleared the **≥8** peer-relative threshold.
+- **⇒ The v3 absolute-threshold path is a PRIMARY path, not a rare fallback.** Most
+  industries land in `blended_50_50` or `absolute` mode. **Implication: build the v3
+  thin-peer/absolute engine (step #4) with real weight, and add a peer-set *widening* /
+  local-override table early** (roll Software‑App + Software‑Infra together, or up to a
+  sector level, to reach ≥8) — the mandate's "deterministic local override table" is not
+  optional polish, it's load-bearing.
+- **Financials can't score without special-sector substitution.** Banks / Capital Markets
+  showed `marginTrend:0, balanceSheet:0` — they don't file GrossProfit / standard
+  interest-coverage. This is exactly the v3 Banks/Insurers/REITs substitution map (step
+  #6); financials are unscored until it's implemented. Raises its priority.
+- **EDGAR coverage is strong** for the wired metrics: revGrowth / epsTrajectory /
+  peerValuation / balanceSheet ≈100% for non-financials (marginTrend ~90%). The 0s for
+  revBeat / estimateRevisions / instOwnershipDir / thirteenF are the not-yet-wired
+  sources (steps #2, #3), as expected.
+- **End-to-end scores are sane:** within Semiconductors, NVDA 85 · AMD 21 · INTC 0
+  (`rescaled_available_fields` correctly excludes the unwired metrics rather than zeroing).
+
+**Revised near-term priority (was #1→#4):** the small-cohort reality pulls the
+thin-peer/absolute engine (#4), the peer-widening/override table, and special-sector
+substitution (#6) *forward* — they're common paths, not edges. Per-definition binding
+(#1) and the snapshot/13F sources (#2/#3) still follow, but the scoring won't be
+trustworthy for most names until #4+#6 land.
+
 ## 8. v3 mandate update (2026-07-12) — thin-peer fully specified
 
 v3 replaced v2.1 (files renamed `*_v3.md`; scoring **categories unchanged** —
