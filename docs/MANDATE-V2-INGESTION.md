@@ -183,7 +183,10 @@ engine, then Agent 4.
    provenance. **Still to do:** bind the table inputs to actual data adapters. Current
    ingestion cannot yet supply consensus history, 13F history, all special-sector
    regulatory facts, or Agent Three's normalized multi-year EPS evidence; these remain
-   explicitly missing rather than approximated. Then extend `lib/peer-scoring.js`:
+   explicitly missing rather than approximated. Agent Three special-sector absolute
+   scoring also remains fail-closed until its latest-vs-3yr-median aggregation rule is
+   made unambiguous; the mandate specifies the override case but not every intervening
+   band combination. Then extend `lib/peer-scoring.js`:
    deterministic `peer_count` (true operating-company comparables with current data,
    candidate excluded); mode by count **≥8 → peer_relative · 6–7 → blended_50_50 ·
    <6 → absolute**; implement `blended_50_50` (½ peer + ½ absolute per submetric) and

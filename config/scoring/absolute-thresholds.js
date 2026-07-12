@@ -9,7 +9,7 @@ const marginTrend = {
   rules: [
     rule(1, f("marginChangeBps", { gte: 200 })),
     rule(0.75, f("marginChangeBps", { gte: 100 })),
-    rule(0.5, f("marginChangeBps", { gte: -99, lte: 99 })),
+    rule(0.5, f("marginChangeBps", { gt: -100, lt: 100 })),
     rule(0, all(f("marginChangeBps", { lte: -100 }), f("documentedInvestmentExplanation", { eq: false }))),
   ],
 };
@@ -58,7 +58,7 @@ const thirteenF = {
       f("latestQuarterChangePct", { gte: 2 }),
       any(f("usableQuarters", { eq: 1 }), f("priorQuarterChangePct", { gte: 0 })),
     )),
-    rule(0.5, all(f("latestQuarterChangePct", { gte: -2, lte: 2 }), f("cumulativeTwoQuarterChangePct", { gte: -2, lte: 2 }))),
+    rule(0.5, f("latestQuarterChangePct", { gte: -2, lte: 2 })),
     rule(0, any(f("latestQuarterChangePct", { lt: -2 }), f("cumulativeTwoQuarterChangePct", { lt: 0 }))),
   ],
 };
@@ -175,7 +175,7 @@ export const ABSOLUTE_RULE_TABLES = Object.freeze({
       rules: [
         rule(1, all(f("marginChangeBps3y", { gte: 200 }), f("twoYearContractionSequence", { eq: false }))),
         rule(0.75, f("marginChangeBps3y", { gte: 100 })),
-        rule(0.5, f("marginChangeBps3y", { gte: -99, lte: 99 })),
+        rule(0.5, f("marginChangeBps3y", { gt: -100, lt: 100 })),
         rule(0, all(f("marginChangeBps3y", { lte: -100 }), f("documentedStructuralInvestmentExplanation", { eq: false }))),
       ],
     },
@@ -205,7 +205,7 @@ export const SPECIAL_SECTOR_RULE_TABLES = Object.freeze({
       rules: [
         rule(1, f("netInterestMarginChangeBps", { gte: 20 })),
         rule(0.75, f("netInterestMarginChangeBps", { gte: 10 })),
-        rule(0.5, f("netInterestMarginChangeBps", { gte: -9, lte: 9 })),
+        rule(0.5, f("netInterestMarginChangeBps", { gt: -10, lt: 10 })),
         rule(0, f("netInterestMarginChangeBps", { lte: -10 })),
       ],
     },
@@ -259,6 +259,9 @@ export const SPECIAL_SECTOR_RULE_TABLES = Object.freeze({
 });
 
 export function absoluteRuleTableFor(agentId, metricId, sector = null) {
+  // Agent Three §5 requires a separate three-year special-sector overlay. Until
+  // that adapter and its latest-vs-median aggregation are specified, fail closed.
+  if (agentId === "agent-3" && sector && SPECIAL_SECTOR_RULE_TABLES[sector]?.[metricId]) return null;
   if (sector && SPECIAL_SECTOR_RULE_TABLES[sector]?.[metricId]) return SPECIAL_SECTOR_RULE_TABLES[sector][metricId];
   return ABSOLUTE_RULE_TABLES[agentId]?.[metricId] ?? null;
 }

@@ -94,8 +94,23 @@ test("special-sector provenance lists every substituted bank metric", () => {
     valuationEvidence: { value: 1.2, absoluteSource: "banks_absolute", absoluteSpec: { higherIsBetter: false, bands: [{ threshold: 1.2, fraction: 1 }] } },
     sector: "banks",
   });
-  assert.deepEqual(result.sectorSubstitutionsUsed.sort(), ["balanceSheet", "epsTrajectory", "marginTrend", "revGrowth"]);
+  assert.deepEqual(result.sectorSubstitutionsUsed.sort(), ["balanceSheet", "epsTrajectory", "marginTrend", "peerValuation", "revGrowth"]);
   assert.equal(result.perMetric.revGrowth.absolute.source, "banks_absolute");
+  assert.equal(result.actionable, true);
+});
+
+test("missing critical special-sector evidence is explicitly NO_TRADE", () => {
+  const result = scoreMandateCandidate({
+    agentId: "agent-3",
+    metricVector,
+    peerDistributions: distributions(0),
+    absoluteEvidence: AGENT_ONE_FULL,
+    valuationEvidence: { value: 1.2 },
+    sector: "banks",
+  });
+  assert.equal(result.actionable, false);
+  assert.equal(result.noTradeReason, "missing_critical_special_sector_data");
+  assert.ok(result.criticalMissingMetrics.includes("revGrowth"));
 });
 
 test("unknown agents fail closed", () => {

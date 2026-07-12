@@ -201,4 +201,5 @@ test("special-sector selection is deterministic and falls back to the agent tabl
   assert.equal(absoluteRuleTableFor("agent-1", "revGrowth", "banks"), SPECIAL_SECTOR_RULE_TABLES.banks.revGrowth);
   assert.equal(absoluteRuleTableFor("agent-1", "revBeat", "banks"), ABSOLUTE_RULE_TABLES["agent-1"].revBeat);
   assert.equal(absoluteRuleTableFor("agent-1", "unknown", "banks"), null);
+  assert.equal(absoluteRuleTableFor("agent-3", "revGrowth", "banks"), null);
 });
