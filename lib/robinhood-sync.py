@@ -44,6 +44,13 @@ def main():
     if not username or not password:
         print(json.dumps({"error": "Missing ROBINHOOD_USERNAME/ROBINHOOD_PASSWORD env vars"}))
         sys.exit(1)
+    # This is a scheduled, non-interactive service. With session persistence
+    # deliberately disabled, attempting a password-only login can only yield a
+    # device/MFA challenge that the scheduler cannot complete. Fail before any
+    # broker request and return a safe operator diagnosis instead.
+    if not totp_secret:
+        print(json.dumps({"error": "Missing ROBINHOOD_TOTP_SECRET — scheduled read-only sync is blocked until MFA is configured."}))
+        sys.exit(1)
     if not account_number:
         print(json.dumps({"error": "Missing ROBINHOOD_ACCOUNT_NUMBER env var — this login has multiple accounts, so the account to sync must be explicit."}))
         sys.exit(1)

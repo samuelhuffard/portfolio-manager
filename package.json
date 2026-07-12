@@ -41,7 +41,7 @@
     "googleapis": "^172.0.0",
     "node-cron": "^4.2.1",
     "pg": "^8.22.0",
-    "yahoo-finance2": "^3.15.0",
+    "yahoo-finance2": "^3.15.4",
     "zod": "^3.25.76"
   }
 }

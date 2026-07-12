@@ -54,6 +54,7 @@ async function crossWatch() {
     return;
   }
   const et = etNow();
+  await redis.set("pm:sysloop-mac:last-run", JSON.stringify({ at: new Date().toISOString(), date: et.date }), { ex: 2 * 3600 }).catch(() => null);
   const weekday = !["Sat", "Sun"].includes(et.weekday);
 
   // (a) Jetson sentinel liveness — after 19:00 ET on a weekday, today's run must exist.
@@ -85,8 +86,12 @@ async function crossWatch() {
   }
 }
 
-cron.schedule("*/30 * * * *", () => crossWatch().catch((e) => console.error("[SysloopMac] cross-watch error:", e.message)), TZ);
+// Cross-watch only during the weekday interval where it can surface an
+// actionable condition. Running all night/weekend merely produces misleading
+// node-cron missed-execution noise while the Mac sleeps.
+cron.schedule("0,30 9-20 * * 1-5", () => crossWatch().catch((e) => console.error("[SysloopMac] cross-watch error:", e.message)), TZ);
 cron.schedule("35 18 * * 1-5", () => runScript("sysloop-triage.mjs"), TZ);
 cron.schedule("0 10 * * 0", () => runScript("sysloop-weekly.mjs"), TZ);
 
 console.log("[SysloopMac] started — cross-watch every 30 min | triage 6:35 PM Mon–Fri | weekly Sun 10 AM (ET)");
+crossWatch().catch((e) => console.error("[SysloopMac] startup cross-watch error:", e.message));

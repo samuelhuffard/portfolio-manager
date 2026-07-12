@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { getAthenaConfig, fetchAthenaDossier, fetchAthenaStatus, athenaDossierToEvidence } from "../lib/athena.js";
+import { createAthenaCircuit, getAthenaConfig, fetchAthenaDossier, fetchAthenaStatus, athenaDossierToEvidence } from "../lib/athena.js";
 import { sanitizeEvidenceItems } from "../lib/evidence.js";
 
 test("getAthenaConfig requires BOTH url and token (off by default)", () => {
@@ -49,6 +49,37 @@ test("fetchAthenaDossier degrades to null on HTTP errors and network failures", 
     }),
     null
   );
+});
+
+test("Athena circuit skips remaining dossiers after repeated advisory failures", async () => {
+  const env = { ATHENA_AGENT_URL: "http://athena:8765", ATHENA_SERVICE_TOKEN: "tok" };
+  const circuit = createAthenaCircuit({ failureThreshold: 2 });
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls += 1;
+    throw new Error("ECONNREFUSED");
+  };
+  assert.equal(await fetchAthenaDossier("ONE", { env, fetchImpl, circuit }), null);
+  assert.equal(await fetchAthenaDossier("TWO", { env, fetchImpl, circuit }), null);
+  assert.equal(circuit.open, true);
+  assert.equal(await fetchAthenaDossier("THREE", { env, fetchImpl, circuit }), null);
+  assert.equal(calls, 2);
+  assert.deepEqual(circuit.summary(), { failures: 2, skipped: 1, open: true });
+});
+
+test("Athena timeout is classified as advisory failure", async () => {
+  const env = { ATHENA_AGENT_URL: "http://athena:8765", ATHENA_SERVICE_TOKEN: "tok" };
+  const circuit = createAthenaCircuit({ failureThreshold: 1 });
+  const result = await fetchAthenaDossier("SLOW", {
+    env,
+    circuit,
+    timeoutMs: 1,
+    fetchImpl: async (_url, { signal }) => new Promise((_, reject) => {
+      signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })));
+    }),
+  });
+  assert.equal(result, null);
+  assert.equal(circuit.open, true);
 });
 
 test("fetchAthenaStatus is a no-op returning null when unconfigured", async () => {

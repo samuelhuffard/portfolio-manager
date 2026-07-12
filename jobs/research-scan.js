@@ -40,7 +40,7 @@ import { syncMarketScansFromRobinhood } from "../lib/market-scan-sync.js";
 import { toScreenerCandidates } from "../lib/universe.js";
 import { buildSlate, formatSlateCounts } from "../lib/candidate-slate.js";
 import { readResearchLedger, applyResearchRecords, formatResearchHistoryForPrompt, summarizeResearchLedger } from "../lib/research-ledger.js";
-import { getAthenaConfig, fetchAthenaDossier, athenaDossierToEvidence } from "../lib/athena.js";
+import { getAthenaConfig, createAthenaCircuit, fetchAthenaDossier, athenaDossierToEvidence } from "../lib/athena.js";
 import {
   getServiceAccountClients,
   resolveSharedSpreadsheetId,
@@ -463,7 +463,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
   // (local + free), then fenced and sanitized like every other external source.
   let safeAthenaEvidence = [];
   if (getAthenaConfig()) {
-    const dossier = await fetchAthenaDossier(c.ticker);
+    const dossier = await fetchAthenaDossier(c.ticker, { circuit: ctx.athenaCircuit });
     const athenaScan = sanitizeEvidenceItems(athenaDossierToEvidence(dossier), {
       kind: `athena:${c.ticker}`,
       textFields: ["content"],
@@ -980,6 +980,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
     boundaryToken,
     budget,
     evidenceFlags,
+    athenaCircuit: createAthenaCircuit(),
   };
 
   const recommendations = [];
@@ -1256,6 +1257,7 @@ async function researchTickerForAgentUnlocked(agentId, ticker) {
     breaker,
     boundaryToken,
     evidenceFlags,
+    athenaCircuit: createAthenaCircuit(),
     budget,
   };
 
