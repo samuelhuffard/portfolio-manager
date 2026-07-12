@@ -111,15 +111,18 @@ The v2 mandates score every metric by percentile rank within the candidate's ind
 peer set (not the daily slate — that's `lib/quant-scorer.js`). Full plan +
 status: `docs/MANDATE-V2-INGESTION.md`.
 
-Files: `lib/peer-scoring.js` (pure engine: `percentileRank`, `BANDS`,
-`scoreCategoriesPeerRelative` — thin-peer fallback, vendor-lag rescale, sector
-substitution), `config/scoring/mandate-v2.js` (per-agent category/point maps + id map),
+Files: `lib/peer-scoring.js` (pure peer/absolute primitives), `lib/peer-resolve.js`
+(peer-set widening + 8/6 tier selection), `lib/absolute-rules.js` (fail-closed
+declarative rule evaluator), `lib/mandate-score.js` (inert aggregate result),
+`config/scoring/mandate-v2.js` (per-agent category/point maps + id map),
+`config/scoring/absolute-thresholds.js` (executable Agent 1/2/3 + special-sector §5 tables),
 `lib/peer-source.js` (`PeerSource` interface + `YahooIndustryPeerSource`;
 `buildIndustryDistributions`), `lib/mandate-metrics.js` (`extractMetricVector` — Yahoo
 `raw` → metric vector), `jobs/peer-distributions.js` (`npm run peer:dist`), the
 `PEER_METRICS_ENABLED` hook in `jobs/universe-refresh.js`, Redis `pm:peer-metrics:*` /
 `pm:peer-dist:*` helpers in `lib/redis.js`. Tests: `tests/peer-scoring.test.js`,
-`tests/mandate-metrics.test.js`.
+`tests/peer-resolve.test.js`, `tests/absolute-rules.test.js`,
+`tests/mandate-score.test.js`, `tests/mandate-metrics.test.js`.
 
 Gotchas:
 - Two off-by-default flags gate this end to end: `PEER_METRICS_ENABLED` (accumulate

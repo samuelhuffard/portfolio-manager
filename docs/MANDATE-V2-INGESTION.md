@@ -176,12 +176,14 @@ engine, then Agent 4.
    (industry → sector until ≥8 data-complete peers) and the **tier mapping** (≥8 →
    peer_relative · 6–7 → blended_50_50 · <6 → absolute) + the 84 cap
    (`pickFallbackMode`, `resolvePeerSet`, tested). `lib/peer-scoring.js` now also has
-   pure `absolute`, `blended_50_50`, final 84-cap, and valuation-cascade primitives;
-   `config/scoring/mandate-v2.js` contains the universal and Banks/Insurers/REITs
-   valuation bands. **Still to do:** bind the full per-agent multi-input absolute
-   table rows to actual metric adapters (never collapse persistence/coverage rules
-   into a weaker scalar proxy), then aggregate these per-submetric results into the
-   future inert scoring pass. Then extend `lib/peer-scoring.js`:
+   pure `absolute`, `blended_50_50`, final 84-cap, and valuation-cascade primitives.
+   `config/scoring/absolute-thresholds.js` contains executable, fail-closed Agent
+   1/2/3 tables plus Banks/Insurers/REITs rules; `lib/mandate-score.js` aggregates
+   injected peer distributions + absolute evidence into an inert score with complete
+   provenance. **Still to do:** bind the table inputs to actual data adapters. Current
+   ingestion cannot yet supply consensus history, 13F history, all special-sector
+   regulatory facts, or Agent Three's normalized multi-year EPS evidence; these remain
+   explicitly missing rather than approximated. Then extend `lib/peer-scoring.js`:
    deterministic `peer_count` (true operating-company comparables with current data,
    candidate excluded); mode by count **≥8 → peer_relative · 6–7 → blended_50_50 ·
    <6 → absolute**; implement `blended_50_50` (½ peer + ½ absolute per submetric) and
