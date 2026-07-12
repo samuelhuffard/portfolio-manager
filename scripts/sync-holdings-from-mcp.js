@@ -35,8 +35,18 @@ import { fetchQuotes } from "../lib/yahoo.js";
 import { writePortfolioSnapshot } from "../lib/portfolio-snapshot.js";
 import { getServiceAccountClients, getSheetIds, resolveSharedSpreadsheetId } from "../lib/sheets.js";
 import { runResearchScan } from "../jobs/research-scan.js";
+import { withWorkflowLock } from "../lib/workflow-lock.js";
+import { McpReadRequestSchema } from "../contracts/mcp-read-job.js";
+import { parseMcpHoldingsInput } from "../lib/mcp-holdings-input.js";
 
 const shouldRunScan = process.argv.includes("--scan");
+const requestIdFlag = process.argv.indexOf("--request-id");
+const sourceRequestId = requestIdFlag >= 0 ? process.argv[requestIdFlag + 1] : null;
+if (requestIdFlag >= 0 && !sourceRequestId) {
+  console.error("--request-id requires a request UUID.");
+  process.exit(1);
+}
+if (sourceRequestId) McpReadRequestSchema.shape.id.parse(sourceRequestId);
 
 const raw = await new Promise((resolve, reject) => {
   let buf = "";
@@ -59,55 +69,35 @@ if (!Array.isArray(input.positions)) {
   process.exit(1);
 }
 
-const f = (v) => (v == null ? null : parseFloat(v));
-
-const holdings = input.positions.map((p) => {
-  const shares = f(p.shares ?? p.quantity) ?? 0;
-  const avgCost = f(p.avgCost ?? p.average_buy_price) ?? 0;
-  const currentPrice = f(p.currentPrice ?? p.current_price ?? p.last_trade_price) ?? null;
-  const marketValue = f(p.marketValue ?? p.equity ?? p.market_value) ?? (currentPrice != null ? shares * currentPrice : null);
-  const costBasis = f(p.costBasis ?? p.cost_basis) ?? shares * avgCost;
-  const gainLoss = f(p.gainLoss ?? p.equity_change ?? p.unrealized_profit_loss) ?? (marketValue != null ? marketValue - costBasis : null);
-  let gainLossPct = f(p.gainLossPct ?? p.percent_change ?? p.unrealized_profit_loss_percentage);
-  // Robinhood returns percent_change as a decimal (0.22 = 22%); normalize to 0-100 scale
-  if (gainLossPct != null && Math.abs(gainLossPct) < 10 && costBasis > 0) {
-    gainLossPct = gainLossPct * 100;
-  }
-
-  return {
-    ticker: (p.ticker ?? p.symbol ?? "").toUpperCase(),
-    name: p.name ?? p.simpleName ?? "",
-    shares,
-    avgCost,
-    currentPrice,
-    marketValue,
-    costBasis,
-    gainLoss,
-    gainLossPct,
-  };
-}).filter((h) => h.ticker);
-
-const cash = f(input.cash ?? input.buying_power ?? 0) ?? 0;
+let holdings, cash;
+try {
+  ({ holdings, cash } = parseMcpHoldingsInput(input));
+} catch (error) {
+  console.error(`Invalid MCP holdings input: ${error.message}`);
+  process.exit(1);
+}
 const timestamp = new Date().toISOString();
 
-const { sheets, drive } = getServiceAccountClients();
-const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
-const sheetIds = await getSheetIds(sheets, spreadsheetId);
-const quotes = await fetchQuotes(["SPY"]);
-const spyPrice = quotes.SPY?.regularMarketPrice ?? null;
+const snapshot = await withWorkflowLock("holdings-sync", async () => {
+  const { sheets, drive } = getServiceAccountClients();
+  const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
+  const sheetIds = await getSheetIds(sheets, spreadsheetId);
+  const quotes = await fetchQuotes(["SPY"]);
+  const spyPrice = quotes.SPY?.regularMarketPrice ?? null;
+  return writePortfolioSnapshot({
+    sheets,
+    spreadsheetId,
+    sheetIds,
+    holdings,
+    cash,
+    spyPrice,
+    timestamp,
+    holdingsNote: "Synced via Robinhood Agentic MCP",
+    sourceRequestId,
+  });
+}, { ttlSeconds: 5 * 60 });
 
-const snapshot = await writePortfolioSnapshot({
-  sheets,
-  spreadsheetId,
-  sheetIds,
-  holdings,
-  cash,
-  spyPrice,
-  timestamp,
-  holdingsNote: "Synced via Robinhood Agentic MCP",
-});
-
-console.log(`Portfolio synced: ${holdings.length} position(s), cash $${cash.toFixed(2)}, total $${snapshot.totalValue.toFixed(2)}`);
+console.log(`Portfolio ${snapshot.idempotent ? "already synced" : "synced"}: ${holdings.length} position(s), cash $${cash.toFixed(2)}, total $${snapshot.totalValue.toFixed(2)}`);
 holdings.forEach((h) => console.log(`  ${h.ticker}: ${h.shares} shares @ $${h.avgCost} avg cost`));
 
 if (shouldRunScan) {

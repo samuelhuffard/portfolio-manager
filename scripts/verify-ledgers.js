@@ -2,7 +2,7 @@ import "dotenv/config";
 import { getServiceAccountClients, resolveSharedSpreadsheetId, readAllLots, readInvestorLedger, readPerformanceHistory, readTradeLedger } from "../lib/sheets.js";
 import { getInvestorLedgerSecret } from "../lib/investor-ledger.js";
 import { verifyInvestorLedger, verifyAuditRows, computeAuditRowHmac, verifyOperationalLedgerEntries } from "../lib/ledger-verify.js";
-import { getOperationalLedgerSecret } from "../lib/operational-ledger.js";
+import { assertPerformanceSourceRequestEntries, getOperationalLedgerSecret } from "../lib/operational-ledger.js";
 import { getRedis } from "../lib/redis.js";
 import { sendMessage } from "../lib/telegram.js";
 
@@ -46,6 +46,7 @@ export async function runLedgerVerification() {
     ];
     for (const [label, kind, entries] of ledgers) {
       const result = verifyOperationalLedgerEntries(kind, entries, secret);
+      if (kind === "performance") assertPerformanceSourceRequestEntries(entries, secret);
       console.log(`[Verify] ${label}: ${result.verified}/${result.total} verified, ${result.unsigned.length} unsigned, ${result.mismatched.length} MISMATCHED.`);
       if (result.unsigned.length) problems.push(`${label}: ${result.unsigned.length} unsigned row(s); run ledgers:backfill-operational before normal operation.`);
       if (result.mismatched.length) problems.push(`${label} TAMPER: ${result.mismatched.length} row(s) fail signature verification.`);

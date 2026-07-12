@@ -5,13 +5,12 @@ import { runExitMonitor } from "./jobs/monitor-positions.js";
 import { runPerformanceReview } from "./jobs/performance-review.js";
 import { runPremarketCheck } from "./jobs/premarket-check.js";
 import { runIntradayMonitor } from "./jobs/intraday-monitor.js";
-import { syncHoldings } from "./jobs/holdings-sync.js";
 import { runLedgerVerification } from "./scripts/verify-ledgers.js";
 import { runWeeklyReview } from "./jobs/weekly-review.js";
 import { runInvestorWeeklyUpdate } from "./jobs/investor-weekly-update.js";
 import { runSystemSentinel } from "./jobs/system-sentinel.js";
 import { runUniverseRefresh } from "./jobs/universe-refresh.js";
-import { runOrderReconciliation } from "./jobs/order-reconciliation.js";
+import { requestMcpHoldingsSync, requestMcpOrderReconciliation } from "./jobs/mcp-read-requests.js";
 import { runDailyDbParityCheck } from "./jobs/db-parity-check.js";
 import { getRedis, getResearchScanStatus, setResearchScanStatus } from "./lib/redis.js";
 import { marketHolidayNameET } from "./lib/market-calendar.js";
@@ -84,16 +83,47 @@ function wrapJob(name, label, fn, { marketDayOnly = false } = {}) {
 
 const MARKET_DAY_ONLY = { marketDayOnly: true };
 
+// MCP broker jobs are not complete when Jetson queues them: completion means
+// the Mac has claimed the durable request, obtained a validated read-only
+// response, and written its receipt. Keep the ordinary `last-run` key for that
+// receipt so the sentinel never mistakes a queued request for fresh broker data.
+async function queueMcpReadJob(name, label, requestFn) {
+  const started = Date.now();
+  const holiday = marketHolidayNameET();
+  const redis = getRedis();
+  const dateET = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
+  if (holiday) {
+    if (redis) await redis.set(`pm:job:${name}:last-run`, JSON.stringify({
+      ts: new Date().toISOString(), dateET, ok: true, durationMs: Date.now() - started, error: null, skippedHoliday: holiday,
+    }));
+    console.log(`[${label}] skipped — market holiday: ${holiday}`);
+    return;
+  }
+  try {
+    const { queued, request } = await requestFn();
+    if (redis) await redis.set(`pm:job:${name}:last-request`, JSON.stringify({
+      ts: new Date().toISOString(), dateET, queued, requestId: request.id, durationMs: Date.now() - started,
+    }));
+    console.log(`[${label}] ${queued ? "queued" : "already pending"} request ${request.id}`);
+  } catch (error) {
+    if (redis) await redis.set(`pm:job:${name}:last-run`, JSON.stringify({
+      ts: new Date().toISOString(), dateET, ok: false, durationMs: Date.now() - started, error: error.message,
+    }));
+    console.error(`[${label}] request error:`, error.message);
+  }
+}
+
 // ── Holdings sync (9:30 AM ET — market open) ────────────────────────────────
-cron.schedule("30 9 * * 1-5", wrapJob("holdings-sync", "Holdings", syncHoldings, MARKET_DAY_ONLY), TZ);
+cron.schedule("30 9 * * 1-5", () => queueMcpReadJob("holdings-sync", "HoldingsMcpRequest", requestMcpHoldingsSync), TZ);
 
 // ── Holdings sync (4:30 PM ET — after close) ────────────────────────────────
-cron.schedule("30 16 * * 1-5", wrapJob("holdings-sync", "Holdings", syncHoldings, MARKET_DAY_ONLY), TZ);
+cron.schedule("30 16 * * 1-5", () => queueMcpReadJob("holdings-sync", "HoldingsMcpRequest", requestMcpHoldingsSync), TZ);
 
 // ── Broker-vs-ledger reconciliation (4:40 PM ET) ───────────────────────────
-// Jetson-owned, read-only rolling-window comparison. The Mac remains solely
-// the signed-order executor; a sleeping laptop cannot hide a booking failure.
-cron.schedule("40 16 * * 1-5", wrapJob("order-reconciliation", "Reconcile", runOrderReconciliation, MARKET_DAY_ONLY), TZ);
+// Jetson records the durable request; the Mac companion performs the exact
+// read-only MCP call and writes a receipt. Device approval cannot be automated
+// safely from Jetson's legacy Python login path.
+cron.schedule("40 16 * * 1-5", () => queueMcpReadJob("order-reconciliation", "ReconcileMcpRequest", requestMcpOrderReconciliation), TZ);
 
 // ── Pre-market (8:30 AM ET) ──────────────────────────────────────────────────
 // Macro snapshot refresh, regime check, overnight news on held positions.
@@ -104,14 +134,12 @@ cron.schedule("30 8 * * 1-5", wrapJob("premarket-check", "Premarket", runPremark
 cron.schedule("35 9 * * 1-5", wrapJob("intraday-monitor", "Opening", () => runIntradayMonitor({ context: "opening" }), MARKET_DAY_ONLY), TZ);
 
 // ── Holdings sync (11 AM, 1 PM, 3 PM ET) ────────────────────────────────────
-// Same full syncHoldings() as the 9:30 AM/4:30 PM runs — fresh quotes + Sheet
-// write every time, not just when a fill happens. Every 5 min was reconsidered:
-// each run is a full Robinhood login/logout, and this account trades rarely —
-// 78 logins/day just raises the odds of tripping Robinhood's anti-automation
-// device-approval challenge again. 3x/day gives real intraday freshness on
-// position values at a fraction of the login volume.
+// Jetson queues a durable MCP snapshot request. The Mac's existing Robinhood
+// authorization supplies the read-only broker data; it performs no Python
+// login, avoids triggering device approvals, and writes the existing Sheet/NAV
+// projection only after a validated positions response.
 for (const time of ["0 11 * * 1-5", "0 13 * * 1-5", "0 15 * * 1-5"]) {
-  cron.schedule(time, wrapJob("holdings-sync", "Holdings", syncHoldings, MARKET_DAY_ONLY), TZ);
+  cron.schedule(time, () => queueMcpReadJob("holdings-sync", "HoldingsMcpRequest", requestMcpHoldingsSync), TZ);
 }
 
 // ── Intraday monitor (every 30 min, 10 AM–3:30 PM ET) ───────────────────────

@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   assertOperationalLedgerEntries,
+  assertPerformanceSourceRequestEntries,
+  computePerformanceSourceRequestHmac,
   signOperationalLedgerEntry,
   verifyOperationalLedgerEntries,
 } from "../lib/operational-ledger.js";
@@ -31,6 +33,18 @@ test("a mutated lot requires a new signature", () => {
   const consumed = { ...original, sharesOpen: 0, status: "CLOSED" };
   assert.equal(verifyOperationalLedgerEntries("lot", [consumed], SECRET).mismatched.length, 1);
   assert.equal(verifyOperationalLedgerEntries("lot", [signOperationalLedgerEntry("lot", consumed, SECRET)], SECRET).verified, 1);
+});
+
+test("performance source request ids are bound to signed money state", () => {
+  const signed = signOperationalLedgerEntry("performance", performance, SECRET);
+  const entry = {
+    ...signed,
+    sourceRequestId: "9f1c2b3a-1111-2222-3333-444455556666",
+  };
+  entry.sourceRequestHmac = computePerformanceSourceRequestHmac(entry, SECRET);
+  assert.doesNotThrow(() => assertPerformanceSourceRequestEntries([entry], SECRET));
+  assert.throws(() => assertPerformanceSourceRequestEntries([{ ...entry, sourceRequestId: "8f1c2b3a-1111-2222-3333-444455556666" }], SECRET), /source-request integrity/);
+  assert.doesNotThrow(() => assertPerformanceSourceRequestEntries([signed], SECRET), "legacy performance rows remain valid");
 });
 
 function fakeSheets(tabs) {

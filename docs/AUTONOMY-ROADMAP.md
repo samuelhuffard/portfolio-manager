@@ -39,15 +39,15 @@ The existing safety invariants remain: downgrade-only risk controls, determinist
 
 ---
 
-## Status snapshot — 2026-07-11 (post-release)
+## Status snapshot — 2026-07-11 (MCP migration ready to deploy)
 
 Work is gate-sequenced, not strictly code-sequenced: production remains in Phase 0 stabilization while the Phase 1 ownership/contracts foundation and Phase 2 shadow infrastructure now run in production without canonical-read cutover.
 
-- **Production:** backend `81e7719` is live on the Jetson and dashboard `f0a5c03` is live on Vercel. The Phase 0A control batch is deployed; its 10-trading-day observation window begins Monday, 2026-07-13 only if that day's critical jobs run clean and no safety-affecting release lands afterward.
+- **Production baseline:** backend `81e7719` is live on the Jetson and dashboard `f0a5c03` is live on Vercel. A reviewed, un-deployed MCP read-sync migration replaces the unsupported unattended `robin_stocks` login: Jetson queues bounded work and the authenticated Mac companion performs the broker read against the pinned Agentic account. Deploy it and complete one read-only smoke before counting new Phase 0 evidence.
 - **Ownership/contracts:** strict owner-scoped SELL accounting is live with `ENFORCE_OWNERSHIP=false` as the rollback switch; Agent 4 remains shadow-only with no approval key or order authority.
 - **Postgres shadow:** migration `0003_shadow_precision.sql` is applied, all 14 proposals/5 capital entries/1 lot/1 position were backfilled, and production parity is `MATCH` across all four domains. `PG_DUAL_WRITE=true` is enabled persistently, while Sheets/Redis remain canonical.
-- **Verified:** backend 363/363 tests; dashboard 92/92 tests, clean TypeScript, contract predeploy checks, and production build. Jetson health is green; Vercel sign-in returns 200 and signed-out `/api/portfolio` returns 401.
-- **Runtime evidence:** Jetson and both Mac PM2 processes are online; the July 10 weekly review and signed-ledger verification completed, and the companion's July 10 reconciliation found no filled broker orders. Remaining operational concerns are Robinhood re-auth failures, Athena timeouts, Yahoo validation chatter, and Mac sysloop missed ticks while the Mac was unavailable. These must be adjudicated from fresh logs, not inherited FIXLIST counts.
+- **Verified locally:** backend 371/371 tests; the dashboard MCP policy tests pass, with the full dashboard suite last clean at 94/94 before the final prompt-only guard. The migration received an independent **SHIP** review after the account-binding control was added.
+- **Runtime evidence:** the legacy Jetson login is stale because Robinhood device approvals/SMS/passkeys do not provide a usable unattended TOTP path. Athena/Yahoo degradation and Mac sysloop history remain operational leads; adjudicate them from fresh logs after the migration smoke.
 - **Authority:** Sam still signs every live order. Agents 2/3 remain non-actionable and Agent 4 has no runtime authority.
 
 ### Autonomy foundation deployed — observation now active
@@ -66,7 +66,7 @@ Work is gate-sequenced, not strictly code-sequenced: production remains in Phase
 
 ## Phase 0 — Stabilize the live supervised system
 
-**Status:** Current. Phase 0A plus the coordinated ownership/contracts release are deployed on 2026-07-11. The observation clock starts on the first clean trading day, 2026-07-13, provided critical jobs remain clean.
+**Status:** Current. Phase 0A plus the coordinated ownership/contracts release are deployed. The MCP read-sync migration is the next safety-affecting release; reset the 10-trading-day observation clock to its first clean post-smoke trading day.
 
 Finish the existing 0A/0B/0C work: fail-closed research and fill attribution, signed ledger reads, truthful degraded-run status, Jetson-owned monitoring/reconciliation, live companion health, budget governance, and a unified manager surface.
 
@@ -142,8 +142,8 @@ Every promotion requires a written policy version, capital/risk caps, observatio
 
 Execute in this order:
 
-1. Keep the resolved unattributed-lot policy under observation and retain `ENFORCE_OWNERSHIP=false` as the emergency rollback switch.
-2. Maintain the observation window: inspect fresh Jetson/companion logs and the scheduled parity report each trading day; reset the 10-day clock only for a safety-affecting release.
+1. Deploy the reviewed MCP read-sync migration, then run one read-only smoke: verify the Mac tool trace pins every broker query to `ROBINHOOD_ACCOUNT_NUMBER`, one signed/idempotent snapshot writes, the receipt/job timestamp is fresh, and reconciliation is report-only. No broker order may be placed.
+2. Start the new observation window on the first clean trading day after that smoke; inspect fresh Jetson/companion logs and the scheduled parity report each day.
 3. Convert the Agent 2, Agent 3, and Agent 4 inputs into versioned mandate templates. Record ambiguities for Sam/his friend; do not invent investment rules. Keep Agents 2/3 non-actionable and Agent 4 shadow-only.
 4. Finish Phase 1's `PortfolioDecision`/allocation contract, unified-compiler proof, ownership lineage, and manager UI before adding Agent 4 runtime behavior.
 5. Keep Postgres shadow plumbing and daily parity evidence healthy without changing canonical reads. A read cutover remains a later, separately reviewed milestone.

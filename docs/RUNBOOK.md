@@ -8,7 +8,7 @@ Operational instructions. No secret values appear here — presence checks only 
 # Backend
 cd portfolio-manager
 npm install
-pip3 install --user -r requirements.txt   # robin_stocks for the legacy sync
+pip3 install --user -r requirements.txt   # legacy diagnostic tooling only
 cp .env.example .env                       # fill in values; see env table below
 npm test                                   # 88+ tests, must pass clean
 
@@ -101,7 +101,7 @@ pm2 describe portfolio-executor
 ## Sysloop (system autoresearch loop)
 
 - Jetson sentinel runs 6:15 PM ET Mon–Fri (`npm run sysloop:check`, or `--dry-run` for a no-publish smoke test). Snapshot → `pm:sysloop:snapshot:<date>` (7d TTL) + `ops/health/<date>.json`; heartbeat → `pm:sysloop:last-run`.
-- Jetson runs report-only broker-vs-ledger reconciliation at 4:40 PM ET over a rolling 72-hour window. It uses the existing read-only Robinhood sync credential, alerts and fails job health on a missing or malformed ledger match, and never records a trade or alters an order.
+- Jetson queues the 4:40 PM ET report-only broker-vs-ledger reconciliation for the Mac companion. The companion performs the MCP read against the pinned Agentic account, writes a durable receipt, alerts on a missing or malformed ledger match, and never records a trade or alters an order.
 - Mac PM2 process `portfolio-sysloop` (this repo's working tree): cross-watch every 30 min, triage 6:35 PM Mon–Fri (`npm run sysloop:triage`), weekly Sun 10 AM (`npm run sysloop:weekly`). Both accept `--force` to bypass the once-per-period Redis rate cap.
 - Findings ledger: `ops/findings/*.md` (git-tracked). To close one, edit `status: open` → `fixed`; if the fingerprint reappears it auto-flips to `regressed` and escalates. Weekly artifacts: `ops/reports/`, `ops/proposed-tests/`, `ops/proposed-patches/` — all propose-only, nothing is applied automatically.
 - **`ops/FIXLIST.md` is the single readable view** of everything above — regenerated after every triage/weekly pass, or manually via `npm run sysloop:fixlist` after editing a finding's status. Claude Code sessions read it at session start (pointer in `CLAUDE.md`).
@@ -111,7 +111,7 @@ pm2 describe portfolio-executor
 
 | Symptom | Usual meaning |
 |---|---|
-| `robinhood-sync.py failed — manual re-auth may be needed` | robin_stocks login broken (device approval / password change). Re-auth interactively; expect a ~120s device-approval wait. Not fatal to MCP path. |
+| `MCP trace did not include required ...` or `...without the configured Agentic account_number` | The companion refused to project broker data because it could not prove the scheduled MCP call targeted the pinned account. Check the Robinhood MCP connection and account configuration; do not bypass this guard. |
 | `Synced 0 positions` | Not a bug if the account is unfunded/empty. |
 | 401s in PM2 error log with `invalid x-api-key` shape | That's an **Anthropic** error shape, not Tavily — check `ANTHROPIC_API_KEY` on the box. Check the log file mtime before assuming it's current. |
 | Scan runs, zero proposals, no errors | Historic silent-drop mode. Now logs `[Redis] NOT CONFIGURED ... proposal DROPPED` — if you see that, Upstash env is missing/broken. |
@@ -124,7 +124,9 @@ pm2 describe portfolio-executor
 
 ## Verifying Robinhood sync safely (no trades)
 
-- Legacy path: `npm run holdings:sync:legacy` — read-only by construction (grep `rh.order_` returns nothing).
+- Scheduled path: Jetson writes one typed request under `pm:mcp-read:<kind>:request`; the Mac companion claims it with a lease, runs only its fixed read-tool allowlist, proves every account-scoped tool call used `ROBINHOOD_ACCOUNT_NUMBER`, and writes `pm:mcp-read:<kind>:last-run` on completion.
+- A request is safe to retry: its request ID is bound to the signed Performance row, so retries replay Holdings/Overview projections but cannot append a second performance row.
+- The former `robin_stocks` path is diagnostic-only and must not be used as an unattended authentication workaround for device approvals, SMS, or passkeys.
 - MCP path: use ONLY read tools (`get_equity_positions`, `get_portfolio`, `get_equity_orders`) and pipe into `npm run holdings:sync` (`sync-holdings-from-mcp.js`). The scan sync explicitly disallows all order/mutation tools (`MARKET_SYNC_DISALLOWED_TOOLS` in mac-companion).
 - Never call `place_equity_order`/`review_equity_order` as part of "verification."
 

@@ -17,7 +17,7 @@ They share two stores: **one Google Spreadsheet** (system of record for holdings
 | Time (ET) | Job | File | What it does |
 |---|---|---|---|
 | 8:30 AM | Pre-market check | `jobs/premarket-check.js` | Macro refresh, regime check, overnight news on held positions |
-| 9:30 AM, 11, 1, 3, 4:30 | Holdings sync | `jobs/holdings-sync.js` | `lib/robinhood-sync.py` (read-only robin_stocks) → fills processed into Trade Ledger + FIFO Lots → Holdings/Performance/Overview tabs + NAV/unit + cached total value. 5×/day, not more — each run is a full Robinhood login and too many trips the device-approval challenge |
+| 9:30 AM, 11, 1, 3, 4:30 | Holdings sync request | `jobs/mcp-read-requests.js` + Mac `scripts/mac-companion.mjs` | Jetson queues one typed, durable request; the authenticated Mac MCP companion claims it, calls only the exact account-pinned read tools, then writes Holdings/Performance/Overview + NAV/unit + cached total value. Requests are idempotent across retries. |
 | 9:35 AM | Opening check | `jobs/intraday-monitor.js` (`context: "opening"`) | Gap analysis, open-triggered alerts |
 | every 30 min, 10:00–3:30 | Intraday monitor | `jobs/intraday-monitor.js` | Price alerts (Telegram push via `lib/telegram.js`), ATR stop checks on losing positions → SELL proposals |
 | 3:50 PM | Pre-close sweep | same, `context: "pre-close"` | Last stop-breach check before EOD |
@@ -71,9 +71,11 @@ Manual path: `EXECUTION-GUIDE.md` + `scripts/list-approved-proposals.js` (annota
 
 ## Robinhood sync boundary
 
-- **Read-only Python** (`lib/robinhood-sync.py`, `lib/robinhood-scan.py`): robin_stocks + TOTP, positions/cash/fills only. No `rh.order_*` calls anywhere — grep for it; that's the check. `ROBINHOOD_STORE_SESSION=false`, `ROBINHOOD_ACCOUNT_NUMBER` pins the Agentic account (robin_stocks silently defaults to `is_default=true` otherwise — was a real bug).
+- **Scheduled reads** are performed only by the authenticated Mac companion through Robinhood MCP. Jetson can queue only one of two typed, bounded jobs: `holdings-sync` and `order-reconciliation`. Their exact tool allowlists contain no mutation APIs.
+- **Account binding is fail-closed:** the companion supplies `ROBINHOOD_ACCOUNT_NUMBER` to each account-scoped MCP call, captures Claude's stream-json tool trace, and refuses to write any internal projection unless every required tool call explicitly used that number. A model's final text alone is never account evidence.
+- **Legacy Python** (`lib/robinhood-sync.py`, `lib/robinhood-scan.py`) remains diagnostic-only. It contains no `rh.order_*` calls and must not be treated as an unattended workaround for Robinhood device approvals, SMS, passkeys, or TOTP.
 - **Write path** exists ONLY through the Robinhood Agentic Trading MCP (`https://agent.robinhood.com/mcp/trading`, registered in `.mcp.json`), driven by the Mac companion or a human session, always against a signed approved proposal.
-- Legacy 4:30 PM Python sync also sweeps fills (`processFills`) — dedupes against Trade Ledger orderIds so MCP-recorded trades aren't double-booked.
+- MCP reconciliation is report-only: it compares broker orders to the Trade Ledger and reports a mismatch; it never records a trade or alters an order.
 
 ## Google Sheets data model
 
