@@ -8,7 +8,7 @@ import {
   readTradeLedger,
   resolveSharedSpreadsheetId,
 } from "../lib/sheets.js";
-import { getRedis } from "../lib/redis.js";
+import { getRedis, setInvestorUpdate } from "../lib/redis.js";
 import { computeInvestorSummaries, isoWeekOf, renderInvestorUpdateEmail } from "../lib/investor-update.js";
 import { investorUpdatesEnabled, sendEmail } from "../lib/email.js";
 import { sendMessage as sendTelegram } from "../lib/telegram.js";
@@ -31,11 +31,6 @@ async function clearReservation(redis, key) {
 }
 
 export async function runInvestorWeeklyUpdate({ now = new Date() } = {}) {
-  if (!investorUpdatesEnabled()) {
-    console.log("[InvestorUpdate] skipped — INVESTOR_UPDATE_ENABLED is not true.");
-    return { skipped: true, sent: 0, failed: 0 };
-  }
-
   const { sheets, drive } = getServiceAccountClients();
   const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
   const [ledger, performanceHistory, holdings, trades] = await Promise.all([
@@ -51,6 +46,32 @@ export async function runInvestorWeeklyUpdate({ now = new Date() } = {}) {
   const summaries = computeInvestorSummaries({ ledger, performanceHistory, holdings, trades, now });
   const redis = getRedis();
   const results = [];
+
+  for (const summary of summaries) {
+    const update = {
+      isoWeek,
+      generatedAt: now.toISOString(),
+      investorId: summary.investorId,
+      email: summary.email,
+      name: summary.name,
+      value: summary.value,
+      netContributed: summary.netContributed,
+      gainLoss: summary.gainLoss,
+      gainLossPct: summary.gainLossPct,
+      units: summary.units,
+      navPerUnit: summary.navPerUnit,
+      navAsOf: summary.navAsOf,
+      weeklyTrades: summary.weeklyTrades,
+      topHoldings: summary.topHoldings,
+    };
+    await setInvestorUpdate(summary.investorId, update);
+    await setInvestorUpdate(`email:${summary.email.toLowerCase()}`, update);
+  }
+
+  if (!investorUpdatesEnabled()) {
+    console.log("[InvestorUpdate] email skipped — INVESTOR_UPDATE_ENABLED is not true; dashboard updates stored.");
+    return { skipped: true, sent: 0, failed: 0, stored: summaries.length };
+  }
 
   for (const summary of summaries) {
     const sentKey = sentKeyFor(isoWeek, summary.investorId);
