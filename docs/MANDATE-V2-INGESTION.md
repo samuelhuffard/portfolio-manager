@@ -171,7 +171,14 @@ engine, then Agent 4.
    ≥3 snapshots / ≥30 days).
 3. **EDGAR 13F ingestion** (separate endpoint from companyfacts) → `instOwnershipDir`
    + `thirteenF` (Category D). Two-consecutive-quarter rule caps 1-quarter 13F at 75%.
-4. **v3 thin-peer engine** (now fully specified — see §8). Extend `lib/peer-scoring.js`:
+4. **v3 thin-peer engine** (now fully specified — see §8). **[partially done 2026-07-12]**
+   `lib/peer-resolve.js` implements the deterministic **peer-set resolution + widening**
+   (industry → sector until ≥8 data-complete peers) and the **tier mapping** (≥8 →
+   peer_relative · 6–7 → blended_50_50 · <6 → absolute) + the 84 cap
+   (`pickFallbackMode`, `resolvePeerSet`, tested). **Still to do:** the per-agent
+   **absolute-threshold tables** (transcribe from each mandate §5), the `blended_50_50`
+   + `absolute` scorers that consume them, the **valuation fallback cascade**, and the
+   **special-sector absolute thresholds**. Then extend `lib/peer-scoring.js`:
    deterministic `peer_count` (true operating-company comparables with current data,
    candidate excluded); mode by count **≥8 → peer_relative · 6–7 → blended_50_50 ·
    <6 → absolute**; implement `blended_50_50` (½ peer + ½ absolute per submetric) and
