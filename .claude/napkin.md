@@ -9,6 +9,8 @@
 ## Execution & Validation (Highest Priority)
 1. **[2026-06-18] Investor ledger changes need money-math tests**
    Do instead: run `npm test` after changing contributions, withdrawals, NAV, investor IDs, or ledger signing.
+2. **[2026-07-11] Robinhood scheduled sync requires a configured TOTP secret**
+   Do instead: keep `ROBINHOOD_TOTP_SECRET` nonempty and `ROBINHOOD_STORE_SESSION=false`; restore MFA directly on the Jetson, then prove freshness with read-only reconciliation and holdings sync.
 
 ## Domain Behavior Guardrails
 1. **[2026-07-11] Unattributed lots are quarantined until explicitly resolved**

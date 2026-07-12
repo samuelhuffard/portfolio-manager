@@ -10,6 +10,13 @@ WP1, the Agent 4 shadow foundation, and the Postgres shadow-completeness build a
 
 The coordinated release is complete: backend `81e7719` and dashboard `f0a5c03` are pushed and deployed; migrations `0002` and `0003` are applied; Jetson health is green; the Mac companion is online; all shadow domains backfilled; parity is `MATCH`; and `PG_DUAL_WRITE=true` is persistent. Continue with observation only—do not cut canonical reads over or grant Agent 4 live authority.
 
+### Active Phase 0 incident — broker data freshness
+
+- **Root cause:** Jetson has an empty `ROBINHOOD_TOTP_SECRET`; scheduled Python sync cannot complete non-interactive MFA. Holdings/fill freshness stopped after the July 10 afternoon sync.
+- **Required human action:** restore the current TOTP seed directly in Jetson `~/portfolio-manager/.env` while retaining `ROBINHOOD_STORE_SESSION=false`; never paste it into chat, logs, or Git.
+- **Recovery proof:** run the read-only `lib/robinhood-sync.py` probe with the Robinhood app available for any device approval, then `npm run orders:reconcile:jetson`, `npm run holdings:sync:legacy`, and restart PM2 with `--update-env`. Confirm fresh job timestamps and no reconciliation anomaly.
+- **Prepared local hardening commit:** `ed12ad6` fails immediately and explicitly on missing MFA, bounds Athena outages with a per-scan circuit, upgrades `yahoo-finance2` to 3.15.4 while preserving validation, and publishes a Mac sysloop liveness marker. It has 365/365 backend tests passing and is not yet pushed/deployed.
+
 ## Mission for the next meta-agent
 
 Ship the reviewed contracts/ownership foundation safely, establish a trustworthy Phase 0 observation baseline, ingest the incoming Agent 2/3/4 mandates without inventing policy, and finish the minimum Phase 1 coordination contracts. Use small models for bounded work packages, but serialize money-path integration, release review, and deployment.
