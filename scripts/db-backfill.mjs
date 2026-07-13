@@ -21,6 +21,7 @@ import {
   shadowWriteCapitalEntry,
   shadowReplacePositions,
 } from "../lib/pg/dual-write.js";
+import { isHoldingMarkerRow } from "../lib/pg/parity-runner.js";
 
 if (!pgConfigured()) {
   console.error("DATABASE_URL not set — nothing to back fill into.");
@@ -84,7 +85,7 @@ if (sheetsCtx) {
       valueRenderOption: "UNFORMATTED_VALUE",
     });
     const positions = (res.data.values || [])
-      .filter((row) => row[0] && row[0] !== "Cash" && !String(row[0]).startsWith("Last synced") && !String(row[0]).startsWith("⚠️"))
+      .filter((row) => !isHoldingMarkerRow(row))
       .map((row) => ({
         ticker: String(row[0]).trim().toUpperCase(),
         name: row[1] == null ? undefined : String(row[1]),
