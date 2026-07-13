@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyRiskChecks } from "../lib/risk-engine.js";
+import { applyRiskChecks, findFabricatedMetricClaims } from "../lib/risk-engine.js";
 
 const LIMITS = {
   maxPositionPct: 15,
@@ -85,4 +85,67 @@ test("mandate market-cap and liquidity floors fail closed for BUYs", () => {
 
   const eligible = applyRiskChecks(goodBuy, { marketCap: 500_000_000, avgDollarVolume: 11_000_000 }, limits);
   assert.equal(eligible.action, "BUY");
+});
+
+test("findFabricatedMetricClaims flags an analyst figure cited when no analyst data was supplied", () => {
+  const flags = findFabricatedMetricClaims(
+    { thesis: "Backed by 37 buy ratings from analysts.", risks: [], killCriteria: [] },
+    { analystTrend: null, insiderActivity: "net buying of 1,000 shares" }
+  );
+  assert.equal(flags.length, 1);
+  assert.match(flags[0], /analyst figure cited/);
+});
+
+test("findFabricatedMetricClaims flags an insider figure cited when no insider data was supplied", () => {
+  const flags = findFabricatedMetricClaims(
+    { thesis: "Insider net buying of 98,888 shares supports the case.", risks: [], killCriteria: [] },
+    { analystTrend: "3 buy, 1 hold", insiderActivity: null }
+  );
+  assert.equal(flags.length, 1);
+  assert.match(flags[0], /insider figure cited/);
+});
+
+test("findFabricatedMetricClaims does not flag analyst/insider mentions with no numbers", () => {
+  const flags = findFabricatedMetricClaims(
+    { thesis: "Analyst sentiment is broadly positive; insider activity is unremarkable.", risks: [], killCriteria: [] },
+    { analystTrend: null, insiderActivity: null }
+  );
+  assert.deepEqual(flags, []);
+});
+
+test("findFabricatedMetricClaims does not flag a real figure that matches supplied data", () => {
+  const flags = findFabricatedMetricClaims(
+    { thesis: "37 buy, 3 hold analyst consensus supports the case.", risks: [], killCriteria: [] },
+    { analystTrend: "37 buy, 3 hold", insiderActivity: null }
+  );
+  assert.deepEqual(flags, []);
+});
+
+test("applyRiskChecks downgrades a BUY to HOLD when it cites an unsupported analyst/insider figure", () => {
+  const rec = {
+    action: "BUY",
+    targetWeight: 8,
+    confidence: 0.8,
+    thesis: "Insider net buying of 98,888 shares (14 buy vs 5 sell) supports the thesis.",
+    risks: ["multiple compression"],
+    killCriteria: ["EPS miss >5%"],
+  };
+  const r = applyRiskChecks(rec, { analystTrend: null, insiderActivity: null, sector: "Technology" }, LIMITS);
+  assert.equal(r.action, "HOLD");
+  assert.equal(r.ruleChecks.evidence_grounded, false);
+  assert.match(r.overrideNotes.join("; "), /insider figure cited/);
+});
+
+test("applyRiskChecks allows a BUY that cites a figure matching supplied analyst/insider data", () => {
+  const rec = {
+    action: "BUY",
+    targetWeight: 8,
+    confidence: 0.8,
+    thesis: "37 buy, 3 hold analyst consensus supports the thesis.",
+    risks: ["multiple compression"],
+    killCriteria: ["EPS miss >5%"],
+  };
+  const r = applyRiskChecks(rec, { analystTrend: "37 buy, 3 hold", insiderActivity: "net buying of 1,000 shares", sector: "Technology" }, LIMITS);
+  assert.equal(r.action, "BUY");
+  assert.equal(r.ruleChecks.evidence_grounded, true);
 });

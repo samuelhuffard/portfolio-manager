@@ -464,7 +464,14 @@ async function reviewCandidateForAgent(agent, c, ctx) {
   let safeAthenaEvidence = [];
   if (getAthenaConfig()) {
     const dossier = await fetchAthenaDossier(c.ticker, { circuit: ctx.athenaCircuit });
-    const athenaScan = sanitizeEvidenceItems(athenaDossierToEvidence(dossier), {
+    const { items: athenaItems, flags: implausibleFlags } = athenaDossierToEvidence(dossier, {
+      livePrice: c.raw?.price?.regularMarketPrice ?? null,
+    });
+    for (const flag of implausibleFlags) {
+      ctx.evidenceFlags.push({ kind: `athena:${c.ticker}`, reasons: flag.reasons });
+      console.error(`[Evidence] ${agent.id}: dropped implausible Athena valuation in ${c.ticker}.${flag.section}: ${flag.reasons.join(", ")}`);
+    }
+    const athenaScan = sanitizeEvidenceItems(athenaItems, {
       kind: `athena:${c.ticker}`,
       textFields: ["content"],
     });
@@ -525,6 +532,8 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     dataStale: c.dataGate ? c.dataGate.stale : false,
     marketCap: c.marketCap ?? null,
     avgDollarVolume: c.avgDollarVolume ?? null,
+    analystTrend: c.analystTrend ?? null,
+    insiderActivity: c.insiderActivity ?? null,
   };
   let rec = applyConvictionClamp(applyRiskChecks(proposal, riskContext, riskLimits), agent, c, riskLimits);
 
