@@ -72,3 +72,17 @@ test("out-of-range confidence is clamped to [0,1]", () => {
   const clamped = applyRiskChecks({ ...goodBuy, confidence: 7 }, {}, LIMITS);
   assert.equal(clamped.ruleChecks.confidence_ok ?? true, true);
 });
+
+test("mandate market-cap and liquidity floors fail closed for BUYs", () => {
+  const limits = { ...LIMITS, minMarketCap: 300_000_000, minAvgDollarVolume: 10_000_000 };
+  const tooSmall = applyRiskChecks(goodBuy, { marketCap: 299_000_000, avgDollarVolume: 11_000_000 }, limits);
+  assert.equal(tooSmall.action, "HOLD");
+  assert.equal(tooSmall.ruleChecks.market_cap_ok, false);
+
+  const illiquid = applyRiskChecks(goodBuy, { marketCap: 500_000_000, avgDollarVolume: 9_000_000 }, limits);
+  assert.equal(illiquid.action, "HOLD");
+  assert.equal(illiquid.ruleChecks.liquidity_ok, false);
+
+  const eligible = applyRiskChecks(goodBuy, { marketCap: 500_000_000, avgDollarVolume: 11_000_000 }, limits);
+  assert.equal(eligible.action, "BUY");
+});

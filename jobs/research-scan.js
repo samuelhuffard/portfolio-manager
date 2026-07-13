@@ -523,6 +523,8 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     // stale-data read slip past the AI overlay into a live proposal.
     isHeldAtLoss: (ctx.heldReturnPct[c.ticker] ?? 0) < 0,
     dataStale: c.dataGate ? c.dataGate.stale : false,
+    marketCap: c.marketCap ?? null,
+    avgDollarVolume: c.avgDollarVolume ?? null,
   };
   let rec = applyConvictionClamp(applyRiskChecks(proposal, riskContext, riskLimits), agent, c, riskLimits);
 

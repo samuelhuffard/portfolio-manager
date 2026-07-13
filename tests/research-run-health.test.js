@@ -4,10 +4,10 @@ import assert from "node:assert/strict";
 import { AGENTS } from "../config/agents.js";
 import { canCreateActionableProposal, classifyResearchFailure, finiteNonNegative } from "../lib/research-run-health.js";
 
-test("only Agent 1 can create supervised approval proposals", () => {
-  assert.equal(canCreateActionableProposal(AGENTS.find((agent) => agent.id === "agent-1")), true);
-  assert.equal(canCreateActionableProposal(AGENTS.find((agent) => agent.id === "agent-2")), false);
-  assert.equal(canCreateActionableProposal(AGENTS.find((agent) => agent.id === "agent-3")), false);
+test("all three mandate-bound specialists can create supervised approval proposals", () => {
+  for (const agentId of ["agent-1", "agent-2", "agent-3"]) {
+    assert.equal(canCreateActionableProposal(AGENTS.find((agent) => agent.id === agentId)), true);
+  }
 });
 
 test("non-finite and negative cash fail closed to zero", () => {
