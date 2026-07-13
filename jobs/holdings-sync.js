@@ -19,7 +19,7 @@ import {
 import { withWorkflowLock } from "../lib/workflow-lock.js";
 import { planFillProcessing } from "../lib/fill-processing.js";
 import { isValidApprovalSignature } from "../lib/proposal-signature.js";
-import { shadowWriteLot } from "../lib/pg/dual-write.js";
+import { shadowWriteLot, shadowReplacePositions } from "../lib/pg/dual-write.js";
 import { ownershipEnforcementEnabled } from "../lib/ownership-flag.js";
 import { sendMessage as sendTelegram } from "../lib/telegram.js";
 import {
@@ -236,6 +236,17 @@ async function syncHoldingsUnlocked() {
 
   const timestamp = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
   await writeHoldingsTab(sheets, spreadsheetId, sheetIds["Holdings"], enriched, cash, timestamp);
+
+  // Non-authoritative Postgres projection. Flag-gated and swallows its own
+  // failures, so it cannot block or partially replace the authoritative Sheets write.
+  await shadowReplacePositions(enriched.map((h) => ({
+    ticker: h.ticker,
+    name: h.name,
+    shares: h.shares,
+    avgCost: h.avgCost,
+    costBasis: h.costBasis,
+    marketValue: h.marketValue ?? null,
+  })));
 
   const investedValue = enriched.reduce((sum, h) => sum + (h.marketValue ?? 0), 0);
   const totalValue = investedValue + (cash ?? 0);

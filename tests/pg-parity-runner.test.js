@@ -1,7 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { compareParity } from "../lib/pg/parity.js";
-import { failClosedOnReadErrors } from "../lib/pg/parity-runner.js";
+import { failClosedOnReadErrors, isHoldingMarkerRow } from "../lib/pg/parity-runner.js";
+
+test("holdings parity excludes display and MCP provenance rows", () => {
+  assert.equal(isHoldingMarkerRow(["NVDA"]), false);
+  assert.equal(isHoldingMarkerRow(["Cash"]), true);
+  assert.equal(isHoldingMarkerRow(["Last synced: 2026-07-12"]), true);
+  assert.equal(isHoldingMarkerRow(["Synced via Robinhood Agentic MCP"]), true);
+  assert.equal(isHoldingMarkerRow(["⚠️ Sample data — preview only"]), true);
+});
 
 test("an unreadable inventory is not valid parity evidence even when both sides share the same error text", () => {
   const authoritative = { proposals: { error: "offline" } };

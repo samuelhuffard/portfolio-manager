@@ -11,6 +11,8 @@
    Do instead: run `npm test` after changing contributions, withdrawals, NAV, investor IDs, or ledger signing.
 2. **[2026-07-11] Robinhood scheduled sync requires a configured TOTP secret**
    Do instead: keep `ROBINHOOD_TOTP_SECRET` nonempty and `ROBINHOOD_STORE_SESSION=false`; restore MFA directly on the Jetson, then prove freshness with read-only reconciliation and holdings sync.
+3. **[2026-07-12] Holdings status rows are not positions**
+   Do instead: keep every Holdings reader/parity projection filtering `Last synced`, `Synced via Robinhood Agentic MCP`, cash, and sample-marker rows; regression-test any new marker format.
 
 ## Domain Behavior Guardrails
 1. **[2026-07-11] Unattributed lots are quarantined until explicitly resolved**
