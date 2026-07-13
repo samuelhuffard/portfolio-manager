@@ -1,6 +1,6 @@
 import "dotenv/config";
-import { getServiceAccountClients, resolveSharedSpreadsheetId, getSheetIds, readPerformanceHistory, readInvestorLedger, appendInvestorLedgerEntry } from "../lib/sheets.js";
-import { calculateInvestorLedgerEntry, getInvestorLedgerSecret, getTodayInNewYork } from "../lib/investor-ledger.js";
+import { getServiceAccountClients, resolveSharedSpreadsheetId, getSheetIds, readCashBalance, readHoldingsDetail, readPerformanceHistory, readInvestorLedger, appendInvestorLedgerEntry } from "../lib/sheets.js";
+import { calculateInvestorLedgerEntry, computeUnattributedCapital, getInvestorLedgerSecret, getTodayInNewYork } from "../lib/investor-ledger.js";
 import { withWorkflowLock } from "../lib/workflow-lock.js";
 
 // Records a real contribution or withdrawal into the shared portfolio's capital
@@ -52,23 +52,6 @@ const { sheets, drive } = getServiceAccountClients();
 const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
 const sheetIds = await getSheetIds(sheets, spreadsheetId);
 
-const ledger = await readInvestorLedger(sheets, spreadsheetId);
-const history = await readPerformanceHistory(sheets, spreadsheetId);
-if (ledger.length && (!/^\d{4}-\d{2}-\d{2}$/.test(depositDate ?? "") || !/^[A-Za-z0-9_-]{16,128}$/.test(idempotencyKey ?? ""))) {
-  console.error("Post-ledger contributions require --deposit-date=YYYY-MM-DD and --idempotency-key=<immutable-key>.");
-  process.exit(1);
-}
-if (idempotencyKey && ledger.some((entry) => entry.entryId === idempotencyKey)) {
-  console.log("Idempotent contribution already recorded; no write performed.");
-  process.exit(0);
-}
-const preDepositNav = ledger.length
-  ? history.filter((row) => row.date < depositDate && Number.isFinite(row.navPerUnit) && row.navPerUnit > 0).sort((a, b) => b.date.localeCompare(a.date))[0]?.navPerUnit
-  : null;
-if (ledger.length && !preDepositNav) {
-  console.error("No NAV strictly before the deposit date is available; refusing to price new cash.");
-  process.exit(1);
-}
 let secret;
 try {
   secret = getInvestorLedgerSecret();
@@ -78,42 +61,72 @@ try {
 }
 
 let result;
+let alreadyRecorded = false;
 try {
-  result = calculateInvestorLedgerEntry({
-    agentId: PORTFOLIO_LABEL,
-    ledger,
-    performanceHistory: history,
-    email,
-    name,
-    amount,
-    isWithdrawal,
-    isSeedOwner,
-    investorId,
-    navDate,
-    pricingNavPerUnit: preDepositNav,
-    entryId: idempotencyKey,
-    allowStaleNav,
-    secret,
+  await withWorkflowLock("capital-ledger", async () => {
+    // Every read used to price/validate the entry happens inside the same
+    // distributed lock as the append. A concurrent writer therefore cannot
+    // observe the same unmatched cash or issue against a stale unit count.
+    const [ledger, history, cash, holdings] = await Promise.all([
+      readInvestorLedger(sheets, spreadsheetId),
+      readPerformanceHistory(sheets, spreadsheetId),
+      readCashBalance(sheets, spreadsheetId),
+      readHoldingsDetail(sheets, spreadsheetId),
+    ]);
+    if (ledger.length && (!/^\d{4}-\d{2}-\d{2}$/.test(depositDate ?? "") || !/^[A-Za-z0-9_-]{16,128}$/.test(idempotencyKey ?? ""))) {
+      throw new Error("Post-ledger contributions require --deposit-date=YYYY-MM-DD and --idempotency-key=<immutable-key>.");
+    }
+    if (idempotencyKey && ledger.some((entry) => entry.entryId === idempotencyKey)) {
+      alreadyRecorded = true;
+      return;
+    }
+    const preDepositNav = ledger.length
+      ? history.filter((row) => row.date < depositDate && Number.isFinite(row.navPerUnit) && row.navPerUnit > 0).sort((a, b) => b.date.localeCompare(a.date))[0]?.navPerUnit
+      : null;
+    if (ledger.length && !preDepositNav) {
+      throw new Error("No NAV strictly before the deposit date is available; refusing to price new cash.");
+    }
+    if (ledger.length && !isWithdrawal) {
+      const unattributed = computeUnattributedCapital(holdings, cash, ledger);
+      if (!unattributed.detected || amount > unattributed.amount + 0.01) {
+        throw new Error(`Only $${Math.max(0, unattributed.amount).toFixed(2)} of unmatched broker capital is available to assign.`);
+      }
+    }
+    result = calculateInvestorLedgerEntry({
+      agentId: PORTFOLIO_LABEL,
+      ledger,
+      performanceHistory: history,
+      email,
+      name,
+      amount,
+      isWithdrawal,
+      isSeedOwner,
+      investorId,
+      navDate,
+      pricingNavPerUnit: isWithdrawal ? null : preDepositNav,
+      entryId: idempotencyKey,
+      allowStaleNav,
+      secret,
+    });
+    await appendInvestorLedgerEntry(sheets, spreadsheetId, sheetIds["Investors"], result.entry);
+    await (await import("../lib/pg/dual-write.js")).shadowWriteCapitalEntry(result.entry);
   });
 } catch (err) {
   console.error(err instanceof Error ? err.message : err);
   if (err instanceof Error && err.message.includes("true owner")) {
-    const existingValue = history[history.length - 1]?.portfolioValue ?? amount;
-    console.error(`Record who actually owns it first:\n  node scripts/record-contribution.js <owner-email> "<owner-name>" ${existingValue.toFixed(2)} --seed-owner --investor-id=<clerk-user-id>`);
+    console.error("Record who actually owns the pre-existing value first with --seed-owner.");
   }
   process.exit(1);
+}
+
+if (alreadyRecorded) {
+  console.log("Idempotent contribution already recorded; no write performed.");
+  process.exit(0);
 }
 
 if (result.seeded) {
   console.log(`[${PORTFOLIO_LABEL}] First-ever ledger entry - seeding NAV at $1.0000/unit.`);
 }
-
-await withWorkflowLock("capital-ledger", async () => {
-  const freshLedger = await readInvestorLedger(sheets, spreadsheetId);
-  if (freshLedger.some((entry) => entry.entryId === result.entry.entryId)) return;
-  await appendInvestorLedgerEntry(sheets, spreadsheetId, sheetIds["Investors"], result.entry);
-  await (await import("../lib/pg/dual-write.js")).shadowWriteCapitalEntry(result.entry);
-});
 
 console.log(
   `${isWithdrawal ? "Withdrew" : "Recorded"} investor ledger entry for ${name}. ` +

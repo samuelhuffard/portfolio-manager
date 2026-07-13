@@ -12,7 +12,7 @@ import { validateResearchTickerRequest, buildLabOutcome } from "./lib/lab-resear
 import { fetchAthenaStatus } from "./lib/athena.js";
 import { AGENTS } from "./config/agents.js";
 import { withWorkflowLock } from "./lib/workflow-lock.js";
-import { shadowWriteProposal } from "./lib/pg/dual-write.js";
+import { shadowWriteCapitalEntry, shadowWriteProposal } from "./lib/pg/dual-write.js";
 import { getPortfolioManagerShadowState } from "./lib/portfolio-manager-shadow-store.js";
 
 const PORT = process.env.PORTFOLIO_SERVER_PORT ?? 3200;
@@ -177,6 +177,22 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const result = await shadowWriteProposal(body?.proposal);
       res.writeHead(200);
+      res.end(JSON.stringify(result));
+    } catch (e) {
+      res.writeHead(400);
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
+  // Dashboard-authored capital entries are signed and appended to Sheets
+  // first. This authenticated endpoint mirrors that immutable row to Neon;
+  // entry_id uniqueness makes retrying it safe after a transient failure.
+  if (req.method === "POST" && url.pathname === "/shadow/capital-entry") {
+    try {
+      const body = await readBody(req);
+      const result = await shadowWriteCapitalEntry(body?.entry);
+      res.writeHead(result.ok ? 200 : 503);
       res.end(JSON.stringify(result));
     } catch (e) {
       res.writeHead(400);

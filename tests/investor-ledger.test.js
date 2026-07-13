@@ -4,6 +4,7 @@ import {
   assertInvestorLedgerEntries,
   buildInvestorLedgerEntry,
   calculateInvestorLedgerEntry,
+  computeUnattributedCapital,
   computeInvestorLedgerHmac,
   defaultInvestorId,
   parseInvestorLedgerRow,
@@ -146,6 +147,16 @@ test("existing-capital attribution uses contribution-basis NAV instead of inflat
   assert.equal(result.entry.navPerUnit, 1);
   assert.equal(result.entry.units, 25);
   assert.equal(result.unitsOutstandingAfter, 50);
+});
+
+test("unmatched broker capital uses cash plus cost basis and excludes market gains", () => {
+  const ledger = [{ type: "Contribution", amount: 25 }, { type: "Withdrawal", amount: 5 }];
+  const unmatched = computeUnattributedCapital(
+    [{ costBasis: 20, marketValue: 80 }],
+    25,
+    ledger
+  );
+  assert.deepEqual(unmatched, { amount: 25, capitalIn: 45, netContributions: 20, detected: true });
 });
 
 test("withdrawals cannot exceed the investor's units", () => {
