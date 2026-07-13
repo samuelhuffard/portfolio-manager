@@ -18,6 +18,7 @@ import {
 } from "../lib/sheets.js";
 import { consumeLotsFIFO, applyLotUpdates } from "../lib/tax-lots.js";
 import { normalizeEmail, defaultInvestorId, calculateInvestorLedgerEntry, getInvestorLedgerSecret, getTodayInNewYork } from "../lib/investor-ledger.js";
+import { withWorkflowLock } from "../lib/workflow-lock.js";
 
 // Calculates — and, with --commit, records — what an investor withdrawal should
 // actually pay out vs. hold back for the capital-gains tax Sam personally owes on
@@ -190,9 +191,14 @@ try {
   process.exit(1);
 }
 
-if (tradeRows.length) await appendTradeLedgerEntries(sheets, spreadsheetId, sheetIds["Trade Ledger"], tradeRows);
-const lotUpdates = [...lotUpdatesById.values()].filter((l) => l.rowIndex != null);
-if (lotUpdates.length) await applyLotUpdatesToSheet(sheets, spreadsheetId, lotUpdates);
-await appendInvestorLedgerEntry(sheets, spreadsheetId, sheetIds["Investors"], entryResult.entry);
+await withWorkflowLock("capital-ledger", async () => {
+  const freshLedger = await readInvestorLedger(sheets, spreadsheetId);
+  if (freshLedger.some((entry) => entry.entryId === entryResult.entry.entryId)) return;
+  if (tradeRows.length) await appendTradeLedgerEntries(sheets, spreadsheetId, sheetIds["Trade Ledger"], tradeRows);
+  const lotUpdates = [...lotUpdatesById.values()].filter((l) => l.rowIndex != null);
+  if (lotUpdates.length) await applyLotUpdatesToSheet(sheets, spreadsheetId, lotUpdates);
+  await appendInvestorLedgerEntry(sheets, spreadsheetId, sheetIds["Investors"], entryResult.entry);
+  await (await import("../lib/pg/dual-write.js")).shadowWriteCapitalEntry(entryResult.entry);
+});
 
 console.log(`\nCommitted: withdrew $${requestedAmount.toFixed(2)} for ${email}, ${entryResult.entry.units.toFixed(4)} units burned.`);

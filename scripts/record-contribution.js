@@ -1,13 +1,14 @@
 import "dotenv/config";
 import { getServiceAccountClients, resolveSharedSpreadsheetId, getSheetIds, readPerformanceHistory, readInvestorLedger, appendInvestorLedgerEntry } from "../lib/sheets.js";
 import { calculateInvestorLedgerEntry, getInvestorLedgerSecret, getTodayInNewYork } from "../lib/investor-ledger.js";
+import { withWorkflowLock } from "../lib/workflow-lock.js";
 
 // Records a real contribution or withdrawal into the shared portfolio's capital
 // ledger — run by Sam after he's confirmed money was actually received/sent (this
 // never moves money itself, only records what already happened, same as every
 // other manual-execution boundary in this system).
 //
-//   node scripts/record-contribution.js <email> "<name>" <amount> [--withdraw] [--seed-owner] [--investor-id=user_xxx] [--nav-date=YYYY-MM-DD] [--allow-stale-nav]
+//   node scripts/record-contribution.js <email> "<name>" <amount> --deposit-date=YYYY-MM-DD --idempotency-key=<key>
 //
 // Units are issued/burned at the portfolio's current NAV per unit (computed from
 // the latest Performance row's portfolioValue/unitsOutstanding). The very
@@ -40,6 +41,8 @@ const isSeedOwner = flags.includes("--seed-owner");
 const allowStaleNav = flags.includes("--allow-stale-nav");
 const investorId = flags.find((f) => f.startsWith("--investor-id="))?.slice("--investor-id=".length);
 const navDate = flags.find((f) => f.startsWith("--nav-date="))?.slice("--nav-date=".length);
+const depositDate = flags.find((f) => f.startsWith("--deposit-date="))?.slice("--deposit-date=".length);
+const idempotencyKey = flags.find((f) => f.startsWith("--idempotency-key="))?.slice("--idempotency-key=".length);
 if (navDate && !/^\d{4}-\d{2}-\d{2}$/.test(navDate)) {
   console.error("--nav-date must be YYYY-MM-DD.");
   process.exit(1);
@@ -51,6 +54,21 @@ const sheetIds = await getSheetIds(sheets, spreadsheetId);
 
 const ledger = await readInvestorLedger(sheets, spreadsheetId);
 const history = await readPerformanceHistory(sheets, spreadsheetId);
+if (ledger.length && (!/^\d{4}-\d{2}-\d{2}$/.test(depositDate ?? "") || !/^[A-Za-z0-9_-]{16,128}$/.test(idempotencyKey ?? ""))) {
+  console.error("Post-ledger contributions require --deposit-date=YYYY-MM-DD and --idempotency-key=<immutable-key>.");
+  process.exit(1);
+}
+if (idempotencyKey && ledger.some((entry) => entry.entryId === idempotencyKey)) {
+  console.log("Idempotent contribution already recorded; no write performed.");
+  process.exit(0);
+}
+const preDepositNav = ledger.length
+  ? history.filter((row) => row.date < depositDate && Number.isFinite(row.navPerUnit) && row.navPerUnit > 0).sort((a, b) => b.date.localeCompare(a.date))[0]?.navPerUnit
+  : null;
+if (ledger.length && !preDepositNav) {
+  console.error("No NAV strictly before the deposit date is available; refusing to price new cash.");
+  process.exit(1);
+}
 let secret;
 try {
   secret = getInvestorLedgerSecret();
@@ -72,6 +90,8 @@ try {
     isSeedOwner,
     investorId,
     navDate,
+    pricingNavPerUnit: preDepositNav,
+    entryId: idempotencyKey,
     allowStaleNav,
     secret,
   });
@@ -88,9 +108,12 @@ if (result.seeded) {
   console.log(`[${PORTFOLIO_LABEL}] First-ever ledger entry - seeding NAV at $1.0000/unit.`);
 }
 
-await appendInvestorLedgerEntry(sheets, spreadsheetId, sheetIds["Investors"], result.entry);
-// Dual-write shadow (ADR 0001): OFF unless PG_DUAL_WRITE=true; never throws.
-await (await import("../lib/pg/dual-write.js")).shadowWriteCapitalEntry(result.entry);
+await withWorkflowLock("capital-ledger", async () => {
+  const freshLedger = await readInvestorLedger(sheets, spreadsheetId);
+  if (freshLedger.some((entry) => entry.entryId === result.entry.entryId)) return;
+  await appendInvestorLedgerEntry(sheets, spreadsheetId, sheetIds["Investors"], result.entry);
+  await (await import("../lib/pg/dual-write.js")).shadowWriteCapitalEntry(result.entry);
+});
 
 console.log(
   `${isWithdrawal ? "Withdrew" : "Recorded"} investor ledger entry for ${name}. ` +
