@@ -57,7 +57,7 @@ import {
   readPerformanceHistory,
 } from "../lib/sheets.js";
 import { AGENTS } from "../config/agents.js";
-import { canCreateActionableProposal, classifyResearchFailure, finiteNonNegative } from "../lib/research-run-health.js";
+import { canCreateActionableProposal, classifyResearchFailure, finiteNonNegative, needsImmediateResearchFailureAlert } from "../lib/research-run-health.js";
 import {
   RESEARCH_OUTCOME_VERSION,
   addOutcome,
@@ -1065,6 +1065,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
     budget,
     evidenceFlags,
     athenaCircuit: createAthenaCircuit(),
+    alertedResearchFailures: new Set(),
   };
 
   const recommendations = [];
@@ -1092,6 +1093,14 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
       // would otherwise have no matching recommendation row in the Sheet.
       console.error(`[Research] ${agent.id}: ${c.ticker} failed mid-review (continuing): ${err.message}`);
       const failure = classifyResearchFailure(err);
+      if (needsImmediateResearchFailureAlert(failure)) {
+        const alertKey = `${agent.id}:${c.ticker}:${failure.kind}`;
+        if (!ctx.alertedResearchFailures.has(alertKey)) {
+          ctx.alertedResearchFailures.add(alertKey);
+          const alert = `🚨 Research review blocked: ${agent.id} ${c.ticker} — ${failure.kind}. No HOLD was recorded as a judgment; the review is marked ERROR. ${failure.message.slice(0, 240)}`;
+          try { await sendTelegram(alert); } catch (alertError) { console.error("[Research] immediate failure Telegram alert failed:", alertError.message); }
+        }
+      }
       const outcomeKind = classifyRecommendationOutcome({
         attempted: true,
         dataGateBlocked: false,

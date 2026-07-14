@@ -31,6 +31,64 @@ divergence (2 Sheets rows vs. 1 Postgres position). The scoped parser fix and
 regression test pass locally; deploy it as an isolated production hotfix and prove a
 production `npm run db:parity` **MATCH**. Until then, 2026-07-13 is not Day 1.
 
+**Resolution note:** commit `6e0aa24` removed this marker-row count false positive;
+the July 13 evening comparison correctly saw one position on each side. It then
+exposed the distinct field-level market-value divergence recorded below.
+
+## 2026-07-13 ET review: INVALID — window remains at 0/10
+
+A live review at 10:22 PM ET confirmed that the alerting path worked and that the
+day cannot count. The Jetson was online at commit `6e0aa24`, `/health` returned 200
+with all required dependency-presence/connectivity booleans true, and the MCP
+holdings sync plus order reconciliation recorded successful account-bound runs.
+The scheduled signed-ledger check also passed: Investors 7/7, Performance 43/43,
+Trade Ledger 1/1, Lots 1/1, and Audit 3,371/3,371 over seven days.
+
+The scheduled 8:00 PM parity check failed, and a fresh manual read-only comparison
+failed the same way. Proposals (14), capital entries (7), lots (1), and the number
+of positions (1) match. The sole field-level difference is current NVDA market
+value: Sheets has `$15.37`; Postgres has `$15.39`. Ticker, company name, shares
+(`0.075555`), average cost (`$198.53`), and cost basis (`$15.00`) agree. This looks
+like stale/discordant replaceable valuation state rather than lost transaction or
+ownership data, but exact parity is the gate and it is not met.
+
+The 6:15 PM sentinel also retained three active P1s: one acknowledged historical
+pre-signing NVDA approval and two July 11 `reason=smoke` reconciliation records
+whose signatures do not verify. The two reconciliation rows are test artifacts,
+not broker orders, but they are still polluting the production open queue and
+must be resolved through an auditable cleanup path rather than ignored. PM2 was
+online with seven hours uptime, but the sentinel observed 13 restarts since its
+prior snapshot. Marker-row leakage and Athena timeouts remained visible P2 noise.
+
+Research health is not proven by the green `/health` response. The scheduled scan
+reported 36 attempted reviews, 36 HOLDs, zero proposals, and zero recorded errors,
+while the current PM2 error log also contains Anthropic usage-limit failures. The
+log has no per-line timestamps, so those failures cannot be conclusively attached
+to the scheduled run; the contradiction itself is an observability gap. Treat the
+day as unproven until explicit per-review outcome accounting is deployed and a
+fresh scan reconciles attempted reviews to successes, blocks, and failures.
+
+Earliest possible Day 1 is the next trading day after the position-value divergence,
+active P1 artifacts, and research-run accounting contradiction are resolved and a
+fresh full checklist passes. A late repair does not retroactively make July 13 clean.
+
+## 2026-07-14 ET: reviewed evidence-spine deployment
+
+The reviewed shadow/measurement release was deployed after production preflight. The
+Jetson is on backend commit `79c778a` on branch `mandate-v3`; additive Neon migrations
+`0004_research_observations.sql`, `0005_research_events.sql`, and
+`0006_research_outcomes.sql` applied successfully; and PM2 `portfolio-manager` is
+online with `/health` 200 and all dependency booleans true. Dashboard commit
+`76d92b8` is live at Vercel deployment `dpl_69Ap25LCLgwAiiaQ8heiL9DKQvfd`, with the
+signed-out smoke path returning the expected Clerk 307 redirect.
+
+This is a deployment boundary, not a passing observation day. The research spine is
+still shadow/measurement-only: peer scoring, positive selection, canary/live
+promotion, and canonical money-read cutover remain disabled. The next clean trading
+day is the first candidate for the fresh post-deploy window. Existing P1 artifacts,
+positions parity divergence, and Yahoo/Athena upstream noise remain open and keep the
+gate closed until the daily checklist proves otherwise.
+
 ### Watch, do not normalize away
 
 - Freshly distinguish the retired Python sync's 2026-07-10 failures from the MCP path;
@@ -59,7 +117,7 @@ After the market close, record the evidence rather than a subjective status.
 
 | Trading day | Status | MCP sync + reconciliation | Ledgers | Parity | Jobs / holdings monitoring | Proposal evidence | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Jul 13 | Pending Day 1 eligibility | — | — | — | — | — | Starts only after Day 0 repair is live and clean |
+| Jul 13 | **Invalid — does not count** | Pass: MCP sync + reconciliation jobs recorded `ok` | Pass: 7/7 Investors, 43/43 Performance, 1/1 Trade, 1/1 Lots, 3,371 Audit | **Fail:** NVDA market value `$15.37` vs `$15.39` | Critical jobs ran, but 3 active P1s + PM2 restart/marker/Athena noise; scan accounting unproven | 36 reviews reported as HOLD, 0 proposals; usage-limit log contradiction | Alerting worked; exact parity and clean-P1 gate did not |
 | Jul 14 | Pending | — | — | — | — | — | |
 | Jul 15 | Pending | — | — | — | — | — | |
 | Jul 16 | Pending | — | — | — | — | — | |

@@ -12,6 +12,8 @@ import { runSystemSentinel } from "./jobs/system-sentinel.js";
 import { runResearchDataRefresh } from "./jobs/research-data-refresh.js";
 import { requestMcpHoldingsSync, requestMcpOrderReconciliation } from "./jobs/mcp-read-requests.js";
 import { runDailyDbParityCheck } from "./jobs/db-parity-check.js";
+import { refreshShadowPositions } from "./scripts/refresh-shadow-positions.js";
+import { runResearchOutcomeBiweeklyReport } from "./jobs/research-outcome-biweekly-report.js";
 import { getRedis, getResearchScanStatus, setResearchScanStatus } from "./lib/redis.js";
 import { marketHolidayNameET } from "./lib/market-calendar.js";
 import { startServer } from "./server.js";
@@ -198,6 +200,9 @@ cron.schedule("30 19 * * 1-5", wrapJob("research-data-refresh", "ResearchData", 
 // ── Postgres shadow parity (8:00 PM ET, daily) ──────────────────────────────
 // Sheets/Redis remain authoritative. Missing sources and mismatches fail this
 // observational job loudly; the result is retained for the 30-day shadow gate.
+// Rebuild positions from the authoritative Sheet shortly before parity because
+// the Mac MCP companion intentionally does not carry database credentials.
+cron.schedule("50 19 * * 1-5", wrapJob("shadow-positions-refresh", "ShadowPositions", refreshShadowPositions, MARKET_DAY_ONLY), TZ);
 cron.schedule("0 20 * * *", wrapJob("db-parity", "Parity", runDailyDbParityCheck), TZ);
 
 // ── Weekly review (Friday 6:30 PM ET) ────────────────────────────────────────
@@ -212,6 +217,11 @@ cron.schedule("30 18 * * 5", wrapJob("weekly-review", "WeeklyReview", runWeeklyR
 // unitized value/gain-loss, and largest pro-rata exposures. Explicitly opt-in via
 // INVESTOR_UPDATE_ENABLED=true so a new Resend key cannot accidentally blast emails.
 cron.schedule("45 18 * * 5", wrapJob("investor-weekly-update", "InvestorUpdate", runInvestorWeeklyUpdate), TZ);
+
+// ── Internal outcome report (Friday 7 PM ET; send is explicit opt-in) ────────
+// The job owns a two-week idempotency key. Without OUTCOME_REPORT_ENABLED=true
+// it renders no email and simply reports that delivery is disabled.
+cron.schedule("0 19 * * 5", wrapJob("research-outcome-report", "OutcomeReport", runResearchOutcomeBiweeklyReport), TZ);
 
 console.log(
   "[Portfolio Manager] Scheduler started — " +

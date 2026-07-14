@@ -15,6 +15,7 @@
     "peer:probe": "node scripts/peer-probe.mjs",
     "weekly:review": "node jobs/weekly-review.js",
     "investors:weekly-update": "node jobs/investor-weekly-update.js",
+    "research:outcome-report": "node jobs/research-outcome-biweekly-report.js",
     "tavily:check": "node scripts/check-tavily.js",
     "proposals:approved": "node scripts/list-approved-proposals.js",
     "proposals:fulfill": "node scripts/mark-fulfilled.js",
@@ -32,11 +33,14 @@
     "db:migrate": "node lib/pg/migrate.js",
     "db:parity": "node scripts/db-parity.mjs",
     "db:backfill": "node scripts/db-backfill.mjs",
+    "db:refresh-positions": "node scripts/refresh-shadow-positions.js",
     "agent4:policy:set": "node scripts/set-agent4-shadow-policy.mjs",
     "ledgers:verify": "node scripts/verify-ledgers.js",
     "ledgers:backfill-operational": "node scripts/backfill-operational-ledgers.js",
     "orders:reconcile": "node scripts/reconcile-orders.js",
-    "orders:reconcile:jetson": "node jobs/order-reconciliation.js"
+    "orders:reconcile:jetson": "node jobs/order-reconciliation.js",
+    "reconciliation:resolve-test": "node scripts/resolve-reconciliation-test-artifact.js",
+    "approval:close-legacy-test": "node scripts/close-legacy-test-approval.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

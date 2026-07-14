@@ -28,6 +28,18 @@ test("normal integrity assertion fails closed on unsigned rows", () => {
   assert.throws(() => assertOperationalLedgerEntries("performance", [performance], SECRET), /1 unsigned/);
 });
 
+test("test-artifact resolutions and legacy approval attestations are independently signed", () => {
+  const resolution = signOperationalLedgerEntry("reconciliation_resolution", {
+    orderId: "smoke-1", resolution: "legacy_smoke_quarantine", attestedBy: "sam", attestation: "production smoke only", createdAt: "2026-07-14T00:00:00.000Z",
+  }, SECRET);
+  const attestation = signOperationalLedgerEntry("legacy_approval_attestation", {
+    proposalId: "proposal-1", ticker: "NVDA", side: "BUY", attestedBy: "sam", attestation: "routing test only", createdAt: "2026-07-14T00:00:00.000Z",
+  }, SECRET);
+  assert.equal(verifyOperationalLedgerEntries("reconciliation_resolution", [resolution], SECRET).verified, 1);
+  assert.equal(verifyOperationalLedgerEntries("legacy_approval_attestation", [attestation], SECRET).verified, 1);
+  assert.equal(verifyOperationalLedgerEntries("legacy_approval_attestation", [{ ...attestation, ticker: "AMD" }], SECRET).mismatched.length, 1);
+});
+
 test("a mutated lot requires a new signature", () => {
   const original = signOperationalLedgerEntry("lot", lot, SECRET);
   const consumed = { ...original, sharesOpen: 0, status: "CLOSED" };
