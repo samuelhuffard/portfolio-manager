@@ -67,6 +67,7 @@ import {
 } from "../lib/research-run-report.js";
 import { withWorkflowLock } from "../lib/workflow-lock.js";
 import { BudgetExhaustedError, createResearchRunBudget } from "../lib/ai-budget.js";
+import { createAnthropicMonthlyBudget } from "../lib/anthropic-monthly-budget.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_AGENT_IDS = AGENTS.map((agent) => agent.id);
@@ -670,7 +671,18 @@ async function reviewCandidateForAgent(agent, c, ctx) {
         noProposalReason = "evaluator sent the proposal back and the revised recommendation came back HOLD";
       }
     } catch (err) {
-      if (err instanceof BudgetExhaustedError) throw err;
+      if (
+        err instanceof BudgetExhaustedError ||
+        [
+          "monthly_budget_exhausted",
+          "monthly_budget_telemetry_unavailable",
+          "monthly_budget_config_invalid",
+          "monthly_budget_overshoot",
+          "anthropic_model_unpriced",
+          "anthropic_pricing_version_unknown",
+          "anthropic_request_unbounded",
+        ].includes(err?.code)
+      ) throw err;
       // Evaluator infrastructure failure (API down, 429): fail closed — an
       // unevaluated actionable proposal must not reach the approval queue.
       console.error(`[Evaluator] ${agent.id}: ${c.ticker} evaluation errored (failing closed to HOLD): ${err.message}`);
@@ -1105,7 +1117,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
         attempted: true,
         dataGateBlocked: false,
         dataGateStale: false,
-        failureKind: failure.kind === "budget_exhausted" ? "budget_exhausted" : "review_error",
+        failureKind: ["budget_exhausted", "monthly_budget_exhausted"].includes(failure.kind) ? "budget_exhausted" : "review_error",
         generatorAction: null,
         finalAction: null,
         riskOverridden: false,
@@ -1246,7 +1258,9 @@ async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = 
     // boundary token for untrusted-evidence fencing.
     const breaker = await resolveCircuitBreaker(sheets, spreadsheetId);
     const boundaryToken = makeBoundaryToken();
+    const monthlyBudget = createAnthropicMonthlyBudget();
     const budget = createResearchRunBudget({
+      monthlyBudget,
       onWarning: ({ reservedUsd, maxUsd }) => sendTelegram(`⚠️ Research API budget is ${Math.round((reservedUsd / maxUsd) * 100)}% reserved ($${reservedUsd.toFixed(2)} of $${maxUsd.toFixed(2)}).`).catch((err) => console.error("[Research] Budget warning Telegram failed:", err.message)),
     });
 
@@ -1307,7 +1321,9 @@ async function researchTickerForAgentUnlocked(agentId, ticker) {
   const breaker = await resolveCircuitBreaker(sheets, spreadsheetId);
   const boundaryToken = makeBoundaryToken();
   const evidenceFlags = [];
+  const monthlyBudget = createAnthropicMonthlyBudget();
   const budget = createResearchRunBudget({
+    monthlyBudget,
     onWarning: ({ reservedUsd, maxUsd }) => sendTelegram(`⚠️ Lab research API budget is ${Math.round((reservedUsd / maxUsd) * 100)}% reserved ($${reservedUsd.toFixed(2)} of $${maxUsd.toFixed(2)}).`).catch((err) => console.error("[Research] Lab budget warning Telegram failed:", err.message)),
   });
 

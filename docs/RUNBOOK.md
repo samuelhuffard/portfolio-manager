@@ -100,7 +100,16 @@ pm2 describe portfolio-executor
 
 ## Sysloop (system autoresearch loop)
 
-- Jetson sentinel runs 6:15 PM ET Mon–Fri (`npm run sysloop:check`, or `--dry-run` for a no-publish smoke test). Snapshot → `pm:sysloop:snapshot:<date>` (7d TTL) + `ops/health/<date>.json`; heartbeat → `pm:sysloop:last-run`.
+- Jetson sentinel runs 6:15 PM ET Mon–Fri for timely alerts and again at 8:10 PM
+  immediately before the Phase 0 observer (`npm run sysloop:check`, or `--dry-run`
+  for a no-publish smoke test). Snapshot → `pm:sysloop:snapshot:<date>` (7d TTL)
+  + `ops/health/<date>.json`; heartbeat → `pm:sysloop:last-run`.
+- Phase 0 Redis records are a 90-day transport. Signed create-once archives live
+  under ignored `ops/phase0-observations/` (or `PHASE0_EVIDENCE_DIR`) and must be
+  included in Jetson backups; verify their HMAC before using them as evidence.
+- Phase 0 also requires bounded per-invocation histories: holdings at 9:30/11:00/
+  13:00/15:00/16:30, reconciliation at 16:40, all 14 intraday checks, and both
+  sentinel runs. A later success does not hide an earlier slot failure.
 - Jetson queues the 4:40 PM ET report-only broker-vs-ledger reconciliation for the Mac companion. The companion performs the MCP read against the pinned Agentic account, writes a durable receipt, alerts on a missing or malformed ledger match, and never records a trade or alters an order.
 - Mac PM2 process `portfolio-sysloop` (this repo's working tree): cross-watch every 30 min, triage 6:35 PM Mon–Fri (`npm run sysloop:triage`), weekly Sun 10 AM (`npm run sysloop:weekly`). Both accept `--force` to bypass the once-per-period Redis rate cap.
 - Findings ledger: `ops/findings/*.md` (git-tracked). To close one, edit `status: open` → `fixed`; if the fingerprint reappears it auto-flips to `regressed` and escalates. Weekly artifacts: `ops/reports/`, `ops/proposed-tests/`, `ops/proposed-patches/` — all propose-only, nothing is applied automatically.

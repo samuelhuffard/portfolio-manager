@@ -1,5 +1,11 @@
 # Portfolio Manager — Roadmap to Supervised Autonomy
 
+> **Narrow authority: TRUST detail.** The canonical cross-portfolio sequence,
+> current-status index, two-clock policy, and promotion/demotion gates live in
+> [the master plan](portfolio-master-plan.md). If this roadmap conflicts with the
+> master plan, the master plan wins. This file retains the detailed autonomy
+> architecture and historical phase design.
+
 **Goal:** build a professional, observable, and reversible autonomous investment operating system. The near-term destination is a system that can research, allocate, approve, and execute within tested mandates; it is **not** a roadmap to accepting capital or becoming a fund. The long-term fund ambition raises the standard for controls, recordkeeping, attribution, and clarity now.
 
 The operating model is deliberately asymmetric:
@@ -48,7 +54,8 @@ Work is gate-sequenced, not strictly code-sequenced: production remains in Phase
 - **Postgres shadow:** migration `0003_shadow_precision.sql` is applied, all 14 proposals/5 capital entries/1 lot/1 position were backfilled, and production parity is `MATCH` across all four domains. `PG_DUAL_WRITE=true` is enabled persistently, while Sheets/Redis remain canonical.
 - **Verified:** backend 371/371 tests; dashboard MCP policy tests pass; independent review returned **SHIP**. Production read-only smoke passed holdings and reconciliation with both durable requests consumed. Performance 40/40, Trade Ledger 1/1, Lots 1/1, Investors 5/5, and Audit 2,586 rows verify clean.
 - **Runtime evidence:** the legacy Jetson login is stale because Robinhood device approvals/SMS/passkeys do not provide a usable unattended TOTP path. Athena/Yahoo degradation and Mac sysloop history remain operational leads; adjudicate them from fresh logs after the migration smoke.
-- **Authority:** Sam still signs every live order. Agents 2/3 remain non-actionable and Agent 4 has no runtime authority.
+- **Authority:** Sam still signs every live order. Agents 2/3 are supervised and
+  static-watchlist-bound; they are not catalog-enabled. Agent 4 has no runtime authority.
 
 ### Autonomy foundation deployed — observation now active
 
@@ -149,7 +156,7 @@ Execute in this order:
 
 1. Start the 10-trading-day observation window on the next clean trading day; inspect fresh Jetson/companion logs and the scheduled parity report each day.
 2. Keep the MCP account-binding and exact read-only allowlists under regression watch; any failed receipt or ledger mismatch returns the system to human-supervised mode.
-3. Convert the Agent 2, Agent 3, and Agent 4 inputs into versioned mandate templates. Record ambiguities for Sam/his friend; do not invent investment rules. Keep Agents 2/3 non-actionable and Agent 4 shadow-only.
+3. Convert the Agent 2, Agent 3, and Agent 4 inputs into versioned mandate templates. Record ambiguities for Sam/his friend; do not invent investment rules. Keep Agents 2/3 supervised and static-watchlist-bound, and Agent 4 shadow-only.
 4. Finish Phase 1's `PortfolioDecision`/allocation contract, unified-compiler proof, ownership lineage, and manager UI before adding Agent 4 runtime behavior.
 5. Keep Postgres shadow plumbing and daily parity evidence healthy without changing canonical reads. A read cutover remains a later, separately reviewed milestone.
 6. Rebuild the FIXLIST from fresh runtime evidence after the release, closing false positives only when logs/job state prove they are stale.

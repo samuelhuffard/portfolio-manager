@@ -29,12 +29,17 @@ test("MCP read requests return the actual pending request when NX deduplicates",
     kind: "holdings-sync",
     requestedAt: "2026-07-13T13:00:00.000Z",
     requestedForET: "2026-07-13",
+    invocationId: "2026-07-13/09:30",
   };
   const redis = {
     set: async () => null,
     get: async () => JSON.stringify(existing),
   };
-  const result = await enqueueMcpReadRequest("holdings-sync", { redis });
+  const result = await enqueueMcpReadRequest("holdings-sync", {
+    redis,
+    invocationId: "2026-07-13/11:00",
+  });
   assert.equal(result.queued, false);
   assert.deepEqual(result.request, existing);
+  assert.equal(result.request.invocationId, "2026-07-13/09:30");
 });

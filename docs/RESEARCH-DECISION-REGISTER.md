@@ -1,5 +1,9 @@
 # Portfolio Manager — Research Decision Register
 
+> **Narrow authority: investment-policy decisions.** Accepted answers here bind
+> implementation inside their scope. The canonical phase order, current status,
+> and promotion/reset gates live in [the master plan](portfolio-master-plan.md).
+
 **Rev 2026-07-13 · primary-reviewer decisions and unresolved investment-policy inputs**
 
 This register prevents executor models from inventing rules. Accepted decisions may be implemented. Open decisions block only the packets named under “Blocks”; unrelated packets may proceed.

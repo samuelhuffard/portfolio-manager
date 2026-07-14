@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { fetchQuotes } from "../lib/yahoo.js";
+import { buildHoldingsQuoteSnapshot, canonicalizeHoldingsForPersistence } from "../lib/quote-snapshot.js";
 import {
   getLastFillSyncAt,
   setLastFillSyncAt,
@@ -19,7 +20,7 @@ import {
 import { withWorkflowLock } from "../lib/workflow-lock.js";
 import { planFillProcessing } from "../lib/fill-processing.js";
 import { isValidApprovalSignature } from "../lib/proposal-signature.js";
-import { shadowWriteLot, shadowReplacePositions } from "../lib/pg/dual-write.js";
+import { shadowWriteLot, shadowReplacePositions, shadowWriteNavSnapshot } from "../lib/pg/dual-write.js";
 import { ownershipEnforcementEnabled } from "../lib/ownership-flag.js";
 import { sendMessage as sendTelegram } from "../lib/telegram.js";
 import {
@@ -209,8 +210,9 @@ async function syncHoldingsUnlocked() {
 
   const tickers = holdings.map((h) => h.ticker);
   const quotes = await fetchQuotes([...tickers, "SPY"]);
+  const quoteSnapshot = buildHoldingsQuoteSnapshot(quotes, tickers);
 
-  const enriched = holdings.map((h) => {
+  const enriched = canonicalizeHoldingsForPersistence(holdings.map((h) => {
     const price = quotes[h.ticker]?.regularMarketPrice ?? null;
     const marketValue = price != null ? price * h.shares : null;
     const costBasis = h.avgCost * h.shares;
@@ -225,7 +227,7 @@ async function syncHoldingsUnlocked() {
       gainLoss,
       gainLossPct,
     };
-  });
+  }));
 
   const { sheets, drive } = getServiceAccountClients();
   const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
@@ -235,7 +237,7 @@ async function syncHoldingsUnlocked() {
   if (syncedAt) await setLastFillSyncAt(syncedAt);
 
   const timestamp = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
-  await writeHoldingsTab(sheets, spreadsheetId, sheetIds["Holdings"], enriched, cash, timestamp);
+  await writeHoldingsTab(sheets, spreadsheetId, sheetIds["Holdings"], enriched, cash, timestamp, null, quoteSnapshot);
 
   // Non-authoritative Postgres projection. Flag-gated and swallows its own
   // failures, so it cannot block or partially replace the authoritative Sheets write.
@@ -246,7 +248,7 @@ async function syncHoldingsUnlocked() {
     avgCost: h.avgCost,
     costBasis: h.costBasis,
     marketValue: h.marketValue ?? null,
-  })));
+  })), { valuation: quoteSnapshot });
 
   const investedValue = enriched.reduce((sum, h) => sum + (h.marketValue ?? 0), 0);
   const totalValue = investedValue + (cash ?? 0);
@@ -262,12 +264,25 @@ async function syncHoldingsUnlocked() {
   const unitsOutstanding = ledger.reduce((sum, e) => sum + e.units, 0);
   const navPerUnit = unitsOutstanding > 0 ? totalValue / unitsOutstanding : null;
 
+  const snapshotDate = new Date().toISOString().slice(0, 10);
+  const roundedTotalValue = Math.round(totalValue * 100) / 100;
+  const roundedUnitsOutstanding = unitsOutstanding > 0 ? Math.round(unitsOutstanding * 1_000_000) / 1_000_000 : 0;
+  const roundedNavPerUnit = navPerUnit != null ? Math.round(navPerUnit * 1_000_000) / 1_000_000 : null;
   await appendPerformanceRow(sheets, spreadsheetId, sheetIds["Performance"], {
-    date: new Date().toISOString().slice(0, 10),
-    portfolioValue: Math.round(totalValue * 100) / 100,
+    date: snapshotDate,
+    portfolioValue: roundedTotalValue,
     spyPrice,
-    unitsOutstanding: unitsOutstanding > 0 ? Math.round(unitsOutstanding * 10000) / 10000 : null,
-    navPerUnit: navPerUnit != null ? Math.round(navPerUnit * 10000) / 10000 : null,
+    unitsOutstanding: roundedUnitsOutstanding || null,
+    navPerUnit: roundedNavPerUnit,
+  });
+  // Non-authoritative Postgres projection. As with positions, failure is
+  // surfaced by parity without partially replacing the signed Sheets path.
+  await shadowWriteNavSnapshot({
+    date: snapshotDate,
+    totalValue: roundedTotalValue,
+    cash: Math.round((cash ?? 0) * 100) / 100,
+    unitsOutstanding: roundedUnitsOutstanding,
+    navPerUnit: roundedNavPerUnit,
   });
 
   let portfolioReturnPct = null;

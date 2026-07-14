@@ -14,9 +14,11 @@ import { requestMcpHoldingsSync, requestMcpOrderReconciliation } from "./jobs/mc
 import { runDailyDbParityCheck } from "./jobs/db-parity-check.js";
 import { refreshShadowPositions } from "./scripts/refresh-shadow-positions.js";
 import { runResearchOutcomeBiweeklyReport } from "./jobs/research-outcome-biweekly-report.js";
+import { runPhase0Observer } from "./jobs/phase0-observer.js";
 import { getRedis, getResearchScanStatus, setResearchScanStatus } from "./lib/redis.js";
 import { marketHolidayNameET } from "./lib/market-calendar.js";
 import { startServer } from "./server.js";
+import { appendJobInvocationHistory, jobInvocationId } from "./lib/job-invocation-history.js";
 
 startServer();
 
@@ -51,17 +53,19 @@ await repairInterruptedResearchScan();
 // on Friday July 3rd, which ran a full research scan against a closed market.
 // A skip still records a last-run (with skippedHoliday) so the sentinel's
 // missed-cron check stays quiet.
-function wrapJob(name, label, fn, { marketDayOnly = false } = {}) {
+export function wrapJob(name, label, fn, { marketDayOnly = false, evidence = null, invocationSlot = null } = {}) {
   return async (...args) => {
     const started = Date.now();
     let ok = true;
     let error = null;
+    let jobEvidence = null;
     const holiday = marketDayOnly ? marketHolidayNameET() : null;
     if (holiday) {
       console.log(`[${label}] skipped — market holiday: ${holiday}`);
     } else {
       try {
-        await fn(...args);
+        const result = await fn(...args);
+        if (evidence) jobEvidence = evidence(result);
       } catch (e) {
         ok = false;
         error = e.message;
@@ -72,10 +76,16 @@ function wrapJob(name, label, fn, { marketDayOnly = false } = {}) {
       const redis = getRedis();
       if (redis) {
         const dateET = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
-        await redis.set(`pm:job:${name}:last-run`, JSON.stringify({
+        const runRecord = {
           ts: new Date().toISOString(), dateET, ok, durationMs: Date.now() - started, error,
           ...(holiday ? { skippedHoliday: holiday } : {}),
-        }));
+          ...(jobEvidence ? { evidence: jobEvidence } : {}),
+          ...(invocationSlot ? { slotET: invocationSlot, invocationId: jobInvocationId(dateET, invocationSlot) } : {}),
+        };
+        await redis.set(`pm:job:${name}:last-run`, JSON.stringify(runRecord));
+        if (invocationSlot && !holiday) {
+          await appendJobInvocationHistory(name, runRecord, { redis });
+        }
       }
     } catch (e) {
       console.warn(`[Scheduler] failed to record last-run for ${name}:`, e.message);
@@ -84,12 +94,25 @@ function wrapJob(name, label, fn, { marketDayOnly = false } = {}) {
 }
 
 const MARKET_DAY_ONLY = { marketDayOnly: true };
+const HOLDING_COVERAGE = {
+  marketDayOnly: true,
+  evidence: (result) => ({ holdingMonitoring: result?.holdingMonitoring ?? null }),
+};
+const holdingCoverageAt = (invocationSlot) => ({ ...HOLDING_COVERAGE, invocationSlot });
+const sentinelAt = (invocationSlot) => ({
+  invocationSlot,
+  evidence: (snapshot) => ({
+    blockingAnomalies: (snapshot?.anomalies ?? [])
+      .filter((row) => row?.severity === "P0" || row?.severity === "P1")
+      .map((row) => ({ severity: row.severity, check: row.check, title: row.title, fingerprint: row.fingerprint })),
+  }),
+});
 
 // MCP broker jobs are not complete when Jetson queues them: completion means
 // the Mac has claimed the durable request, obtained a validated read-only
 // response, and written its receipt. Keep the ordinary `last-run` key for that
 // receipt so the sentinel never mistakes a queued request for fresh broker data.
-async function queueMcpReadJob(name, label, requestFn) {
+async function queueMcpReadJob(name, label, requestFn, invocationSlot) {
   const started = Date.now();
   const holiday = marketHolidayNameET();
   const redis = getRedis();
@@ -102,7 +125,10 @@ async function queueMcpReadJob(name, label, requestFn) {
     return;
   }
   try {
-    const { queued, request } = await requestFn();
+    const { queued, request } = await requestFn({
+      now: new Date(),
+      invocationId: jobInvocationId(dateET, invocationSlot),
+    });
     if (redis) await redis.set(`pm:job:${name}:last-request`, JSON.stringify({
       ts: new Date().toISOString(), dateET, queued, requestId: request.id, durationMs: Date.now() - started,
     }));
@@ -116,16 +142,16 @@ async function queueMcpReadJob(name, label, requestFn) {
 }
 
 // ── Holdings sync (9:30 AM ET — market open) ────────────────────────────────
-cron.schedule("30 9 * * 1-5", () => queueMcpReadJob("holdings-sync", "HoldingsMcpRequest", requestMcpHoldingsSync), TZ);
+cron.schedule("30 9 * * 1-5", () => queueMcpReadJob("holdings-sync", "HoldingsMcpRequest", requestMcpHoldingsSync, "09:30"), TZ);
 
 // ── Holdings sync (4:30 PM ET — after close) ────────────────────────────────
-cron.schedule("30 16 * * 1-5", () => queueMcpReadJob("holdings-sync", "HoldingsMcpRequest", requestMcpHoldingsSync), TZ);
+cron.schedule("30 16 * * 1-5", () => queueMcpReadJob("holdings-sync", "HoldingsMcpRequest", requestMcpHoldingsSync, "16:30"), TZ);
 
 // ── Broker-vs-ledger reconciliation (4:40 PM ET) ───────────────────────────
 // Jetson records the durable request; the Mac companion performs the exact
 // read-only MCP call and writes a receipt. Device approval cannot be automated
 // safely from Jetson's legacy Python login path.
-cron.schedule("40 16 * * 1-5", () => queueMcpReadJob("order-reconciliation", "ReconcileMcpRequest", requestMcpOrderReconciliation), TZ);
+cron.schedule("40 16 * * 1-5", () => queueMcpReadJob("order-reconciliation", "ReconcileMcpRequest", requestMcpOrderReconciliation, "16:40"), TZ);
 
 // ── Pre-market (8:30 AM ET) ──────────────────────────────────────────────────
 // Macro snapshot refresh, regime check, overnight news on held positions.
@@ -133,44 +159,41 @@ cron.schedule("30 8 * * 1-5", wrapJob("premarket-check", "Premarket", runPremark
 
 // ── Opening check (9:35 AM ET) ───────────────────────────────────────────────
 // First look at opening prices — gap analysis, any alerts triggered at open.
-cron.schedule("35 9 * * 1-5", wrapJob("intraday-monitor", "Opening", () => runIntradayMonitor({ context: "opening" }), MARKET_DAY_ONLY), TZ);
+cron.schedule("35 9 * * 1-5", wrapJob("intraday-monitor", "Opening", () => runIntradayMonitor({ context: "opening" }), holdingCoverageAt("09:35")), TZ);
 
 // ── Holdings sync (11 AM, 1 PM, 3 PM ET) ────────────────────────────────────
 // Jetson queues a durable MCP snapshot request. The Mac's existing Robinhood
 // authorization supplies the read-only broker data; it performs no Python
 // login, avoids triggering device approvals, and writes the existing Sheet/NAV
 // projection only after a validated positions response.
-for (const time of ["0 11 * * 1-5", "0 13 * * 1-5", "0 15 * * 1-5"]) {
-  cron.schedule(time, () => queueMcpReadJob("holdings-sync", "HoldingsMcpRequest", requestMcpHoldingsSync), TZ);
+for (const [time, slot] of [["0 11 * * 1-5", "11:00"], ["0 13 * * 1-5", "13:00"], ["0 15 * * 1-5", "15:00"]]) {
+  cron.schedule(time, () => queueMcpReadJob("holdings-sync", "HoldingsMcpRequest", requestMcpHoldingsSync, slot), TZ);
 }
 
 // ── Intraday monitor (every 30 min, 10 AM–3:30 PM ET) ───────────────────────
 // Price alerts, ATR stop checks, momentum break flags.
-cron.schedule("0,30 10-15 * * 1-5", wrapJob("intraday-monitor", "Intraday", async () => {
-  // Don't fire after 3:30 PM — the 15:30 slot is the last valid one before close
-  const now = new Date();
-  const etHour = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" })).getHours();
-  const etMin  = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" })).getMinutes();
-  if (etHour > 15 || (etHour === 15 && etMin > 30)) return;
-  await runIntradayMonitor({ context: "intraday" });
-}, MARKET_DAY_ONLY), TZ);
+for (const slot of ["10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "13:00", "13:30", "14:00", "14:30", "15:00", "15:30"]) {
+  const [hour, minute] = slot.split(":").map(Number);
+  cron.schedule(`${minute} ${hour} * * 1-5`, wrapJob(
+    "intraday-monitor", "Intraday", () => runIntradayMonitor({ context: "intraday" }), holdingCoverageAt(slot)
+  ), TZ);
+}
 
 // ── Pre-close check (3:50 PM ET) ─────────────────────────────────────────────
 // Late momentum sweep — last chance to flag a stop breach before EOD.
-cron.schedule("50 15 * * 1-5", wrapJob("intraday-monitor", "PreClose", () => runIntradayMonitor({ context: "pre-close" }), MARKET_DAY_ONLY), TZ);
+cron.schedule("50 15 * * 1-5", wrapJob("intraday-monitor", "PreClose", () => runIntradayMonitor({ context: "pre-close" }), holdingCoverageAt("15:50")), TZ);
 
 // ── Exit monitor (4:45 PM ET, Sun–Thu) ───────────────────────────────────────
 // Full ATR/fundamental/momentum exit signals with complete EOD bar data.
-// Shifted off Friday: proposals expire 48h after creation (lib/redis.js), so a
-// Friday-evening proposal expired Sunday evening — before Monday's market even
-// opened. Running the Friday-close-data scan on Sunday instead means the same
-// proposal now expires Tuesday evening, leaving all of Monday's session to act.
-cron.schedule("45 16 * * 0-4", wrapJob("exit-monitor", "ExitMonitor", runExitMonitor, MARKET_DAY_ONLY), TZ);
+// Sunday's run is the explicit replay of Friday-close evidence, keeping any
+// resulting 48-hour proposal actionable through Monday's session.
+cron.schedule("45 16 * * 0-4", wrapJob("exit-monitor", "ExitMonitor", runExitMonitor, HOLDING_COVERAGE), TZ);
 
 // ── Research scan — all agents (5:15 PM ET, Sun–Thu) ─────────────────────────
 // Full quant score → AI overlay → risk checks → queue proposals.
 // Runs after exit monitor so any SELL proposals are already queued first.
-// See exit-monitor comment above for why this moved off the Friday slot.
+// Sunday is an explicit Friday-close replay; its runId is consumed once by the
+// next weekday observation and never counted again.
 cron.schedule("15 17 * * 0-4", wrapJob("research-scan", "Research", runResearchScan, MARKET_DAY_ONLY), TZ);
 
 // ── Performance review (5:45 PM ET) ─────────────────────────────────────────
@@ -181,14 +204,17 @@ cron.schedule("45 17 * * 1-5", wrapJob("performance-review", "Performance", runP
 // Recomputes the Investors-tab row HMACs and the last week of audit-log row
 // HMACs. Signed rows were previously write-only — this is what makes them
 // actually tamper-evident. Report-only; Telegrams on any mismatch.
-cron.schedule("0 18 * * 1-5", wrapJob("verify-ledgers", "Verify", runLedgerVerification), TZ);
+cron.schedule("0 18 * * 1-5", wrapJob("verify-ledgers", "Verify", async () => {
+  const verified = await runLedgerVerification();
+  if (verified !== true) throw new Error("Signed-ledger verification reported problems.");
+}), TZ);
 
 // ── System sentinel (6:15 PM ET) ─────────────────────────────────────────────
 // Tier 0 of the system autoresearch loop (docs/SYSTEM-LOOP-PLAN.md): watches
 // PM2, /health, cron freshness, the dashboard, the approval queue, Sheets
 // schema, and PM2 logs. Deterministic; publishes a snapshot for the Mac tier.
 // Runs last so it can see whether today's whole pipeline actually ran.
-cron.schedule("15 18 * * 1-5", wrapJob("system-sentinel", "Sysloop", runSystemSentinel), TZ);
+cron.schedule("15 18 * * 1-5", wrapJob("system-sentinel", "Sysloop", runSystemSentinel, sentinelAt("18:15")), TZ);
 
 // ── Advisory research-data refresh (7:30 PM ET weeknights) ───────────────────
 // One locked, ordered workflow: universe refresh → peer distributions →
@@ -204,6 +230,18 @@ cron.schedule("30 19 * * 1-5", wrapJob("research-data-refresh", "ResearchData", 
 // the Mac MCP companion intentionally does not carry database credentials.
 cron.schedule("50 19 * * 1-5", wrapJob("shadow-positions-refresh", "ShadowPositions", refreshShadowPositions, MARKET_DAY_ONLY), TZ);
 cron.schedule("0 20 * * *", wrapJob("db-parity", "Parity", runDailyDbParityCheck), TZ);
+
+// ── Final system sentinel (8:10 PM ET, trading weekdays) ────────────────────
+// Refreshes the same create-latest snapshot after parity and immediately before
+// the observer. The 6:15 run remains the timely alert; this run supplies final
+// live safety evidence so a late failure cannot inherit a stale green snapshot.
+cron.schedule("10 20 * * 1-5", wrapJob("system-sentinel", "SysloopFinal", runSystemSentinel, sentinelAt("20:10")), TZ);
+
+// ── Phase 0 daily observation (8:15 PM ET, trading weekdays) ────────────────
+// Runs after the final scheduled evidence producer (8 PM parity). It reads only
+// existing job/sentinel/parity/research/reconciliation state, records one
+// immutable bounded result per ET date, and fails closed on missing evidence.
+cron.schedule("15 20 * * 1-5", wrapJob("phase0-observer", "Phase0", runPhase0Observer), TZ);
 
 // ── Weekly review (Friday 6:30 PM ET) ────────────────────────────────────────
 // Closes the feedback loop: deterministic per-agent scorecard (proposals,
@@ -225,9 +263,11 @@ cron.schedule("0 19 * * 5", wrapJob("research-outcome-report", "OutcomeReport", 
 
 console.log(
   "[Portfolio Manager] Scheduler started — " +
-  "pre-market 8:30 AM | opening 9:35 AM | holdings sync 11 AM/1 PM/3 PM | reconciliation 4:40 PM | " +
+  "pre-market 8:30 AM | opening 9:35 AM | reconciliation 4:40 PM | " +
   "intraday every 30 min 10 AM–3:30 PM | pre-close 3:50 PM | exit monitor 4:45 PM | " +
   "research scan 5:15 PM | perf review 5:45 PM | ledger verify 6:00 PM | " +
   "system sentinel 6:15 PM | advisory research-data refresh 7:30 PM (Mon-Fri, ET; gated) | " +
-  "weekly review Fri 6:30 PM ET | investor update Fri 6:45 PM ET | shadow parity 8:00 PM daily"
+  "holdings sync 9:30 AM/11 AM/1 PM/3 PM/4:30 PM | exit/research Sun-Thu | " +
+  "weekly review Fri 6:30 PM ET | investor update Fri 6:45 PM ET | " +
+  "shadow parity 8:00 PM daily | final sentinel 8:10 PM weekdays | Phase 0 observer 8:15 PM weekdays"
 );

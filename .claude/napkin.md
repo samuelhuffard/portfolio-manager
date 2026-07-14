@@ -19,6 +19,14 @@
    Do instead: count a Phase 0 day only after the scheduled jobs complete with no active P1s and live Sheets/Postgres parity is `MATCH`; local commits and basic `/health` cannot substitute for that evidence.
 6. **[2026-07-13] API-key presence is not research availability**
    Do instead: reconcile attempted reviews to explicit successes, blocks, and failures and inspect current provider errors; never treat a green key-presence `/health` check or a completed job wrapper as proof the model calls worked.
+7. **[2026-07-14] Position accounting parity excludes quote-derived market value**
+   Do instead: digest ticker/name/shares/average cost/cost basis at schema precision; report valuation separately and compare it exactly only with the same versioned quote snapshot, source, and source timestamp.
+8. **[2026-07-14] Scheduled diagnostics must propagate negative verdicts**
+   Do instead: when a report-only job returns `false` for detected problems, make its scheduler adapter throw so `pm:job:<name>:last-run` records `ok:false` instead of a false green.
+9. **[2026-07-14] TRUST days and SKILL samples use independent clocks**
+   Do instead: classify evidence as TRUST, SKILL, or BOTH; never reset a clean safety day for a research failure or discard a valid research sample because safety evidence failed.
+10. **[2026-07-14] Per-holding jobs must prove coverage conservation**
+   Do instead: persist aggregate `held = monitored + explicitly degraded` evidence with zero silent skips; make malformed, failed, or missing coverage block the TRUST day.
 
 ## Domain Behavior Guardrails
 1. **[2026-07-11] Unattributed lots are quarantined until explicitly resolved**

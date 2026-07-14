@@ -14,7 +14,7 @@ export function mcpReadRequestKey(kind) {
  * sleeping Mac accumulates one fresh request rather than five duplicate broker
  * reads; the companion's lease/receipt protocol owns actual completion.
  */
-export async function enqueueMcpReadRequest(kind, { redis = getRedis(), now = new Date() } = {}) {
+export async function enqueueMcpReadRequest(kind, { redis = getRedis(), now = new Date(), invocationId = null } = {}) {
   const parsedKind = McpReadJobKindSchema.parse(kind);
   if (!redis) throw new Error("Redis is required to request Mac MCP broker work.");
   const request = McpReadRequestSchema.parse({
@@ -22,6 +22,7 @@ export async function enqueueMcpReadRequest(kind, { redis = getRedis(), now = ne
     kind: parsedKind,
     requestedAt: now.toISOString(),
     requestedForET: etDateString(now),
+    invocationId,
   });
   const result = await redis.set(mcpReadRequestKey(parsedKind), JSON.stringify(request), {
     nx: true,

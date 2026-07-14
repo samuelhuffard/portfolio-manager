@@ -1,13 +1,18 @@
 # Mandate v2 Ingestion Plan
 
-Canonical plan for ingesting the four **v2 agent mandates** authored by Sam's friend
+> **Historical ingestion plan.** Authority/status language in this file is not
+> current. The canonical phase sequence and current Agent 2/3/4 authority are in
+> [the master plan](portfolio-master-plan.md); accepted v3 mandate policy is in
+> [the decision register](RESEARCH-DECISION-REGISTER.md).
+
+Historical plan for ingesting the four **v2 agent mandates** authored by Sam's friend
 (`agent_mandates/Agent_{One,Two,Three,Four}_Mandate_v2.md`, merged to `main`
 2026-07-12). Read this with `docs/AUTONOMY-ROADMAP.md` (Phase 1 gates still apply)
 and `docs/CHANGE_MAP.md` ("Onboarding a specialist mandate").
 
-**Status:** planning + Phase A scaffolding. **No agent is activated by this work.**
-Agents 2/3 stay `paper`; Agent 4 stays `SHADOW` + human-approve until each mandate's
-tests pass (roadmap Phase 1/2/3 gates, unchanged).
+**Historical status:** planning + Phase A scaffolding. This v2 work did not activate
+an agent. Its earlier paper/shadow assumptions are superseded by the current master
+plan and Decision D-003.
 
 ---
 
@@ -95,9 +100,8 @@ that match mandate band semantics on fixtures; nothing activates until then.*
 **Phase C — Per-analyst attribution + breakers + Agent 4 shadow meta-allocator.**
 Builds on StrategyLot ownership (07-11).
 
-**Phase D — Schema/contract + registry + evaluator + tests.** Then supervised
-activation per roadmap gates: Agents 2/3 `paper`, Agent 4 `SHADOW`+human, until
-mandate + ownership tests pass.
+**Phase D — Schema/contract + registry + evaluator + tests.** Its proposed activation
+policy is superseded by the current master plan and Decision D-003.
 
 ---
 

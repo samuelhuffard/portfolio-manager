@@ -24,6 +24,7 @@ import { listPriceAlerts, checkAlerts, removePriceAlert } from "../lib/price-ale
 import { listAllProposals, createProposal, wasProposalNudged, markProposalNudged } from "../lib/redis.js";
 import { hasOpenProposal } from "../lib/proposal-sizing.js";
 import { selectExpiringProposals, formatExpiryNudge } from "../lib/proposal-nudge.js";
+import { buildHoldingMonitorCoverage } from "../lib/holding-monitor-coverage.js";
 import { sendMessage as sendTelegram } from "../lib/telegram.js";
 import { researchTickerForAgent } from "./research-scan.js";
 import {
@@ -44,6 +45,26 @@ const __dirname = path.dirname(ftpu(import.meta.url));
 const watchlistPath = path.join(__dirname, "..", "config", "agents", "agent-1", "watchlist.json");
 const WATCHLIST_TICKERS = JSON.parse(fs.readFileSync(watchlistPath, "utf8")).tickers;
 
+export function initializeIntradayHoldingCoverage(allocation) {
+  const validHeld = allocation.filter((holding) => Number.isFinite(holding.shares) && holding.shares > 0);
+  const invalidHeld = allocation.filter((holding) => holding.shares !== 0
+    && (!Number.isFinite(holding.shares) || holding.shares < 0));
+  const coverage = { monitored: 0, degraded: 0, failed: invalidHeld.length, reasons: {} };
+  if (invalidHeld.length) coverage.reasons.invalid_held_shares = invalidHeld.length;
+  return { validHeld, invalidHeld, coverage };
+}
+
+export function recordIntradayQuoteBatchFailure(validHeld, coverage) {
+  coverage.degraded += validHeld.length;
+  if (validHeld.length) coverage.reasons.quote_batch_unavailable = validHeld.length;
+  return buildHoldingMonitorCoverage({ expected: validHeld.length + coverage.failed, ...coverage });
+}
+
+export function recordIntradayProposalQueueFailure(coverage) {
+  coverage.failed += 1;
+  coverage.reasons.exit_proposal_queue_failure = (coverage.reasons.exit_proposal_queue_failure ?? 0) + 1;
+}
+
 export async function runIntradayMonitor({ context = "intraday" } = {}) {
   console.log(`[Intraday] Starting ${context} check...`);
 
@@ -57,7 +78,12 @@ export async function runIntradayMonitor({ context = "intraday" } = {}) {
     listPriceAlerts(),
   ]);
 
-  const heldTickers = allocation.filter((h) => h.shares > 0).map((h) => h.ticker);
+  const { validHeld, invalidHeld, coverage } = initializeIntradayHoldingCoverage(allocation);
+  const heldTickers = validHeld.map((h) => h.ticker);
+  const note = (reason) => { coverage.reasons[reason] = (coverage.reasons[reason] ?? 0) + 1; };
+  const result = () => ({
+    holdingMonitoring: buildHoldingMonitorCoverage({ expected: validHeld.length + invalidHeld.length, ...coverage }),
+  });
   const allTickers = [...new Set([...heldTickers, ...WATCHLIST_TICKERS, ...priceAlerts.map((a) => a.ticker)])];
 
   // Fetch current prices for everything we care about
@@ -66,7 +92,7 @@ export async function runIntradayMonitor({ context = "intraday" } = {}) {
     quotes = await fetchQuotes(allTickers);
   } catch (e) {
     console.warn("[Intraday] Quote fetch failed:", e.message);
-    return;
+    return { holdingMonitoring: recordIntradayQuoteBatchFailure(validHeld, coverage) };
   }
 
   const priceMap = {};
@@ -119,13 +145,21 @@ export async function runIntradayMonitor({ context = "intraday" } = {}) {
   const threeMonthsAgo = new Date(now);
   threeMonthsAgo.setMonth(now.getMonth() - 3);
 
-  for (const pos of allocation.filter((h) => h.shares > 0)) {
+  for (const pos of validHeld) {
     const price = priceMap[pos.ticker];
-    if (!price) continue;
+    if (!price) {
+      coverage.degraded += 1;
+      note("quote_unavailable");
+      continue;
+    }
 
     try {
       const bars = await fetchDailyBars(pos.ticker, { period1: threeMonthsAgo, period2: now });
-      if (bars.length < 20) continue;
+      if (bars.length < 20) {
+        coverage.degraded += 1;
+        note("insufficient_price_history");
+        continue;
+      }
 
       const recentBars = bars.slice(-20);
       const high20 = Math.max(...recentBars.map((b) => b.high));
@@ -142,23 +176,33 @@ export async function runIntradayMonitor({ context = "intraday" } = {}) {
         console.log(`[Intraday] ${pos.ticker}: ATR stop breached at $${price} (stop $${stopLevel}) — flagging for exit.`);
 
         if (!hasOpenProposal(openProposals, { agentId: EXIT_AGENT_ID, ticker: pos.ticker, side: "SELL" })) {
-          const created = await createProposal({
-            agentId: EXIT_AGENT_ID,
-            ticker: pos.ticker,
-            side: "SELL",
-            amountDollars: Math.round((pos.marketValue ?? 0) * 100) / 100,
-            maxPrice: null,
-            rationale: `Intraday ATR stop breach: ${pos.ticker} at $${price} is below ATR stop $${stopLevel} (20-day high $${high20.toFixed(2)} − 1.5×ATR $${atrVal.toFixed(2)}). Position is at a loss (${returnP.toFixed(1)}%). Agent One memo requires fast exit.`,
-            riskSummary: `ATR stop triggered intraday. Full exit signal analysis will run at 4:45 PM ET exit monitor.`,
-          });
-          if (created) {
-            openProposals.push(created);
-            console.log(`[Intraday] Queued SELL ${pos.ticker} $${pos.marketValue} from ATR stop breach.`);
+          let created = null;
+          try {
+            created = await createProposal({
+              agentId: EXIT_AGENT_ID,
+              ticker: pos.ticker,
+              side: "SELL",
+              amountDollars: Math.round((pos.marketValue ?? 0) * 100) / 100,
+              maxPrice: null,
+              rationale: `Intraday ATR stop breach: ${pos.ticker} at $${price} is below ATR stop $${stopLevel} (20-day high $${high20.toFixed(2)} − 1.5×ATR $${atrVal.toFixed(2)}). Position is at a loss (${returnP.toFixed(1)}%). Agent One memo requires fast exit.`,
+              riskSummary: `ATR stop triggered intraday. Full exit signal analysis will run at 4:45 PM ET exit monitor.`,
+            });
+          } catch (error) {
+            console.error(`[Intraday] ${pos.ticker}: exit proposal queue failed:`, error.message);
           }
+          if (!created) {
+            recordIntradayProposalQueueFailure(coverage);
+            continue;
+          }
+          openProposals.push(created);
+          console.log(`[Intraday] Queued SELL ${pos.ticker} $${pos.marketValue} from ATR stop breach.`);
         }
       }
+      coverage.monitored += 1;
     } catch (e) {
       console.warn(`[Intraday] ATR check failed for ${pos.ticker}:`, e.message);
+      coverage.degraded += 1;
+      note("price_history_unavailable");
     }
   }
 
@@ -198,6 +242,13 @@ export async function runIntradayMonitor({ context = "intraday" } = {}) {
   }
 
   console.log(`[Intraday] ${context} check complete.`);
+  const summary = result();
+  console.log(
+    `[Intraday] holding coverage — ${summary.holdingMonitoring.monitored} monitored, ` +
+    `${summary.holdingMonitoring.degraded} explicitly degraded, ` +
+    `${summary.holdingMonitoring.failed} failed of ${summary.holdingMonitoring.expected}.`
+  );
+  return summary;
 }
 
 if (fileURLToPath(import.meta.url) === process.argv[1]) {

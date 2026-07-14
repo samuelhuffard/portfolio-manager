@@ -6,6 +6,7 @@ import {
   shadowWriteProposal,
   shadowWriteLot,
   shadowWriteCapitalEntry,
+  shadowWriteNavSnapshot,
   shadowWritePosition,
   shadowReplacePositions,
 } from "../lib/pg/dual-write.js";
@@ -23,10 +24,25 @@ test("dualWriteEnabled is false without the explicit flag", () => {
 });
 
 test("shadow writes are no-ops that never throw when disabled — even on garbage input", async () => {
-  for (const fn of [shadowWriteProposal, shadowWriteLot, shadowWriteCapitalEntry, shadowWritePosition, shadowReplacePositions]) {
+  for (const fn of [shadowWriteProposal, shadowWriteLot, shadowWriteCapitalEntry, shadowWriteNavSnapshot, shadowWritePosition, shadowReplacePositions]) {
     const res = await fn({ total: "garbage", not: "a real object" });
     assert.deepEqual(res, { ok: false, skipped: true });
   }
+});
+
+test("NAV shadow write validates and inserts a complete accounting snapshot", async () => {
+  const calls = [];
+  const result = await shadowWriteNavSnapshot({
+    date: "2026-07-14",
+    totalValue: 125.37,
+    cash: 110,
+    unitsOutstanding: 100,
+    navPerUnit: 1.2537,
+  }, { enabled: true, pool: { query: async (...args) => calls.push(args) } });
+  assert.deepEqual(result, { ok: true });
+  assert.equal(calls.length, 1);
+  assert.match(calls[0][0], /INSERT INTO nav_snapshots/);
+  assert.deepEqual(calls[0][1], ["2026-07-14", 125.37, 110, 100, 1.2537]);
 });
 
 test("an enabled shadow failure is reported but never thrown into the authoritative path", async () => {
@@ -70,6 +86,27 @@ test("position refresh rolls back a partial shadow transaction and still does no
   } finally {
     console.error = originalError;
   }
+});
+
+test("position refresh stores one quote provenance identity with every valuation row", async () => {
+  const calls = [];
+  const client = { async query(...args) { calls.push(args); }, release() {} };
+  const result = await shadowReplacePositions([
+    { ticker: "NVDA", shares: 1, avgCost: 100, costBasis: 100, marketValue: 110 },
+  ], {
+    enabled: true,
+    pool: { connect: async () => client },
+    valuation: {
+      quoteSnapshotVersion: "yahoo-quote-set-v1:abc",
+      quoteSource: "yahoo-finance2:quote",
+      quoteTimestamp: "2026-07-14T19:59:58.000Z",
+    },
+  });
+  assert.deepEqual(result, { ok: true });
+  const insert = calls.find(([sql]) => String(sql).includes("INSERT INTO positions"));
+  assert.equal(insert[1][6], "yahoo-quote-set-v1:abc");
+  assert.equal(insert[1][7], "yahoo-finance2:quote");
+  assert.equal(insert[1][8].toISOString(), "2026-07-14T19:59:58.000Z");
 });
 
 test.after(() => {

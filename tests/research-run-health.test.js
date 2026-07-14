@@ -21,6 +21,8 @@ test("budget and rate failures are not classified as investment judgments", () =
   assert.equal(classifyResearchFailure(new Error("429 rate limit exceeded")).kind, "budget_exhausted");
   assert.equal(classifyResearchFailure(new Error("monthly credit balance exhausted")).kind, "budget_exhausted");
   assert.equal(classifyResearchFailure(new Error("Yahoo fetch failed")).kind, "scan_error");
+  const monthly = Object.assign(new Error("monthly ceiling reached"), { code: "monthly_budget_exhausted" });
+  assert.equal(classifyResearchFailure(monthly).kind, "monthly_budget_exhausted");
 });
 
 test("provider failures page immediately while ordinary scan errors remain logged", () => {

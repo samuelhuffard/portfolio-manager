@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { compareParity, renderParityReport } from "../lib/pg/parity.js";
+import { compareParity, comparePositionValuation, renderParityReport } from "../lib/pg/parity.js";
 
 test("compareParity reports MATCH when counts and money sums agree", () => {
   const sheets = { proposals: { count: 5 }, capital_entries: { count: 3, sum: 1500.0 } };
@@ -42,4 +42,64 @@ test("compareParity detects equal-count lifecycle inventory drift", () => {
   );
   assert.equal(r.ok, false);
   assert.match(r.divergences[0].reason, /digest authoritative vs stale-shadow/);
+});
+
+test("valuation is non-comparable without versioned quote provenance", () => {
+  const valuation = comparePositionValuation(
+    { inventory: { count: 1, digest: "sheet-15.37" }, quoteSnapshotVersion: null, quoteSource: null, quoteTimestamp: null },
+    { inventory: { count: 1, digest: "pg-15.39" }, quoteSnapshotVersion: null, quoteSource: null, quoteTimestamp: null },
+  );
+  assert.equal(valuation.status, "NON_COMPARABLE");
+  assert.equal(valuation.comparable, false);
+  assert.match(valuation.reason, /quote provenance unavailable/);
+});
+
+test("valuation classifies source/version and timestamp mismatches without comparing values", () => {
+  const base = {
+    inventory: { count: 1, digest: "value-a" },
+    quoteSnapshotVersion: "quote-v1",
+    quoteSource: "provider-a",
+    quoteTimestamp: "2026-07-14T20:00:00.000Z",
+  };
+  assert.equal(comparePositionValuation(base, {
+    ...base, inventory: { count: 1, digest: "value-b" }, quoteSource: "provider-b",
+  }).status, "PROVENANCE_MISMATCH");
+  assert.equal(comparePositionValuation(base, {
+    ...base, inventory: { count: 1, digest: "value-b" }, quoteTimestamp: "2026-07-14T20:01:00.000Z",
+  }).status, "FRESHNESS_MISMATCH");
+});
+
+test("valuation compares exactly only for the same identified quote snapshot", () => {
+  const base = {
+    inventory: { count: 1, digest: "same-value" },
+    quoteSnapshotVersion: "quote-v1",
+    quoteSource: "provider-a",
+    quoteTimestamp: "2026-07-14T20:00:00.000Z",
+  };
+  assert.equal(comparePositionValuation(base, { ...base }).status, "EXACT_MATCH");
+  assert.equal(comparePositionValuation(base, {
+    ...base, inventory: { count: 1, digest: "different-value" },
+  }).status, "VALUE_MISMATCH");
+});
+
+test("valuation never claims an exact match from missing inventories or invalid timestamps", () => {
+  const provenance = {
+    quoteSnapshotVersion: "quote-v1",
+    quoteSource: "provider-a",
+    quoteTimestamp: "not-a-timestamp",
+  };
+  assert.equal(comparePositionValuation(provenance, provenance).status, "UNREADABLE");
+  const withInventory = { ...provenance, inventory: { count: 1, digest: "value" } };
+  assert.equal(comparePositionValuation(withInventory, withInventory).status, "NON_COMPARABLE");
+});
+
+test("renderParityReport labels non-comparable valuation separately", () => {
+  const result = compareParity({ positions: { count: 1, digest: "same" } }, { positions: { count: 1, digest: "same" } });
+  result.valuation = comparePositionValuation(
+    { inventory: { count: 1, digest: "a" } },
+    { inventory: { count: 1, digest: "b" } },
+  );
+  const text = renderParityReport(result);
+  assert.match(text, /MATCH/);
+  assert.match(text, /positions valuation: NON_COMPARABLE/);
 });

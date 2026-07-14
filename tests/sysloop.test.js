@@ -115,11 +115,49 @@ test("every check fails closed when its input is missing", () => {
 
 // ── individual checks ────────────────────────────────────────────────────────
 
-test("pm2: offline process is P1, flapping is P2", () => {
+test("pm2: offline, missing baselines, and every unexplained restart delta are P1", () => {
   const offline = checkPm2({ processes: [{ name: "portfolio-manager", pm2_env: { status: "errored", restart_time: 4 } }] });
   assert.equal(offline[0].severity, "P1");
-  const flapping = checkPm2({ processes: [{ name: "portfolio-manager", pm2_env: { status: "online", restart_time: 9 } }], prevRestarts: 2 });
-  assert.equal(flapping[0].severity, "P2");
+  const flapping = checkPm2({
+    processes: [{ name: "portfolio-manager", pm2_env: { status: "online", restart_time: 9, unstable_restarts: 4, exit_code: 1 } }],
+    prevRestarts: 2,
+    prevUnstableRestarts: 0,
+  });
+  assert.equal(flapping[0].severity, "P1");
+  const controlled = checkPm2({
+    processes: [{ name: "portfolio-manager", pm2_env: { status: "online", restart_time: 9, unstable_restarts: 0, exit_code: 0 } }],
+    prevRestarts: 2,
+    prevUnstableRestarts: 0,
+  });
+  assert.equal(controlled[0].severity, "P1");
+  assert.match(controlled[0].title, /cause.*untrusted/i);
+  const unexplained = checkPm2({
+    processes: [{ name: "portfolio-manager", pm2_env: { status: "online", restart_time: 9 } }],
+    prevRestarts: 2,
+  });
+  assert.equal(unexplained[0].severity, "P1");
+  assert.match(unexplained[0].title, /cause.*untrusted/i);
+  const missingBaseline = checkPm2({
+    processes: [{ name: "portfolio-manager", pm2_env: { status: "online", restart_time: 9, unstable_restarts: 0, exit_code: 0 } }],
+  });
+  assert.equal(missingBaseline[0].severity, "P1");
+  assert.match(missingBaseline[0].title, /baseline.*unavailable/i);
+  const missingUnstableBaseline = checkPm2({
+    processes: [{ name: "portfolio-manager", pm2_env: { status: "online", restart_time: 9, unstable_restarts: 0, exit_code: 0 } }],
+    prevRestarts: 2,
+  });
+  assert.match(missingUnstableBaseline[0].title, /cause.*untrusted/i);
+  const missingRestartMetadata = checkPm2({
+    processes: [{ name: "portfolio-manager", pm2_env: { status: "online", unstable_restarts: 0, exit_code: 0 } }],
+  });
+  assert.match(missingRestartMetadata[0].title, /metadata.*unavailable/i);
+  const resetCounter = checkPm2({
+    processes: [{ name: "portfolio-manager", pm2_env: { status: "online", restart_time: 1, unstable_restarts: 0, exit_code: 0 } }],
+    prevRestarts: 9,
+    prevUnstableRestarts: 0,
+  });
+  assert.equal(resetCounter[0].severity, "P1");
+  assert.match(resetCounter[0].title, /baseline.*reset/i);
   const healthy = checkPm2({ processes: [{ name: "portfolio-manager", pm2_env: { status: "online", restart_time: 2 } }], prevRestarts: 2 });
   assert.equal(healthy.length, 0);
 });
@@ -195,7 +233,7 @@ test("cron freshness: weekend runs are quiet", () => {
   assert.equal(out.length, 0);
 });
 
-test("cron freshness does not expect Sun-Thu research jobs on Friday", () => {
+test("cron freshness does not expect Mon-Thu research jobs on Friday", () => {
   const friday = { ...ET, date: "2026-07-10", weekday: "Fri", iso: "2026-07-10T22:15:00Z" };
   const lastRuns = Object.fromEntries(
     Object.keys({

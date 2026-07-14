@@ -5,6 +5,7 @@ import { AGENTS } from "../config/agents.js";
 import { classifyEvaluatorHealth, computeWeeklyScorecard, formatScorecardForPrompt, parseWeeklyLessons } from "../lib/weekly-scorecard.js";
 import { listAgentMemories, applyWeeklyLessons } from "../lib/agent-memory.js";
 import { recordAnthropicUsage } from "../lib/anthropic-usage.js";
+import { createAnthropicMonthlyBudget } from "../lib/anthropic-monthly-budget.js";
 import { getWeeklyReviewArtifact, listAllProposals, setWeeklyReviewArtifact } from "../lib/redis.js";
 import { getServiceAccountClients, resolveSharedSpreadsheetId, readAgentRecommendationOutcomes } from "../lib/sheets.js";
 import { sendMessage as sendTelegram } from "../lib/telegram.js";
@@ -20,7 +21,7 @@ import { sendMessage as sendTelegram } from "../lib/telegram.js";
  * malformed model response yields zero lessons (fail closed), never garbage memory.
  */
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY?.trim() });
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY?.trim(), maxRetries: 0 });
 const WEEKLY_REVIEW_MODEL = "claude-sonnet-4-6";
 
 const LESSON_PROMPT_RULES = `You write weekly calibration lessons for an investment research agent, based ONLY on the deterministic scorecard provided. Rules:
@@ -39,23 +40,38 @@ function isoWeekOf(date = new Date()) {
   return `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
 }
 
-async function generateLessons(scorecard, existingLessons) {
+export async function generateLessons(scorecard, existingLessons, { monthlyBudget, anthropicClient = anthropic } = {}) {
   const existingBlock = existingLessons.length
     ? `Existing lessons from prior weekly reviews (candidates for "retire" if contradicted):\n${existingLessons.map((m) => `- ${m.text}`).join("\n")}`
     : "No existing weekly lessons.";
-  const response = await anthropic.messages.create({
+  const request = {
     model: WEEKLY_REVIEW_MODEL,
     max_tokens: 500,
     system: [{ type: "text", text: LESSON_PROMPT_RULES }],
     messages: [{ role: "user", content: `${formatScorecardForPrompt(scorecard)}\n\n${existingBlock}` }],
+  };
+  const monthlyAuthorization = await monthlyBudget?.authorizeCall({
+    role: "weekly_review",
+    model: WEEKLY_REVIEW_MODEL,
+    request,
   });
-  await recordAnthropicUsage({
+  let response;
+  try {
+    response = await anthropicClient.messages.create(request);
+  } catch (error) {
+    await monthlyBudget?.settleProviderFailure?.(monthlyAuthorization, error);
+    throw error;
+  }
+  const telemetryResult = await recordAnthropicUsage({
     role: "weekly_review",
     agentId: scorecard.agentId,
     model: WEEKLY_REVIEW_MODEL,
     stopReason: response.stop_reason,
     usage: response.usage,
+    pricingVersion: monthlyAuthorization?.pricingVersion ?? null,
+    now: monthlyAuthorization?.authorizedAt ? new Date(monthlyAuthorization.authorizedAt) : new Date(),
   });
+  await monthlyBudget?.settleCall(monthlyAuthorization, telemetryResult);
   if (response.stop_reason === "max_tokens") {
     console.warn(`[WeeklyReview] ${scorecard.agentId}: lesson response hit max_tokens — discarding (fail closed).`);
     return { lessons: [], retire: [], parseError: true };
@@ -64,7 +80,8 @@ async function generateLessons(scorecard, existingLessons) {
   return parseWeeklyLessons(text);
 }
 
-export async function runWeeklyReview({ now = Date.now() } = {}) {
+export async function runWeeklyReview({ now = Date.now(), monthlyBudget = null, anthropicClient = anthropic } = {}) {
+  const spendBudget = monthlyBudget ?? createAnthropicMonthlyBudget({ now: () => new Date(now) });
   const { sheets, drive } = getServiceAccountClients();
   const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
   const proposals = await listAllProposals();
@@ -91,7 +108,7 @@ export async function runWeeklyReview({ now = Date.now() } = {}) {
         Object.values(scorecard.trackRecord).some((t) => t.matured > 0);
       if (hasSignal) {
         const existingWeekly = (await listAgentMemories(agent.id, 100)).filter((m) => m.source === "weekly_review");
-        lessonResult = await generateLessons(scorecard, existingWeekly);
+        lessonResult = await generateLessons(scorecard, existingWeekly, { monthlyBudget: spendBudget, anthropicClient });
         if (lessonResult.lessons.length || lessonResult.retire.length) {
           await applyWeeklyLessons(agent.id, lessonResult, new Date(now).toISOString());
         }

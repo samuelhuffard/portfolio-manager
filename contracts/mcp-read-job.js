@@ -6,6 +6,7 @@
 import { z } from "zod";
 
 export const MCP_READ_JOB_KINDS = ["holdings-sync", "order-reconciliation"];
+export const MCP_ACCOUNT_POLICY_VERSION = "agentic-account-binding-v1";
 export const McpReadJobKindSchema = z.enum(MCP_READ_JOB_KINDS);
 
 export const McpReadRequestSchema = z.object({
@@ -13,6 +14,7 @@ export const McpReadRequestSchema = z.object({
   kind: McpReadJobKindSchema,
   requestedAt: z.string().datetime(),
   requestedForET: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  invocationId: z.string().regex(/^\d{4}-\d{2}-\d{2}\/\d{2}:\d{2}$/).nullable().default(null),
 });
 
 export const McpReadReceiptSchema = z.object({
@@ -23,4 +25,7 @@ export const McpReadReceiptSchema = z.object({
   ok: z.boolean(),
   outcome: z.enum(["ok", "mismatch", "failed"]),
   error: z.string().max(500).nullable(),
+  invocationId: z.string().regex(/^\d{4}-\d{2}-\d{2}\/\d{2}:\d{2}$/).nullable(),
+  accountVerified: z.boolean(),
+  accountPolicyVersion: z.literal(MCP_ACCOUNT_POLICY_VERSION),
 });

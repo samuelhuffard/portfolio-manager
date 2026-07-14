@@ -28,6 +28,7 @@ import {
 } from "../lib/sheets.js";
 import { listAllProposals, createProposal } from "../lib/redis.js";
 import { hasOpenProposal } from "../lib/proposal-sizing.js";
+import { buildHoldingMonitorCoverage } from "../lib/holding-monitor-coverage.js";
 
 const AGENT_ID = "agent-1";
 
@@ -54,6 +55,21 @@ async function benchmarkClosesFor(subVertical, period1, period2) {
   return { ticker, closes: benchmarkCache.get(ticker) };
 }
 
+export function exitProposalAmount(decision, marketValue) {
+  if (!["SELL", "TRIM"].includes(decision?.action)) return null;
+  if (!Number.isFinite(marketValue) || marketValue <= 0) {
+    throw new Error(`${decision.action} signalled without a positive market value`);
+  }
+  const amount = Math.round(marketValue * (decision.reducePct / 100) * 100) / 100;
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error("exit proposal amount is not positive");
+  return amount;
+}
+
+export function requireQueuedExitProposal(proposal) {
+  if (!proposal) throw new Error("exit proposal could not be durably queued");
+  return proposal;
+}
+
 export async function runExitMonitor() {
   benchmarkCache.clear();
   const { sheets, drive } = getServiceAccountClients();
@@ -69,21 +85,44 @@ export async function runExitMonitor() {
   const eightMonthsAgo = new Date(now);
   eightMonthsAgo.setMonth(now.getMonth() - 8);
 
+  const held = allocation.filter((position) => position.shares !== 0);
   const flags = [];
-  for (const { ticker, marketValue } of allocation) {
+  const coverage = { monitored: 0, degraded: 0, failed: 0, reasons: {} };
+  const note = (reason) => { coverage.reasons[reason] = (coverage.reasons[reason] ?? 0) + 1; };
+  const unnote = (reason) => {
+    if (!reason || !coverage.reasons[reason]) return;
+    coverage.reasons[reason] -= 1;
+    if (coverage.reasons[reason] === 0) delete coverage.reasons[reason];
+  };
+  for (const { ticker, shares, marketValue } of held) {
+    let accountedKind = null;
+    let accountedReason = null;
     try {
-      const [bars, fundamentals, surprise] = await Promise.all([
-        fetchDailyBars(ticker, { period1: eightMonthsAgo, period2: now }),
-        fetchFundamentals(ticker),
-        fetchEarningsSurprise(ticker),
+      if (!Number.isFinite(shares) || shares < 0) {
+        coverage.failed += 1;
+        note("invalid_held_shares");
+        continue;
+      }
+      const bars = await fetchDailyBars(ticker, { period1: eightMonthsAgo, period2: now });
+      const [fundamentalsResult, surpriseResult] = await Promise.allSettled([
+        fetchFundamentals(ticker), fetchEarningsSurprise(ticker),
       ]);
+      const degradedReasons = [];
+      const fundamentals = fundamentalsResult.status === "fulfilled" ? fundamentalsResult.value : { raw: {} };
+      const surprise = surpriseResult.status === "fulfilled" ? surpriseResult.value : null;
+      if (fundamentalsResult.status === "rejected") degradedReasons.push("fundamentals_unavailable");
+      if (surpriseResult.status === "rejected") degradedReasons.push("earnings_surprise_unavailable");
       const closes = bars.map((b) => b.close);
       const subVertical = classifySubVertical(fundamentals);
-      const { ticker: benchTicker, closes: benchmarkCloses } = await benchmarkClosesFor(
-        subVertical,
-        eightMonthsAgo,
-        now
-      );
+      let benchTicker = SUBVERTICAL_BENCHMARK[subVertical] || "QQQ";
+      let benchmarkCloses = [];
+      try {
+        const benchmark = await benchmarkClosesFor(subVertical, eightMonthsAgo, now);
+        benchTicker = benchmark.ticker;
+        benchmarkCloses = benchmark.closes;
+      } catch {
+        degradedReasons.push("benchmark_unavailable");
+      }
 
       // T3 fundamental read. V1 fills EPS-surprise numerically; guidance cut / margin
       // compression / credibility events remain future AI-overlay + filing inputs (the
@@ -101,6 +140,7 @@ export async function runExitMonitor() {
         marketCap,
         avgDollarVolume: avgDailyDollarVolume(bars, 30),
       });
+      if (dataGate.missing?.length) degradedReasons.push("partial_data");
 
       const signals = evaluateExitSignals({
         closes,
@@ -118,22 +158,25 @@ export async function runExitMonitor() {
         ` — ${decision.reasons.join("; ")}`;
       console.log(`[ExitMonitor] ${line}`);
       flags.push(line);
+      if (degradedReasons.length) {
+        coverage.degraded += 1;
+        accountedKind = "degraded";
+        accountedReason = degradedReasons[0];
+        note(accountedReason);
+      } else {
+        coverage.monitored += 1;
+        accountedKind = "monitored";
+      }
 
       if (decision.action !== "SELL" && decision.action !== "TRIM") continue;
 
       // Size the exit off current market value. createProposal only accepts BUY/SELL, so a
       // partial TRIM is a SELL of reducePct of the position.
-      if (!Number.isFinite(marketValue) || marketValue <= 0) {
-        console.warn(`[ExitMonitor] ${ticker}: ${decision.action} signalled but no market value — skipping proposal.`);
-        continue;
-      }
+      const amountDollars = exitProposalAmount(decision, marketValue);
       if (hasOpenProposal(openProposals, { agentId: AGENT_ID, ticker, side: "SELL" })) {
         console.log(`[ExitMonitor] ${ticker}: SELL proposal already open — not double-queuing.`);
         continue;
       }
-
-      const amountDollars = Math.round(marketValue * (decision.reducePct / 100) * 100) / 100;
-      if (amountDollars <= 0) continue;
 
       const rationale =
         `${decision.action === "TRIM" ? `Partial exit (reduce ${decision.reducePct}%)` : "Full exit"} — ` +
@@ -143,30 +186,34 @@ export async function runExitMonitor() {
         `Speed: ${decision.speed}. Return-to-date ${returnPct[ticker] ?? "n/a"}%. ` +
         `Sized to ${decision.reducePct}% of $${Math.round(marketValue).toLocaleString()} market value.`;
 
-      try {
-        const created = await createProposal({
-          agentId: AGENT_ID,
-          ticker,
-          side: "SELL",
-          amountDollars,
-          maxPrice: null,
-          rationale,
-          riskSummary,
-        });
-        if (created) {
-          openProposals.push(created);
-          console.log(`[ExitMonitor] queued SELL ${ticker} ($${amountDollars}) — ${decision.action}.`);
-        }
-      } catch (err) {
-        console.warn(`[ExitMonitor] ${ticker}: failed to queue exit proposal:`, err.message);
-      }
+      const created = await createProposal({
+        agentId: AGENT_ID,
+        ticker,
+        side: "SELL",
+        amountDollars,
+        maxPrice: null,
+        rationale,
+        riskSummary,
+      });
+      requireQueuedExitProposal(created);
+      openProposals.push(created);
+      console.log(`[ExitMonitor] queued SELL ${ticker} ($${amountDollars}) — ${decision.action}.`);
     } catch (err) {
       console.error(`[ExitMonitor] ${ticker} failed:`, err.message);
+      if (accountedKind) coverage[accountedKind] -= 1;
+      unnote(accountedReason);
+      coverage.failed += 1;
+      note("monitoring_exception");
     }
   }
 
-  console.log(`[ExitMonitor] done — reviewed ${allocation.length} positions.`);
-  return flags;
+  const holdingMonitoring = buildHoldingMonitorCoverage({ expected: held.length, ...coverage });
+  console.log(
+    `[ExitMonitor] done — ${holdingMonitoring.monitored} monitored, ` +
+    `${holdingMonitoring.degraded} explicitly degraded, ${holdingMonitoring.failed} failed ` +
+    `of ${holdingMonitoring.expected} held positions.`
+  );
+  return { flags, holdingMonitoring };
 }
 
 if (fileURLToPath(import.meta.url) === process.argv[1]) {

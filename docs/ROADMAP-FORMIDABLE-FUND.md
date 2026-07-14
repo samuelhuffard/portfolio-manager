@@ -1,6 +1,12 @@
 # Portfolio Manager — Research Strategy Roadmap
 
-**Rev 2026-07-13 · canonical research-and-edge plan for Sam + investing partner**
+> **Narrow authority: SKILL detail.** The canonical cross-portfolio sequence,
+> current-status index, two-clock policy, and promotion/demotion gates live in
+> [the master plan](portfolio-master-plan.md). If this roadmap conflicts with the
+> master plan, the master plan wins. This file retains the detailed research and
+> edge-measurement design.
+
+**Rev 2026-07-13 · detailed research-and-edge plan for Sam + investing partner**
 
 > **North-star thesis: deterministic breadth, evidence-triggered AI depth.**
 >

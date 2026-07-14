@@ -1,6 +1,6 @@
 # ADR 0001 — Postgres as the canonical financial store
 
-- **Status:** ACCEPTED — provider = **Neon** (Sam, 2026-07-11). Cutover is still gated on Phase 1 completion; do not start the dual-write migration before then. Schema drafting from the contracts package may proceed now as prep.
+- **Status:** ACCEPTED — provider = **Neon** (Sam, 2026-07-11). A non-authoritative dual-write/shadow foundation now exists, but canonical-read cutover remains prohibited until the master plan's contract, 30-day parity, restore, and crash gates pass.
 - **Date:** 2026-07-11
 - **Decision rationale:** we need exactly one thing — transactional Postgres. Auth stays with Clerk (dedicated auth beats a bundled one; RLS remains available on Neon if per-user row isolation is ever needed). Neon's branching directly serves the shadow-read migration. Auth and DB decisions are independent and were kept so.
 - **Context source:** roadmap Phase 2 ([[portfolio-manager-autonomy-roadmap]] / `docs/AUTONOMY-ROADMAP.md`).
@@ -16,8 +16,8 @@ reproducibility or backup/restore story. Roadmap rule #7: "Postgres becomes
 canonical; Sheets becomes a one-way reporting export."
 
 This ADR does **not** authorize the cutover. It records the provider choice and
-the migration method so the work can start immediately once Phase 1 (the shared
-contracts + ownership + one pipeline) is complete and Sam picks a provider.
+migration method. The implemented shadow foundation remains replaceable and
+non-authoritative until the master plan's later gates pass.
 
 ## Decision to be made by Sam
 
@@ -61,7 +61,16 @@ does not block this.
 1. Import historical Sheet data with provenance + a verification report.
 2. **Dual-write / shadow-read**: writes go to both Sheets (authoritative) and
    Postgres (shadow); reads still come from Sheets. Nothing user-facing changes.
-3. Compare NAV, units, positions, lots, cash, realized P&L **daily** for ≥30 days.
+3. Compare NAV, units, transactional positions, lots, cash, and realized P&L
+   **daily** for ≥30 days. Transactional position truth is ticker/name/shares/
+   average cost/cost basis at the schema's canonical precision. Report
+   quote-derived market value separately; compare it exactly only when both
+   stores identify the same versioned quote snapshot, source, and source
+   timestamp. Otherwise classify it as non-comparable or a provenance/freshness
+   mismatch without claiming an accounting divergence.
+   The gate-closing shadow implementation mirrors the latest signed Performance
+   projection plus current Holdings cash into `nav_snapshots` and compares that
+   snapshot exactly; this is still shadow evidence, not canonical-read authority.
 4. Cut canonical reads to Postgres only after clean parity.
 5. Make Sheets a generated read-only projection; retire its mutation paths.
 
@@ -75,6 +84,6 @@ reproduce exactly; a clean-environment restore passes reconciliation.
 - One typed source of financial truth; atomic money mutations; real backups.
 - The dual-write period is extra write load and code, but it is the only safe way
   to move a live-money system without a flag-day cutover.
-- Prerequisite: the contracts package must cover every migrated object first
-  (in progress — proposal/lot/signature/pipeline done; accounting/investor shapes
-  still to add).
+- Prerequisite: the contracts package must cover every migrated object first.
+  Proposal, lot, pipeline, accounting, investor, position, and NAV snapshot
+  shapes now exist; remaining objects still require contracts before migration.

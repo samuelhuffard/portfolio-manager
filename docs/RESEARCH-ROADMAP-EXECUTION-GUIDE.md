@@ -1,5 +1,11 @@
 # Portfolio Manager — Research Roadmap Execution Guide
 
+> **Narrow authority: engineering packets.** Phase order, TRUST/SKILL labels,
+> current status, and promotion/reset gates are canonical in
+> [the master plan](portfolio-master-plan.md). This guide specifies bounded work
+> packets and verification; it cannot promote a phase or resolve a human policy
+> question.
+
 **Rev 2026-07-13 · companion to `docs/ROADMAP-FORMIDABLE-FUND.md`**
 
 > The roadmap defines the destination and the gates. This document turns it into bounded engineering work that an executor model can complete without silently changing the investment thesis, authority model, or safety invariants.

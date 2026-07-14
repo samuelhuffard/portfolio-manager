@@ -16,6 +16,21 @@ Gotchas (all real bugs):
 - Extending headers on an existing tab: use `ensureHeadersExtendable` (migrates in place), and remember it writes by row index captured at read time.
 - Holdings parsing relies on sentinel strings (`"Cash"`, `"Last synced"`, `"⚠️"`) — don't reformat those rows.
 
+## Changing Postgres shadow parity
+
+Files: `lib/pg/inventory.js` (canonical inventory fields/precision),
+`lib/pg/parity.js` (comparison classifications/report),
+`lib/pg/parity-runner.js` (store reads), `tests/pg-inventory.test.js`, and
+`tests/pg-parity*.test.js`.
+
+Gotchas:
+- Position transactional parity is exact over ticker, name, shares (8 decimals), average cost (4), and cost basis (2). `marketValue` is quote-derived and must not enter that digest.
+- Compare valuation exactly only when both sides carry the same non-empty versioned quote snapshot, quote source, and source timestamp. A Sheet read time or Postgres `updated_at` is storage freshness, not quote provenance.
+- The Holdings marker also carries a digest bound to ticker, shares, provider current price, and rounded market value. Validate that digest against rows from the same Sheets read before copying provenance to Postgres; a stale/manual/interleaved edit must degrade to `NON_COMPARABLE`, never false `EXACT_MATCH`.
+- `jobs/holdings-sync.js` builds one canonical cent-rounded monetary projection before either the Sheet or Postgres write. Do not independently round the two destinations; half-cent boundaries otherwise create false parity failures.
+- Missing provenance is `NON_COMPARABLE`; different source/version is `PROVENANCE_MISMATCH`; different source timestamp is `FRESHNESS_MISMATCH`. Keep these visible without calling them accounting divergence.
+- Unreadable stores and transactional digest/count differences remain fail-closed. A valuation inventory mismatch from the same identified quote snapshot is a real shadow-projection divergence.
+
 ## Changing recommendation / research logic
 
 Files: `jobs/research-scan.js` (orchestration), `lib/quant-scorer.js` (scoring), `lib/ai-overlay.js` (prompt + JSON parse), `lib/risk-engine.js` + `config/agents/<id>/risk-limits.json` (deterministic checks), `lib/screener.js`, `lib/data-gates.js`, `lib/conviction.js`, `lib/evaluator.js` (independent proposal evaluator), `lib/evidence.js` (untrusted-text fencing/redaction), `lib/circuit-breaker.js` (drawdown tiers), `config/agents/<id>/weights.json`, `lib/athena.js` (optional Athena dossier evidence, env-gated). Design rationale: `docs/LOOP-DESIGN.md`.
@@ -199,3 +214,20 @@ Gotchas:
 3. Update the three signature copies together if the payload changed.
 4. Run both test suites; run `npm run build` on the dashboard.
 5. Deploy order for breaking Redis-schema changes: writer first only if readers tolerate the new field; otherwise readers first.
+
+## Changing financial shadow parity
+
+Exact transactional parity lives in `lib/pg/inventory.js` and
+`lib/pg/parity-runner.js`. It covers proposal lifecycle, capital entries/units,
+strategy-owned lots, position shares/cost, and the latest total-value/cash/units
+accounting snapshot. `jobs/holdings-sync.js` and
+`scripts/refresh-shadow-positions.js` mirror the accounting snapshot through
+`shadowWriteNavSnapshot`; the latter runs before the nightly parity job. Quote-
+derived market value is a separate classification in `lib/pg/parity.js` and may
+only exact-match when both stores carry the same quote snapshot/source/time.
+
+Gotchas:
+- Never put `marketValue` back into `POSITION_TRANSACTIONAL_INVENTORY`.
+- A missing Postgres accounting snapshot is a read failure, not an empty match.
+- Keep Sheets authoritative until the full 30-day cutover gate passes; shadow
+  write failures remain non-blocking on the write path and loud in parity.

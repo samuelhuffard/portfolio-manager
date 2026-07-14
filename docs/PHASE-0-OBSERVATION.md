@@ -1,5 +1,10 @@
 # Phase 0 Observation Record
 
+> **Narrow authority: append-only Phase 0 evidence.** The daily rows and count in
+> this file are the evidence for the window. The window definition, two-clock
+> reset taxonomy, and portfolio-wide sequence are canonical in
+> [the master plan](portfolio-master-plan.md).
+
 **Owner:** Codex, with Sam as final authority  
 **Purpose:** the authoritative human-readable record for the 10 consecutive clean
 trading-day Phase 0 exit gate in `AUTONOMY-ROADMAP.md`. This is evidence tracking,
@@ -89,6 +94,25 @@ day is the first candidate for the fresh post-deploy window. Existing P1 artifac
 positions parity divergence, and Yahoo/Athena upstream noise remain open and keep the
 gate closed until the daily checklist proves otherwise.
 
+### 2026-07-14 ET current live correction
+
+Later live verification supersedes the open-artifact and unexplained-restart status
+above without rewriting the July 13 historical record:
+
+- Production is clean on branch `mandate-v3` at backend commit `e162637`.
+- Both historical `reason=smoke` reconciliation artifacts have signed resolutions.
+- The historical unsigned NVDA approval is rejected/closed.
+- Live Redis has zero open reconciliation records and zero unsigned approved proposals.
+- The observed PM2 restart count of 35 correlates to controlled `SIGINT` deployment
+  restarts; `unstable_restarts=0` and `exit_code=0`, so the count is not evidence of
+  a crash loop.
+
+This cleanup does not start or backfill the observation clock. Transactional versus
+valuation parity changes, the automated observer, and cost-governance work remain
+local/uncommitted until the final reviewed gate-closing release. Phase 0 therefore
+remains **0/10**, and the first possible Day 1 is a clean trading day after that
+release.
+
 ### Watch, do not normalize away
 
 - Freshly distinguish the retired Python sync's 2026-07-10 failures from the MCP path;
@@ -100,16 +124,29 @@ gate closed until the daily checklist proves otherwise.
 ## Daily evidence checklist
 
 After the market close, record the evidence rather than a subjective status.
+The read-only observer described in [PHASE-0-OBSERVER.md](PHASE-0-OBSERVER.md)
+runs after the 8:10 PM final sentinel refresh and creates the signed,
+create-once automated evidence packet at 8:15 PM ET with
+independent TRUST safety-day and SKILL research-cohort verdicts; this human
+record remains authoritative for attestations, contradictions, and the
+consecutive safety-day decision.
 
 1. Jetson health is 200 and every required dependency is true.
 2. The scheduled holdings sync and order reconciliation each have a valid, account-bound
    MCP receipt; the companion is online and has a fresh heartbeat.
 3. `npm run ledgers:verify` is clean; no manual ledger repair occurred.
-4. `npm run db:parity` is a MATCH; Sheets and Postgres counts/digests agree.
+4. `npm run db:parity` reports transactional `MATCH`: Sheets and Postgres
+   ticker/name/shares/average-cost/cost-basis counts and digests agree. Record the
+   separately reported valuation classification. Until the stores persist the
+   same versioned quote snapshot/source/timestamp, valuation is
+   `NON_COMPARABLE` (or a provenance/freshness mismatch), not evidence of an
+   accounting divergence and not evidence of exact valuation parity.
 5. All critical market jobs ran or have a documented market-calendar skip. No hidden
    failure, unresolved fill, invalid signature, or unsafe client exposure occurred.
-6. Every holding was monitored despite quote/data degradation. Log any Athena/Yahoo/FRED
-   degradation and prove it was downgraded or blocked.
+6. Every due holding-monitor record conserves `held = monitored + explicitly degraded`
+   with zero failed, overflow, or silent skips. Log aggregate Athena/Yahoo/FRED
+   degradation and prove it blocked or downgraded action; do not put private
+   tickers in the automated ops record.
 7. Update proposal throughput: cumulative genuine actionable proposals, evaluator
    approvals, filled trades, and any owner/lot reconciliation requirement.
 
@@ -134,4 +171,4 @@ After the market close, record the evidence rather than a subjective status.
 - Genuine actionable proposals: **0 / 3 required during the window**
 - Evaluator approvals: **0 / 1 required during the window**
 - Filled trades during this observation window: **0**
-- Autonomy level: **human-supervised; Agents 2/3 paper-only; Agent 4 shadow-only**
+- Autonomy level: **human-supervised; Agents 2/3 supervised and static-watchlist-bound; Agent 4 shadow-only**

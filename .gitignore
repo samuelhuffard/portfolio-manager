@@ -26,6 +26,7 @@ npm-debug.log*
 
 # sysloop daily snapshots (host-local debugging only; Redis is the transport)
 ops/health/
+ops/phase0-observations/
 
 # macOS
 .DS_Store
