@@ -58,7 +58,12 @@ test("real migrations + encrypted logical snapshot restore cleanly into disposab
   try {
     const migrationFiles = await applyMigrations(source.db, migrationsDir);
     await seedRepresentativeState(source.db);
+    // Reproduce the production topology: Neon renders timestamptz in GMT while
+    // PGlite inherits the restore host's local timezone. Snapshot and verify
+    // must canonicalize both sessions rather than comparing display zones.
+    await source.db.query("SET TIME ZONE 'Etc/GMT+5'");
     const snapshot = await exportLogicalSnapshot(source.db);
+    assert.match(snapshot.tables.proposals.rows[0].created_at, /\+00$/);
     const { envelope, key } = encryptSnapshot(snapshot);
     assert.doesNotMatch(envelope.toString("utf8"), /fixture@example\.invalid|proposal-fixture/);
 
@@ -71,6 +76,7 @@ test("real migrations + encrypted logical snapshot restore cleanly into disposab
       /restore target schema does not match backup for positions/
     );
     await restoreLogicalSnapshot(target.db, decrypted);
+    await target.db.query("SET TIME ZONE 'Etc/GMT+5'");
     const verification = await verifyRestoredSnapshot(target.db, decrypted);
 
     assert.equal(verification.ok, true);
