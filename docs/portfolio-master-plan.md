@@ -82,12 +82,12 @@ evidence. “Verified locally” is not “deployed,” and “deployed” is no
 | Phase 0 safety window | TRUST | **0/10 clean trading days.** No start may be inferred from service uptime or cleanup completion. | [Observation record](PHASE-0-OBSERVATION.md#exit-evidence-summary). Day 1 remains gated on the final gate-closing release and a clean next-trading-day observation. |
 | Historical production artifacts | TRUST | **Resolved.** Both smoke reconciliation artifacts have signed resolutions; the historic unsigned NVDA approval is rejected/closed. Live Redis has zero open reconciliation records and zero unsigned approved proposals. | Current live verification. Historical rows remain preserved rather than deleted. |
 | Restart investigation | TRUST | **Resolved for the observed count.** The 35 PM2 restarts correlate to controlled `SIGINT` deployment restarts; `unstable_restarts=0` and `exit_code=0`. | Current live PM2/process evidence; future unexplained restarts remain gate failures. |
-| Remaining gate-closing work | BOTH | Transactional parity is an exact production `MATCH`; the valuation channel correctly reports `NON_COMPARABLE` until a content-bound quote snapshot arrives. The type-preserving application restore passed against all seven live migrations. Observer and cost controls are deployed and independently reviewed, but the first scheduled observer record, the companion restart, default-branch alignment, and the human-set monthly ceiling/credential isolation remain open. | See HUMAN NEEDED and the gate rows below. Phase 0 remains 0/10. |
+| Remaining gate-closing work | BOTH | Transactional parity is an exact production `MATCH`; the valuation channel correctly reports `NON_COMPARABLE` until a content-bound quote snapshot arrives. The type-preserving application restore passed against all seven live migrations. Observer and cost controls are deployed and independently reviewed; Sam's `$40` monthly ceiling is live with complete telemetry and shared credentials accepted for now. The first scheduled observer record, companion restart, default-branch alignment, and protected holding/evaluator reserve remain open. | See HUMAN NEEDED and the gate rows below. Phase 0 remains 0/10. |
 | Research throughput | SKILL | A fresh 2026-07-14 scheduled run conserves all 36 outcomes (35 investment HOLD, 1 stale-data block, zero failures), but still produced zero genuine actionable proposals and zero evaluator approvals. | Outcome accounting is now proven; throughput/edge remains unproven. |
 | Research evidence spine | SKILL | Reviewed evidence-spine code and additive migrations are recorded as deployed at backend `79c778a` and dashboard `76d92b8`; promotion flags remain shadow/measurement-only. | [Jul 14 deployment record](PHASE-0-OBSERVATION.md#2026-07-14-et-reviewed-evidence-spine-deployment). |
 | Research packet implementation | SKILL | Several E1–E4 and E7 pieces are described as verified locally. Their runtime, evidence, and promotion gates remain separate. | [Execution ledger](RESEARCH-ROADMAP-EXECUTION-GUIDE.md#31-verified-local-implementation-ledger). |
 | Financial Postgres | TRUST | Neon is accepted and shadow/dual-write plumbing exists. Sheets/Redis remain canonical for money reads; no cutover gate has passed. | [ADR 0001](adr/0001-postgres-canonical-store.md) and autonomy Phase 2. |
-| Outside capital | TRUST | Software support for investor accounting does **not** establish legal permission to pool or manage outside money. | The legal/tax gate in section 8 is active now. |
+| Outside capital | TRUST | Software support for investor accounting does **not** establish legal permission to pool or manage outside money. Sam has explicitly chosen to accept interim manual legal risk while continuing to seek counsel; that choice is not a compliance finding. | The legal/tax warning and autonomy restrictions in section 8 remain active. |
 
 Do not promote a status merely because a code path, migration, test, or dashboard
 exists. Promotion requires the phase's listed runtime evidence.
@@ -150,7 +150,7 @@ close it; do not repeat or merely assert it.
 | G0.2 Split parity semantics — **verified complete** | TRUST | builder + money-path reviewer | Exact transactional comparison for ticker, shares, cost basis/average cost, cash, units, ownership/lots; valuation report contains quote value, source, and timestamp and only exact-compares shared snapshots | Backend 713/713 tests plus the 2026-07-14 production `MATCH` across accounting snapshot, capital entries, lots, positions, and proposals. Valuation correctly reported `NON_COMPARABLE` because the retained Sheet data predates content-bound quote provenance; it did not manufacture an accounting mismatch or an exact valuation claim. |
 | G0.3 Automate daily observation | BOTH | builder + ops reviewer | Immutable/read-only daily result with commit, policy versions, critical jobs, MCP receipts, ledgers, transactional parity, valuation freshness, holding monitoring, research attempts/outcomes, proposals, approvals, fills, and exact reasons; concise notification | Observer cannot mark pass with missing evidence. Changing its pass semantics later is S2. |
 | G0.4 Prove research-run accounting — **verified complete for the current classifier** | SKILL | research builder + reviewer | The 2026-07-14 scheduled run reconciled all 36 attempts under `research-outcomes-v1`: 35 investment HOLD, 1 stale-data block, and zero budget/provider/evaluator/queue failures; no outcome was unclassified | This proves conserved outcome accounting, not proposal throughput or investment edge. A classifier change opens a new research cohort. |
-| G0.5 Install cost/capacity governance | BOTH | Sam sets budget; builder enforces/observes | Portfolio Manager credential/project separation where provider supports it; monthly dollar ceiling; per-run/call ceiling; evaluator reserve; alert thresholds; rate-limit vs budget-exhaustion classification; usage report | Capacity exhaustion cannot silently become an investment HOLD. A policy change that affects throughput opens a new research cohort. |
+| G0.5 Install cost/capacity governance — **implementation and ceiling verified; protected pool open** | BOTH | Sam sets budget; builder enforces/observes | The atomic monthly/per-run/call controls, pricing, classifications, and privacy-safe report are deployed. Sam approved and production now enforces a `$40` UTC-month ceiling with the default 80% warning threshold; current telemetry is complete. Sam accepts the current shared credential for now. The protected holding/evaluator pool remains `$0` until Sam chooses its size. | Capacity exhaustion cannot silently become an investment HOLD. A policy change that affects throughput opens a new research cohort. HUMAN NEEDED recommends a `$10` protected pool inside—not on top of—the `$40` ceiling. |
 | G0.6 Explain infrastructure restarts — **verified complete for current evidence** | TRUST | ops investigator | The observed count of 35 correlates to controlled `SIGINT` deployment restarts; PM2 reports `unstable_restarts=0` and `exit_code=0` | Completed for the current count. Any future unexplained restart during the window invalidates the day. |
 | G0.7 Backup/restore drill — **verified complete at the application layer** | TRUST | ops owner + reviewer | Type-preserving encrypted logical v2 restored all 20 declared tables after all seven live migrations into a clean PGlite target; exact counts/digests, signature bytes, foreign keys, and sequences verified. | [2026-07-14 v2 proof](../ops/restore-drills/2026-07-14-postgres-shadow-v2.md). The first production attempt exposed and then regression-tested a Neon-GMT/PGlite-host-timezone display mismatch; `df9b9ef` canonicalized both digest sessions to UTC and the rerun passed. Provider-native Neon PITR remains a separate pre-canonical-cutover gate. |
 | G0.8 Gate-closing release verification | BOTH | primary + independent reviewer | Exact branch/commit, secret-file scan, full relevant tests, migration status, rollback target, restart, health, fresh logs, manual parity, observer dry run, authority flags unchanged | Any unexplained failure stops release. Successful release establishes the earliest possible next-trading-day clock start. |
@@ -421,22 +421,22 @@ not only in chat.
 | [Q-006](RESEARCH-DECISION-REGISTER.md) | SKILL | Sam + investing partner | Cash measure, duration, regimes, cooldown, horizon | Cash challenger |
 | [Q-007](RESEARCH-DECISION-REGISTER.md) | SKILL | Sam + investing partner/accounting input | Base/stressed spread, slippage, tax scope | Net historical results and edge claims |
 
-### Legal/tax/outside-capital gate — active now
+### Legal/tax/outside-capital warning and autonomy gate — active now
 
-Before accepting, soliciting, deploying, or managing any additional outside
-capital, Sam must obtain advice from a qualified securities lawyer and accountant
-on the actual arrangement, including investment-club/fund/adviser classification,
-registration or exemptions, custody, disclosures, agreements, tax reporting,
-valuation/NAV, fees, recordkeeping, and investor access. Existing software and
-ledger rows are not evidence that the arrangement is legally or tax compliant.
+Sam explicitly chose on 2026-07-14 to accept the interim legal risk of manual
+outside-capital activity while still wanting continued pressure to obtain counsel.
+The roadmap records that owner decision; it does **not** validate the arrangement
+or convert software controls into legal advice. Sam should promptly obtain advice
+from a qualified securities lawyer and accountant on investment-club/fund/adviser
+classification, registration or exemptions, custody, disclosures, agreements,
+tax reporting, valuation/NAV, fees, recordkeeping, and investor access.
 
-Until written professional guidance is recorded:
-
-- no new outside investor onboarding or capital acceptance;
-- no marketing, performance solicitation, fees, or expansion of investor-facing
-  features beyond preservation/correction of existing records;
-- no autonomous management of outside capital;
-- no roadmap phase can override this independent gate.
+Until written professional guidance is recorded, the system must not claim legal
+compliance, market performance, solicit investors, charge or automate fees, or
+autonomously manage outside capital. Existing software and ledger rows are not
+evidence that the arrangement is compliant. Manual capital decisions remain Sam's
+explicitly accepted risk; no roadmap phase may silently convert that decision into
+system autonomy.
 
 Professional advice may require work stricter than this plan. That requirement wins.
 
@@ -445,9 +445,12 @@ Professional advice may require work stricter than this plan. That requirement w
 Cost is a BOTH control because exhausted capacity can corrupt research evidence and
 holding monitoring.
 
-1. Portfolio Manager uses a separately attributable provider project/credential
-   and budget where supported; shared organization limits must still be documented.
-2. Sam approves a monthly dollar ceiling and alert thresholds before Phase 0 starts.
+1. Portfolio Manager usage remains separately attributable in its own signed
+   telemetry. Sam explicitly accepts the existing shared provider credential for
+   now; credential/project isolation is recommended again before broader autonomy.
+2. Sam approved a `$40` UTC-month ceiling; production enforces it with an 80%
+   warning threshold. The protected holding/evaluator pool is still awaiting a
+   human-set amount and currently remains `$0` inside that ceiling.
 3. Every run has a bounded deep-review allowance and a protected evaluator/holding
    reserve. Holdings cannot lose required monitoring to broad discovery.
 4. Each attempted call records model/policy version, usage/cost, success, rate

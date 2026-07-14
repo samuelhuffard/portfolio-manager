@@ -155,6 +155,19 @@ ceiling from which to calculate remaining capacity. Authority remained unchanged
 research selection is `shadow` at `research-selection-v1`, and no active Agent 4
 allocation policy exists.
 
+#### Later 2026-07-14 cost-policy update
+
+Sam's HUMAN NEEDED response approved a `$40` monthly Anthropic ceiling and accepted
+the existing shared credential for now. Production now enforces
+`ANTHROPIC_MONTHLY_MAX_USD=40`; PM2 restarted cleanly, `/health` returned 200, and
+the privacy-safe report showed complete telemetry, `$3.6878` spent, no active
+leases, and `$36.3122` remaining. A second non-persisting observer dry run no
+longer reported capacity readiness or monthly headroom as a failure. It still
+failed the date, correctly, because pre-release scheduled invocation/receipt
+histories and the due final sentinel/parity evidence cannot be recreated
+retroactively. The protected holding/evaluator pool remains `$0` pending Sam's
+separate choice; HUMAN NEEDED recommends `$10` inside the existing `$40` ceiling.
+
 ### Watch, do not normalize away
 
 - Freshly distinguish the retired Python sync's 2026-07-10 failures from the MCP path;
