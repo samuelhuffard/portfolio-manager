@@ -37,8 +37,8 @@ function fakePool({ failInsert = false, missingObservationIds = [] } = {}) {
   return { calls, connect: async () => client };
 }
 
-test("0008 is additive, mirrored, and indexed without touching money tables", () => {
-  const migration = readFileSync(new URL("../db/migrations/0008_research_outcomes.sql", import.meta.url), "utf8");
+test("0006 is additive, mirrored, and indexed without touching money tables", () => {
+  const migration = readFileSync(new URL("../db/migrations/0006_research_outcomes.sql", import.meta.url), "utf8");
   const draft = readFileSync(new URL("../docs/db/schema-draft.sql", import.meta.url), "utf8");
   for (const source of [migration, draft]) {
     assert.match(source, /CREATE TABLE(?: IF NOT EXISTS)? research_outcomes/);

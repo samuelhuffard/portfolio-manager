@@ -1,4 +1,4 @@
--- Additive, advisory-only outcome snapshots. These records are immutable
+-- Migration 0006: additive, advisory-only outcome snapshots. These records are immutable
 -- research evidence and are deliberately isolated from money, proposals,
 -- orders, accounting, and execution.
 

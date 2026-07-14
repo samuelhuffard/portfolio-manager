@@ -236,6 +236,18 @@ test("start and terminal replays require exact persisted semantic fields", async
   assert.deepEqual(await writeResearchJobStart(start, { client: startClient }), { runId: "run-1", inserted: false });
   await assert.rejects(writeResearchJobStart({ ...start, cohortCount: 2 }, { client: startClient }), ResearchReplayConflictError);
 
+  const completedStartClient = {
+    async query(sql) {
+      if (String(sql).includes("INSERT INTO research_job_runs")) return { rowCount: 0, rows: [] };
+      return { rowCount: 1, rows: [{ ...startRow, status: "completed", cohort_count: 9, scored_count: 8, complete_count: 7 }] };
+    },
+  };
+  await assert.rejects(writeResearchJobStart(start, { client: completedStartClient }), ResearchReplayConflictError);
+  assert.deepEqual(
+    await writeResearchJobStart(start, { client: completedStartClient, allowCompletedReplay: true }),
+    { runId: "run-1", inserted: false, completedReplay: true }
+  );
+
   const terminal = {
     completedAt: NOW, cohortCount: 1, scoredCount: 1, completeCount: 1,
     skippedCount: 0, errorCount: 0, coverageSummary: { fresh: 1 }, detail: { version: 1 },
@@ -257,6 +269,72 @@ test("start and terminal replays require exact persisted semantic fields", async
   };
   assert.deepEqual(await failResearchJobRun("run-1", { failedAt: NOW, detail: { stage: "write" } }, { client: failedClient }), { runId: "run-1", failed: false });
   await assert.rejects(failResearchJobRun("run-1", { failedAt: NOW, detail: { stage: "other" } }, { client: failedClient }), ResearchReplayConflictError);
+});
+
+test("writeResearchRun treats an exact completed replay as a no-op after validating durable content", async () => {
+  const calls = [];
+  const terminal = {
+    status: "completed", completed_at: new Date(NOW), cohort_count: 1, scored_count: 1,
+    complete_count: 1, skipped_count: 0, error_count: 0, coverage_summary: {}, summary: {},
+  };
+  const completedStart = {
+    run_id: "run-1", status: "completed", started_at: new Date(NOW), source_revision: "abc123",
+    cohort_count: 1, scored_count: 1, complete_count: 1, skipped_count: 0,
+    error_count: 0, coverage_summary: {},
+  };
+  const storedHashes = new Map();
+  const client = {
+    async query(sql, params = []) {
+      const text = String(sql);
+      calls.push(text);
+      if (["BEGIN", "COMMIT", "ROLLBACK"].includes(text)) return { rowCount: 0, rows: [] };
+      if (text.includes("INSERT INTO universe_snapshots")) {
+        storedHashes.set("universe", { id: params[0], content_hash: params[6] });
+        return { rowCount: 0, rows: [] };
+      }
+      if (text.includes("INSERT INTO evidence_snapshots")) {
+        storedHashes.set("evidence", { id: params[0], content_hash: params[6] });
+        return { rowCount: 0, rows: [] };
+      }
+      if (text.includes("INSERT INTO mandate_score_observations")) {
+        storedHashes.set("observation", { id: params[0], content_hash: params[33] });
+        return { rowCount: 0, rows: [] };
+      }
+      if (text.includes("FROM universe_snapshots")) return { rowCount: 1, rows: [storedHashes.get("universe")] };
+      if (text.includes("FROM evidence_snapshots")) return { rowCount: 1, rows: [storedHashes.get("evidence")] };
+      if (text.includes("FROM mandate_score_observations")) return { rowCount: 1, rows: [storedHashes.get("observation")] };
+      throw new Error(`unexpected replay transaction query: ${text}`);
+    },
+    release() { calls.push("RELEASE"); },
+  };
+  const pool = {
+    connect: async () => client,
+    async query(sql) {
+      const text = String(sql);
+      calls.push(`POOL ${text}`);
+      if (text.includes("INSERT INTO research_job_runs")) return { rowCount: 0, rows: [] };
+      if (text.includes("SELECT run_id, status, started_at")) return { rowCount: 1, rows: [completedStart] };
+      if (text.trimStart().startsWith("UPDATE research_job_runs") && text.includes("status = 'completed'")) return { rowCount: 0, rows: [] };
+      if (text.includes("SELECT status, completed_at, cohort_count")) return { rowCount: 1, rows: [terminal] };
+      throw new Error(`unexpected replay pool query: ${text}`);
+    },
+  };
+
+  const result = await writeResearchRun({
+    run: { runId: "run-1", startedAt: NOW, sourceRevision: "abc123" },
+    universeSnapshot: {
+      id: "universe-1", observedAt: NOW, sourceRevision: "abc123", catalogCount: 1,
+      eligibleCount: 1, membership: ["NVDA"],
+    },
+    evidenceSnapshots: [{ id: "evidence-1", ticker: "NVDA", observedAt: NOW, payload: { revenue: 1 } }],
+    observations: [observation()],
+    summary: { completedAt: NOW, cohortCount: 1, scoredCount: 1, completeCount: 1, skippedCount: 0, errorCount: 0 },
+  }, { pool });
+
+  assert.deepEqual(result, { runId: "run-1", finished: false });
+  assert.ok(calls.includes("BEGIN"));
+  assert.ok(calls.includes("COMMIT"));
+  assert.ok(!calls.includes("ROLLBACK"));
 });
 
 test("writeResearchRun rolls back data, records failure, and never completes after a write error", async () => {

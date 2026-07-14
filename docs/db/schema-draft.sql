@@ -383,7 +383,7 @@ CREATE TABLE research_selection_items (
 CREATE INDEX research_selection_items_run_rank_idx ON research_selection_items(selection_run_id, rank);
 CREATE INDEX research_selection_items_agent_ticker_idx ON research_selection_items(agent_id, ticker);
 
--- ── Additive immutable research outcomes (migration 0008; advisory only) ─────
+-- ── Additive immutable research outcomes (migration 0006; advisory only) ─────
 CREATE TABLE research_outcomes (
   id TEXT PRIMARY KEY CHECK (id ~ '^outcome-[0-9a-f]{64}$'),
   observation_id TEXT REFERENCES mandate_score_observations(id),

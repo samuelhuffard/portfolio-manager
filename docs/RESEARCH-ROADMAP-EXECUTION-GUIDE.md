@@ -964,7 +964,7 @@ Reuse the cadence and market-data patterns in `jobs/performance-review.js` and `
 **Add:**
 
 - `lib/research-outcomes.js`: excess return, max adverse/favorable excursion, hit definitions, and maturation status from frozen horizon/benchmark policy.
-- `db/migrations/0008_research_outcomes.sql`.
+- `db/migrations/0006_research_outcomes.sql`.
 - `jobs/research-outcomes.js` or extend `jobs/performance-review.js` only after deciding ownership of the cadence.
 
 **Rule:** record missing prices/benchmarks as unavailable, never zero return.
