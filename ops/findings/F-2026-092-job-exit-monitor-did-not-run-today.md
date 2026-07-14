@@ -4,7 +4,7 @@ fingerprint: 918b1ad3f3bf
 check: cron
 type: bug
 severity: P1
-status: open
+status: fixed
 firstSeen: 2026-07-10T22:35:00.519Z
 lastSeen: 2026-07-10T22:35:00.519Z
 occurrences: 1
@@ -23,6 +23,13 @@ title: "Job exit-monitor did not run today"
 
 scheduler.js:131 schedules exit-monitor as "45 16 * * 0-4" (Sun-Thu only) — a deliberate change per the code comment (proposal-expiry timing), not Sun-Thu-Fri. 2026-07-10 is a Friday, so no run was ever expected; the cron-check in the sentinel appears to assume a daily schedule and doesn't account for this Sun-Thu window.
 
-**Next step:** Update the sentinel's cron-run-check (lib/sysloop/checks.js) to read expected days from the actual cron expression, or special-case exit-monitor/research-scan as Sun-Thu-only so Friday no longer triggers a false alert.
+**Historical fix requested:** Update the sentinel's cron-run-check (lib/sysloop/checks.js) to read expected days from the actual cron expression, or special-case exit-monitor/research-scan as Sun-Thu-only so Friday no longer triggers a false alert.
 
 **Severity suggestion:** P3 (analyst; deterministic severity P1 stands until Sam edits it)
+
+## Resolution
+
+Fixed in the gate-closing release. `checkJobFreshness` now treats research-scan
+and exit-monitor as Mon–Thu expectations and does not require either on Friday;
+`tests/sysloop.test.js` includes the original Friday 2026-07-10 regression case.
+The full backend suite passed 713/713 before deployment.

@@ -136,11 +136,12 @@ privacy-safe proof is recorded at
 `ops/restore-drills/2026-07-14-postgres-shadow-v2.md`. Provider-native Neon PITR
 remains a separate pre-canonical-cutover gate.
 
-This release still does **not** start or backfill the clock. The Portfolio Manager
-monthly Anthropic ceiling and separately attributable credential/project remain
-human-gated and `NOT_CONFIGURED`. Dashboard companion contract commit `bbb5a5c` is
-pushed, but the local `portfolio-executor` restart awaits explicit approval, and
-the first scheduled immutable observer record has not yet run. Backend `main`
+This release still does **not** start or backfill the clock. At release time, the
+Portfolio Manager monthly Anthropic ceiling was human-gated and
+`NOT_CONFIGURED`; the later same-day cost-policy update below supersedes that
+specific condition. Dashboard companion contract commit `bbb5a5c` is pushed, but
+the local `portfolio-executor` restart awaits explicit approval, and the first
+scheduled immutable observer record has not yet run. Backend `main`
 also awaits explicit approval to fast-forward; production remains pinned to the
 reviewed `mandate-v3` branch. Phase 0 remains **0/10**.
 
@@ -167,6 +168,16 @@ failed the date, correctly, because pre-release scheduled invocation/receipt
 histories and the due final sentinel/parity evidence cannot be recreated
 retroactively. The protected holding/evaluator pool remains `$0` pending Sam's
 separate choice; HUMAN NEEDED recommends `$10` inside the existing `$40` ceiling.
+
+#### Later 2026-07-14 PM2 logging update
+
+The final audit found that structured job and observer histories were timestamped,
+but legacy raw PM2 lines were not. Production was restarted once with PM2 `--time`,
+bringing the fully explained count to 39; `pm2 save` persisted the setting. Fresh
+startup lines now carry `YYYY-MM-DDTHH:mm:ss` prefixes, `/health` remains 200 with
+all dependencies true, and PM2 reports online, `unstable_restarts=0`, and
+`exit_code=0`. This improves future incident attribution but does not make any
+earlier raw line attributable or turn July 14 into Day 1.
 
 ### Watch, do not normalize away
 
@@ -210,7 +221,7 @@ consecutive safety-day decision.
 | Trading day | Status | MCP sync + reconciliation | Ledgers | Parity | Jobs / holdings monitoring | Proposal evidence | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Jul 13 | **Invalid — does not count** | Pass: MCP sync + reconciliation jobs recorded `ok` | Pass: 7/7 Investors, 43/43 Performance, 1/1 Trade, 1/1 Lots, 3,371 Audit | **Fail:** NVDA market value `$15.37` vs `$15.39` | Critical jobs ran, but 3 active P1s + PM2 restart/marker/Athena noise; scan accounting unproven | 36 reviews reported as HOLD, 0 proposals; usage-limit log contradiction | Alerting worked; exact parity and clean-P1 gate did not |
-| Jul 14 | **Not eligible — does not count** | Existing receipts predate the new companion contract; restart pending | Prior signed-ledger proof clean | Transactional `MATCH`; valuation `NON_COMPARABLE` | Gate-closing deploy occurred after scheduled research; first v2 observer record pending | 36 conserved outcomes, 0 actionable proposals | Human cost ceiling/credential remains `NOT_CONFIGURED`; no retroactive Day 1 |
+| Jul 14 | **Not eligible — does not count** | Existing receipts predate the new companion contract; restart pending | Prior signed-ledger proof clean | Transactional `MATCH`; valuation `NON_COMPARABLE` | Gate-closing deploy occurred after scheduled research; first v2 observer record pending | 36 conserved outcomes, 0 actionable proposals | `$40` ceiling is enforced and shared credentials are accepted for now; pre-release histories remain unrecoverable, so no retroactive Day 1 |
 | Jul 15 | Pending | — | — | — | — | — | |
 | Jul 16 | Pending | — | — | — | — | — | |
 | Jul 17 | Pending | — | — | — | — | — | |

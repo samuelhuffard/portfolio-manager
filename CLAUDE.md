@@ -6,7 +6,7 @@ AI portfolio research + execution backend. **Real money flows through this repo.
 
 - **Open system-loop findings → `ops/FIXLIST.md`** (auto-generated). At session start, skim "Needs attention" and judge whether anything there should be fixed as part of (or before) the current task — verify against live state first, findings are point-in-time. When you fix one, follow the status/regenerate steps in the file header.
 - New to the system → `docs/ONBOARDING.md` (mental models, proposal lifecycle, vocabulary).
-- Planning significant work → `docs/AUTONOMY-ROADMAP.md` is the north star: find the current phase, verify its status against live state, work on that phase.
+- Planning significant work → `docs/portfolio-master-plan.md` is the single north star: find the current unified phase, TRUST/SKILL label, gate, and reset rule there. Use `docs/AUTONOMY-ROADMAP.md` only for narrower TRUST implementation detail; the master plan wins on conflict.
 - Before ANY change → find your change type in `docs/CHANGE_MAP.md` (exact files + gotchas).
 - Touching proposals/execution/ledgers/NAV → `docs/INVARIANTS.md` is non-negotiable.
 - Ops (deploy, env, failure modes) → `docs/RUNBOOK.md`.
@@ -17,12 +17,20 @@ AI portfolio research + execution backend. **Real money flows through this repo.
 - Execution ordering is the safety mechanism: `Executing` marker before order → ledger write before fulfillment → `ref_id = proposal.id`. Never reorder.
 - Security/signature checks fail CLOSED. Ledger tabs are append-only; corrections are new rows.
 - Cross-repo contracts are single-source in `contracts/` (canonical here), mirrored to `../portfolio-dashboard/lib/contracts/` via `npm run contracts:sync` (drift-tested). The decision-signature payload, proposal enums/limits/validation, and lot ownership now live there — edit in `contracts/`, run sync, commit both. The full `AllocationProposal` shape is still hand-declared (`lib/redis.js`, dashboard `lib/proposals.ts`) but field-set drift is caught by the dashboard's `proposal-shape.test.ts`. See CHANGE_MAP "Changing proposal approval / execution logic".
-- Money math goes in pure `lib/` functions with tests (`npm test`, ~100), then gets wired into `jobs/`.
+- Money math goes in pure `lib/` functions with tests (`npm test`), then gets wired into `jobs/`.
 - Failure is loud: pipeline outputs that get dropped must `console.error` + Telegram. Missing model-output fields FAIL the checks that read them.
 - Never print secrets or full `.env`; `.trim()` every env read; check env presence per machine (local ≠ Jetson).
 
 ## Deploy
 
-Push to main → `ssh sam@100.102.93.103`, `cd ~/portfolio-manager && git pull && npm test && pm2 restart portfolio-manager --update-env`, then `curl localhost:3200/health` (must be 200 with all `deps` true). Not done until health + fresh logs are clean.
+Deploy only the exact reviewed release branch/commit named in
+`docs/portfolio-master-plan.md` (currently `mandate-v3`; do not assume `main`) →
+`ssh sam@100.102.93.103`, fast-forward that branch, install dependencies/apply
+reviewed migrations when required, then
+`pm2 restart portfolio-manager --update-env --time`. Verify the exact
+branch/commit, `curl localhost:3200/health`
+(200 with all `deps` true), timestamped fresh logs, PM2 restart metadata, parity,
+and the release-specific evidence. Persist reviewed PM2 configuration with
+`pm2 save`. Deployment is not complete until those checks are clean.
 
 Companion repo: `../portfolio-dashboard` (dashboard on Vercel + Mac executor `scripts/mac-companion.mjs`, PM2 `portfolio-executor` — restart it after pulling executor changes).

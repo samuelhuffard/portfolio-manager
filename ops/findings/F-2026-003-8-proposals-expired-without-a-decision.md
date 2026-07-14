@@ -3,8 +3,8 @@ id: F-2026-003
 fingerprint: 6900a5548fee
 check: approvals
 type: approvals
-severity: P1
-status: regressed
+severity: P2
+status: ack
 firstSeen: 2026-07-05T04:57:44.950Z
 lastSeen: 2026-07-10T22:35:00.519Z
 occurrences: 4
@@ -25,3 +25,11 @@ title: "8 proposals expired without a decision"
 - 2026-07-07T22:35:00.622Z — Sam may not be seeing the approval queue — UX problem, not a code bug
 - 2026-07-09T22:35:01.079Z — Sam may not be seeing the approval queue — UX problem, not a code bug
 - 2026-07-10T22:35:00.519Z — Sam may not be seeing the approval queue — UX problem, not a code bug
+
+## Current disposition
+
+Acknowledged as a historical approval-queue UX signal, not a live P1 or a failed
+money path. The deterministic check now classifies three or more undecided
+expirations as P2, while stale Pending proposals receive a 24-hour warning and
+approved/Executing stalls remain separate P1 checks. Historical expired rows are
+preserved, so their count is not expected to disappear.

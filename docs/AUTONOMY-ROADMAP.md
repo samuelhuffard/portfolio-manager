@@ -165,4 +165,10 @@ The detailed multi-model execution guide lives in repo-root `handoff.md`. Do not
 
 ## Standing session protocol
 
-Before meaningful Portfolio Manager work: read this roadmap, `CLAUDE.md`, `docs/INVARIANTS.md`, `docs/CHANGE_MAP.md`, and `ops/FIXLIST.md`; protect existing WIP; verify runtime evidence; state the phase and exit criterion advanced; add money-math and failure-path tests; obtain independent review before financial/autonomous-write deployment; and update the canonical vault roadmap when reality changes.
+Before meaningful Portfolio Manager work: read `docs/portfolio-master-plan.md`
+first, then use this roadmap only for narrower TRUST detail alongside `CLAUDE.md`,
+`docs/INVARIANTS.md`, `docs/CHANGE_MAP.md`, and `ops/FIXLIST.md`; protect existing
+WIP; verify runtime evidence; state the master-plan phase and exit criterion
+advanced; add money-math and failure-path tests; obtain independent review before
+financial/autonomous-write deployment; and update the master plan plus the durable
+vault project note when reality changes.
