@@ -144,6 +144,17 @@ the first scheduled immutable observer record has not yet run. Backend `main`
 also awaits explicit approval to fast-forward; production remains pinned to the
 reviewed `mandate-v3` branch. Phase 0 remains **0/10**.
 
+A non-persisting production observer dry run correctly returned `FAIL_BOTH` and
+`countsTowardSafetyWindow=false`: the release arrived after the day's scheduled
+invocations, the 8:00/8:10 evidence had not yet run, the new receipt histories did
+not exist for pre-release jobs, and monthly capacity was `NOT_CONFIGURED`. It did
+not create or overwrite the immutable daily record or send Telegram. The
+privacy-safe spend report found complete readable telemetry for 357 conservatively
+repriced legacy calls and `$3.6878` July month-to-date spend, but no approved
+ceiling from which to calculate remaining capacity. Authority remained unchanged:
+research selection is `shadow` at `research-selection-v1`, and no active Agent 4
+allocation policy exists.
+
 ### Watch, do not normalize away
 
 - Freshly distinguish the retired Python sync's 2026-07-10 failures from the MCP path;
