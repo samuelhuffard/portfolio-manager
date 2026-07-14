@@ -8,3 +8,4 @@ export * from "./pipeline.js";
 export * from "./accounting.js";
 export * from "./portfolio-decision.js";
 export * from "./mcp-read-job.js";
+export * from "./research-observation.js";

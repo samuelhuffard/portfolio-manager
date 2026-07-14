@@ -50,11 +50,12 @@ test("the vector covers exactly METRIC_IDS (v2.1) and populated+deferred partiti
   assert.deepEqual([...POPULATED_METRICS, ...DEFERRED_METRICS].sort(), [...METRIC_IDS].sort());
 });
 
-test("peerMetricsRow carries industry, vector and a date stamp", () => {
-  const row = peerMetricsRow(fundamentals());
+test("peerMetricsRow carries industry, vector and a zoned retrieval instant", () => {
+  const row = peerMetricsRow(fundamentals(), null, { now: () => new Date("2026-07-13T20:00:00.000Z") });
   assert.equal(row.industry, "Software—Application");
   assert.equal(row.metrics.revGrowth, 0.3);
-  assert.match(row.ts, /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal(row.ts, "2026-07-13T20:00:00.000Z");
+  assert.equal(row.retrievedAt, "2026-07-13T20:00:00.000Z");
   assert.equal(row.src, "yfinance");
 });
 

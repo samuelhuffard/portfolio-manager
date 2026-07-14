@@ -1,0 +1,7 @@
+{
+  "mode": "shadow",
+  "policyVersion": "research-selection-v1",
+  "canarySlots": 0,
+  "explorationSlots": 3,
+  "maxSectorShare": 0.4
+}

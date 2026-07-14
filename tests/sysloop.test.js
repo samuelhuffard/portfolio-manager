@@ -8,7 +8,7 @@ import {
   checkPm2, checkHealthDeps, checkJobFreshness, checkDashboard, checkApprovalsFlow,
   checkCompanionHeartbeat, checkRedisQueue, checkProposalLifecycle, checkSheetsSchema,
   checkSheetsFreshness, checkLogClusters, checkDocPaths, runChecks, checkPhase0Throughput,
-  checkReconciliationQueue,
+  checkReconciliationQueue, checkResearchDataHealth,
 } from "../lib/sysloop/checks.js";
 
 test("checkReconciliationQueue is quiet when empty, P1 per open item, fail-closed on unreadable", () => {
@@ -130,6 +130,45 @@ test("health: any false dep is a single P1 naming the deps", () => {
   assert.equal(out[0].severity, "P1");
   assert.match(out[0].title, /anthropicKey, telegram/);
   assert.equal(checkHealthDeps({ health: { deps: { redis: true } } }).length, 0);
+});
+
+test("research-data health: disabled and fresh completed status are quiet", () => {
+  const nowMs = Date.parse("2026-07-13T22:00:00Z");
+  assert.deepEqual(checkResearchDataHealth({ researchData: { state: "disabled" }, enabled: false, nowMs }), []);
+  assert.deepEqual(checkResearchDataHealth({
+    nowMs, enabled: true,
+    researchData: {
+      state: "completed", completedAt: "2026-07-13T20:00:00Z",
+      cataloged: 100, classified: 80, metricRows: 80,
+    },
+  }), []);
+  const unconfigured = checkResearchDataHealth({ researchData: { state: "not_configured", reason: "baseline_unavailable" }, enabled: false, nowMs });
+  assert.equal(unconfigured[0].severity, "P2");
+  assert.match(unconfigured[0].title, /not configured/);
+});
+
+test("research-data health flags missing status once its prerequisites are enabled", () => {
+  const out = checkResearchDataHealth({ researchData: null, enabled: true, nowMs: Date.parse("2026-07-13T22:00:00Z") });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].severity, "P2");
+  assert.match(out[0].title, /status is missing/);
+});
+
+test("research-data health flags stale, failed, and implausible aggregate counts", () => {
+  const nowMs = Date.parse("2026-07-13T22:00:00Z");
+  const stale = checkResearchDataHealth({
+    nowMs, enabled: true,
+    researchData: { state: "completed", completedAt: "2026-07-11T00:00:00Z", cataloged: 100, classified: 80, metricRows: 80 },
+  });
+  assert.match(stale[0].title, /stale/);
+  const failed = checkResearchDataHealth({ researchData: { state: "failed", failureStage: "peer-distributions" }, enabled: true, nowMs });
+  assert.equal(failed[0].severity, "P1");
+  const implausible = checkResearchDataHealth({
+    nowMs, enabled: true,
+    researchData: { state: "completed", completedAt: "2026-07-13T21:00:00Z", cataloged: 10, classified: 12, metricRows: 12 },
+  });
+  assert.equal(implausible[0].severity, "P1");
+  assert.match(implausible[0].title, /implausible/);
 });
 
 test("cron freshness: missing, missed, and failed runs are flagged", () => {

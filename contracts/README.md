@@ -37,3 +37,12 @@ by hand — the drift test will reject it.
 ## Zod version
 
 Pinned to the `zod@3` API (both repos ship 3.25.x).
+
+## Research observations
+
+`research-observation.js` is the canonical, additive shape for an immutable
+`MandateScoreObservation`: one specialist/version's deterministic score over a
+point-in-time evidence snapshot. It records coverage, units, freshness, peer
+method, and score cause so stored, comparable, and proposal-actionable states
+cannot be conflated. Parsing this schema never creates a proposal or trade
+authority; durable writing and selection are later roadmap packets.

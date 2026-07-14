@@ -13,6 +13,10 @@
    Do instead: keep `ROBINHOOD_TOTP_SECRET` nonempty and `ROBINHOOD_STORE_SESSION=false`; restore MFA directly on the Jetson, then prove freshness with read-only reconciliation and holdings sync.
 3. **[2026-07-12] Holdings status rows are not positions**
    Do instead: keep every Holdings reader/parity projection filtering `Last synced`, `Synced via Robinhood Agentic MCP`, cash, and sample-marker rows; regression-test any new marker format.
+4. **[2026-07-13] Research outcomes require decision-time facts**
+   Do instead: classify outcomes from structured scan facts and persist versioned aggregates; treat legacy Sheet/Redis rows as non-classifiable instead of parsing rationale text.
+5. **[2026-07-13] Observation days need clean parity and sentinel state**
+   Do instead: count a Phase 0 day only after the scheduled jobs complete with no active P1s and live Sheets/Postgres parity is `MATCH`; local commits and basic `/health` cannot substitute for that evidence.
 
 ## Domain Behavior Guardrails
 1. **[2026-07-11] Unattributed lots are quarantined until explicitly resolved**

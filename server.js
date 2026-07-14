@@ -5,7 +5,7 @@ import { runResearchScan, researchTickerForAgent } from "./jobs/research-scan.js
 import { runIntradayMonitor } from "./jobs/intraday-monitor.js";
 import { listPriceAlerts, addPriceAlert, removePriceAlert } from "./lib/price-alerts.js";
 import { syncHoldings } from "./jobs/holdings-sync.js";
-import { getProposalById, markProposalFulfilled, getRedis, getUniverseStatus, setLabResearchStatus, getLabResearchStatus, getSlateSnapshot, getLastSystemActivity } from "./lib/redis.js";
+import { getProposalById, markProposalFulfilled, getRedis, getUniverseStatus, getResearchDataStatus, getShadowSelectionStatus, setLabResearchStatus, getLabResearchStatus, getSlateSnapshot, getLastSystemActivity } from "./lib/redis.js";
 import { recordMcpFill } from "./lib/mcp-accounting.js";
 import { getServiceAccountClients, getSheetIds, resolveSharedSpreadsheetId } from "./lib/sheets.js";
 import { validateResearchTickerRequest, buildLabOutcome } from "./lib/lab-research.js";
@@ -14,6 +14,8 @@ import { AGENTS } from "./config/agents.js";
 import { withWorkflowLock } from "./lib/workflow-lock.js";
 import { shadowWriteCapitalEntry, shadowWriteProposal } from "./lib/pg/dual-write.js";
 import { getPortfolioManagerShadowState } from "./lib/portfolio-manager-shadow-store.js";
+import { researchStoreConfigured } from "./lib/pg/research-observations.js";
+import { resolveResearchCodeRevision } from "./lib/mandate-observation.js";
 
 const PORT = process.env.PORTFOLIO_SERVER_PORT ?? 3200;
 const SECRET = process.env.PORTFOLIO_WEBHOOK_SECRET?.trim();
@@ -124,12 +126,32 @@ const server = http.createServer(async (req, res) => {
     } catch {
       slate = null;
     }
+    // Advisory research-data progress. The Redis helper persists an allow-listed
+    // aggregate payload only, so this public endpoint never leaks tickers,
+    // research rationale, proposals, or investor data.
+    let researchData = null;
+    try {
+      researchData = await getResearchDataStatus();
+    } catch {
+      researchData = null;
+    }
+    let shadowSelection = null;
+    try {
+      shadowSelection = await getShadowSelectionStatus();
+    } catch {
+      shadowSelection = null;
+    }
+    const researchDataEnabled = deps.redis &&
+      process.env.PEER_METRICS_ENABLED?.trim() === "1" &&
+      process.env.PEER_METRICS_EDGAR?.trim() === "1" &&
+      researchStoreConfigured() &&
+      Boolean(resolveResearchCodeRevision({ env: process.env }));
     // Athena's own analyst-pipeline health (optional, advisory-only source —
     // see lib/athena.js). Informational like universe/slate: never part of ok,
     // since Athena being down must never take our own health down with it.
     const athena = await fetchAthenaStatus({ timeoutMs: 3000 });
     res.writeHead(ok ? 200 : 503);
-    res.end(JSON.stringify({ ok, scanRunning, deps, universe, slate, athena }));
+    res.end(JSON.stringify({ ok, scanRunning, deps, universe, slate, researchData, shadowSelection, researchDataEnabled, athena }));
     return;
   }
 

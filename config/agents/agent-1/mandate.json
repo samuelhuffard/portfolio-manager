@@ -1,0 +1,8 @@
+{
+  "agentId": "agent-1",
+  "mandateId": "agent_one",
+  "mandateVersion": "3.0",
+  "canonicalSourcePath": "agent_mandates/Agent_One_Mandate_v3.md",
+  "targetUniversePolicyVersion": "eligible-us-operating-common-equities-v3",
+  "productionUniversePolicyVersion": "catalog-technology-subverticals-v1"
+}

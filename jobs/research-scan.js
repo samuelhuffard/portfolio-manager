@@ -33,6 +33,7 @@ import {
   setBreakerState,
   getUniverseCatalog,
   setSlateSnapshot,
+  setPrivateResearchSlate,
   setResearchScanStatus,
 } from "../lib/redis.js";
 import { sizeProposalAmount, hasOpenProposal, hasRecentProposal } from "../lib/proposal-sizing.js";
@@ -57,6 +58,13 @@ import {
 } from "../lib/sheets.js";
 import { AGENTS } from "../config/agents.js";
 import { canCreateActionableProposal, classifyResearchFailure, finiteNonNegative } from "../lib/research-run-health.js";
+import {
+  RESEARCH_OUTCOME_VERSION,
+  addOutcome,
+  assertOutcomeConservation,
+  blankOutcomeCounts,
+  classifyRecommendationOutcome,
+} from "../lib/research-run-report.js";
 import { withWorkflowLock } from "../lib/workflow-lock.js";
 import { BudgetExhaustedError, createResearchRunBudget } from "../lib/ai-budget.js";
 
@@ -67,6 +75,7 @@ const EVIDENCE_TELEGRAM_THRESHOLD = 3;
 function blankAgentScanSummary(agentId) {
   return {
     agentId,
+    classificationVersion: RESEARCH_OUTCOME_VERSION,
     status: "completed",
     recommendationsWritten: 0,
     attemptedReviews: 0,
@@ -76,6 +85,7 @@ function blankAgentScanSummary(agentId) {
     scanErrors: 0,
     budgetExhaustions: 0,
     evaluatorRejects: 0,
+    outcomeCounts: blankOutcomeCounts(),
     startedAt: new Date().toISOString(),
     completedAt: null,
     error: null,
@@ -393,6 +403,8 @@ async function reviewCandidateForAgent(agent, c, ctx) {
   let createdProposal = null;
   let evaluatorVerdict = null;
   let noProposalReason = null;
+  let evaluatorState = "not_run";
+  let proposalDisposition = "not_applicable";
 
   // Data-availability gate runs BEFORE the (expensive) AI overlay. Per the memo, missing
   // or stale required inputs are an automatic NO_TRADE — we never ask Claude to reason
@@ -429,6 +441,18 @@ async function reviewCandidateForAgent(agent, c, ctx) {
       createdProposal: null,
       evaluatorVerdict: "not run (data gate)",
       noProposalReason: `NO_TRADE (data gate): ${reason}`,
+      outcomeFacts: {
+        attempted: true,
+        dataGateBlocked: true,
+        dataGateStale: Boolean(c.dataGate.stale),
+        failureKind: null,
+        generatorAction: null,
+        finalAction: "HOLD",
+        riskOverridden: false,
+        evaluatorState: "not_run",
+        duplicateOpen: false,
+        proposalDisposition: "not_applicable",
+      },
     };
   }
 
@@ -517,6 +541,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     boundaryToken: ctx.boundaryToken,
   };
   const proposal = await getAIRecommendation({ ...overlayInput, budget: ctx.budget });
+  const generatorAction = proposal.action;
   if (proposal.suspectEvidence?.length) {
     ctx.evidenceFlags.push({ kind: `model:${c.ticker}`, reasons: proposal.suspectEvidence });
     console.error(`[Evidence] ${agent.id}: model flagged suspect evidence for ${c.ticker}: ${proposal.suspectEvidence.join("; ")}`);
@@ -536,6 +561,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     insiderActivity: c.insiderActivity ?? null,
   };
   let rec = applyConvictionClamp(applyRiskChecks(proposal, riskContext, riskLimits), agent, c, riskLimits);
+  let riskOverridden = generatorAction !== "HOLD" && rec.action === "HOLD";
 
   // Circuit-breaker pre-gate: don't spend evaluator tokens on an action the
   // breaker tier can't admit anyway (BUYs at ≥12% drawdown, everything at HALT).
@@ -543,6 +569,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     const breakerGate = applyBreakerToProposal(ctx.breaker.tier, rec.action, 1);
     if (!breakerGate.allowed) {
       rec = { ...rec, action: "HOLD", targetWeight: 0, overrideNotes: [...(rec.overrideNotes ?? []), breakerGate.note] };
+      riskOverridden = true;
       evaluatorVerdict = "not run (circuit breaker)";
       noProposalReason = breakerGate.note;
     }
@@ -618,12 +645,14 @@ async function reviewCandidateForAgent(agent, c, ctx) {
         ctx.evidenceFlags.push({ kind: `evaluator:${c.ticker}`, reasons: finalEval.suspectEvidence });
       }
       if (finalEval.verdict === "APPROVE") {
+        evaluatorState = "approved";
         rec.overrideNotes = [
           ...(rec.overrideNotes ?? []),
           `evaluator: APPROVE${finalEval.revisions ? " after 1 revision" : ""}`,
         ];
         evaluatorVerdict = `APPROVE${finalEval.revisions ? " after 1 revision" : ""}`;
       } else if (rec.action !== "HOLD") {
+        evaluatorState = "rejected";
         console.log(`[Evaluator] ${agent.id}: ${c.ticker} ${rec.action} rejected — ${finalEval.critique.join("; ")}`);
         const critiqueText = finalEval.critique.slice(0, 2).join("; ") || "no critique returned";
         rec = {
@@ -636,6 +665,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
         noProposalReason = `evaluator rejected: ${critiqueText}`;
       } else {
         // Generator conceded to HOLD on the revision path — rec already reflects it.
+        evaluatorState = "rejected";
         evaluatorVerdict = "REJECT (generator conceded on revision)";
         noProposalReason = "evaluator sent the proposal back and the revised recommendation came back HOLD";
       }
@@ -650,6 +680,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
         targetWeight: 0,
         overrideNotes: [...(rec.overrideNotes ?? []), `evaluator_error (failed closed): ${err.message}`],
       };
+      evaluatorState = "error";
       evaluatorVerdict = "error (failed closed)";
       noProposalReason = `evaluator error (failed closed to HOLD): ${err.message}`;
     }
@@ -672,6 +703,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     const note = `${agent.id} is paper-only; actionable recommendation recorded without creating an approval proposal`;
     rec.overrideNotes = [...(rec.overrideNotes ?? []), `paper_only: ${note}`];
     noProposalReason = note;
+    proposalDisposition = "paper_only";
   } else if (rec.action !== "HOLD" && !hasOpenProposal(ctx.openProposals, { agentId: agent.id, ticker: c.ticker, side: rec.action })) {
     if (
       rec.action === "SELL" &&
@@ -690,6 +722,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
         `[Research] ${agent.id}: SELL ${c.ticker} blocked by ${ctx.ordinarySellCooldownDays}d ordinary sell cooldown.`
       );
       noProposalReason = `ordinary SELL cooldown: this position had a SELL review within ${ctx.ordinarySellCooldownDays} days`;
+      proposalDisposition = "blocked";
     } else {
       let sized = sizeProposalAmount({
         action: rec.action,
@@ -703,6 +736,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
       });
       if (!sized) {
         noProposalReason = "sizing produced no proposal (position already at target weight, or nothing held to sell)";
+        proposalDisposition = "blocked";
       }
 
       // Circuit-breaker sizing pass: REDUCE tier halves BUY dollars; blocked tiers
@@ -714,6 +748,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
           rec.overrideNotes = [...(rec.overrideNotes ?? []), breakerGate.note];
           sized = null;
           noProposalReason = breakerGate.note;
+          proposalDisposition = "blocked";
         } else if (breakerGate.note) {
           rec.overrideNotes = [...(rec.overrideNotes ?? []), breakerGate.note];
           sized = { ...sized, amountDollars: breakerGate.amountDollars };
@@ -742,6 +777,18 @@ async function reviewCandidateForAgent(agent, c, ctx) {
               createdProposal: null,
               evaluatorVerdict,
               noProposalReason: `starter slots full (${currentPositions} positions + ${openStarterBuys} open BUYs / ${slots}) — proposal skipped`,
+              outcomeFacts: {
+                attempted: true,
+                dataGateBlocked: false,
+                dataGateStale: false,
+                failureKind: null,
+                generatorAction,
+                finalAction: rec.action,
+                riskOverridden,
+                evaluatorState,
+                duplicateOpen: isDuplicateOpen,
+                proposalDisposition: "blocked",
+              },
             };
           }
         }
@@ -772,13 +819,16 @@ async function reviewCandidateForAgent(agent, c, ctx) {
             }
             console.log(`[Research] ${agent.id}: queued ${rec.action} ${c.ticker} proposal ($${sized.amountDollars}).`);
             createdProposal = created;
+            proposalDisposition = "created";
           } else {
             // createProposal already screamed (Redis missing / write failure).
             noProposalReason = "proposal could not be written to the approval queue (Redis unavailable — see server logs)";
+            proposalDisposition = "queue_error";
           }
         } catch (err) {
           console.warn(`[Research] ${agent.id}: failed to queue proposal for ${c.ticker}:`, err.message);
           noProposalReason = `failed to queue proposal: ${err.message}`;
+          proposalDisposition = "queue_error";
         }
       }
     }
@@ -818,7 +868,26 @@ async function reviewCandidateForAgent(agent, c, ctx) {
   }
   if (!evaluatorVerdict) evaluatorVerdict = "not run (HOLD before evaluator)";
 
-  return { recommendation, researchRecord, rec, createdProposal, evaluatorVerdict, noProposalReason };
+  return {
+    recommendation,
+    researchRecord,
+    rec,
+    createdProposal,
+    evaluatorVerdict,
+    noProposalReason,
+    outcomeFacts: {
+      attempted: true,
+      dataGateBlocked: false,
+      dataGateStale: false,
+      failureKind: null,
+      generatorAction,
+      finalAction: rec.action,
+      riskOverridden,
+      evaluatorState,
+      duplicateOpen: isDuplicateOpen,
+      proposalDisposition,
+    },
+  };
 }
 
 /**
@@ -830,7 +899,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
  * three agents, and one agent's proposal can be downgraded because of another agent's
  * existing position. One agent's failure doesn't block the others (see runResearchScan).
  */
-async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, { breaker, boundaryToken, budget } = {}) {
+async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, { breaker, boundaryToken, budget, runId } = {}) {
   const summary = blankAgentScanSummary(agent.id);
   breaker = breaker ?? { tier: "NONE", drawdownPct: 0 };
   boundaryToken = boundaryToken ?? makeBoundaryToken();
@@ -954,15 +1023,19 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
   // top-quant fill until the budget is spent.
   const aiReviewBudget = Math.max(1, universeCfg.aiReviewBudget ?? 12);
   const toReview = new Map();
-  const addToReview = (ticker, { exempt = false } = {}) => {
+  const reviewBuckets = new Map();
+  const addToReview = (ticker, { exempt = false, bucket = "ranked" } = {}) => {
     if (toReview.has(ticker)) return;
     if (!exempt && toReview.size >= aiReviewBudget) return;
     const c = scored.find((s) => s.ticker === ticker);
-    if (c) toReview.set(ticker, c);
+    if (c) {
+      toReview.set(ticker, c);
+      reviewBuckets.set(ticker, bucket);
+    }
   };
-  for (const ticker of holdingTickers) addToReview(ticker, { exempt: true });
-  for (const ticker of explorationTickers) addToReview(ticker);
-  for (const ticker of scanTickers) addToReview(ticker);
+  for (const ticker of holdingTickers) addToReview(ticker, { exempt: true, bucket: "holdings" });
+  for (const ticker of explorationTickers) addToReview(ticker, { bucket: "exploration" });
+  for (const ticker of scanTickers) addToReview(ticker, { bucket: "movers" });
   for (const c of scored) {
     if (toReview.size >= aiReviewBudget) break;
     addToReview(c.ticker);
@@ -998,7 +1071,9 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
   const researchRecords = []; // research-ledger updates, persisted once after the loop
   for (const c of toReview.values()) {
     try {
-      const { recommendation, researchRecord, createdProposal } = await reviewCandidateForAgent(agent, c, ctx);
+      const { recommendation, researchRecord, createdProposal, outcomeFacts } = await reviewCandidateForAgent(agent, c, ctx);
+      const outcomeKind = classifyRecommendationOutcome(outcomeFacts);
+      summary.outcomeCounts = addOutcome(summary.outcomeCounts, outcomeKind);
       if (researchRecord) researchRecords.push(researchRecord);
       if (createdProposal) {
         summary.proposalsCreated += 1;
@@ -1017,6 +1092,19 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
       // would otherwise have no matching recommendation row in the Sheet.
       console.error(`[Research] ${agent.id}: ${c.ticker} failed mid-review (continuing): ${err.message}`);
       const failure = classifyResearchFailure(err);
+      const outcomeKind = classifyRecommendationOutcome({
+        attempted: true,
+        dataGateBlocked: false,
+        dataGateStale: false,
+        failureKind: failure.kind === "budget_exhausted" ? "budget_exhausted" : "review_error",
+        generatorAction: null,
+        finalAction: null,
+        riskOverridden: false,
+        evaluatorState: "not_run",
+        duplicateOpen: false,
+        proposalDisposition: "not_applicable",
+      });
+      summary.outcomeCounts = addOutcome(summary.outcomeCounts, outcomeKind);
       const recommendation = {
         date: new Date().toISOString().slice(0, 10),
         ticker: c.ticker,
@@ -1036,12 +1124,24 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
     }
   }
 
+  assertOutcomeConservation(summary.outcomeCounts, summary.attemptedReviews);
+
   await appendAgentRecommendations(sheets, spreadsheetId, sheetIds[agentTabName(agent.id)], agent.id, recommendations);
   console.log(`[Research] ${agent.id}: done — wrote ${recommendations.length} recommendations.`);
 
   // Persist this run's research memory (advisory: rotation + prompt context only,
   // so one write after the loop — a failed run just re-researches sooner).
   await applyResearchRecords(agent.id, researchRecords);
+
+  // Capture the actual completed live-review selection, not the wider candidate
+  // slate built before fundamentals, screening, scoring, and the AI budget. This
+  // occurs only after both recommendation and research-ledger persistence pass.
+  if (universeCfg.source === "catalog") {
+    await setPrivateResearchSlate(agent.id, [...toReview.keys()].map((ticker) => ({
+      ticker,
+      bucket: reviewBuckets.get(ticker),
+    })), { sourceRunId: runId });
+  }
 
   // Injection-suspect evidence is logged every time, but Telegram only escalates
   // higher-signal cases so routine single-source redactions don't look like bot replies.
@@ -1086,9 +1186,21 @@ async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = 
           scanErrors: acc.scanErrors + agent.scanErrors,
           budgetExhaustions: acc.budgetExhaustions + agent.budgetExhaustions,
           evaluatorRejects: acc.evaluatorRejects + agent.evaluatorRejects,
+          outcomeCounts: Object.fromEntries(
+            Object.keys(acc.outcomeCounts).map((kind) => [kind, acc.outcomeCounts[kind] + (agent.outcomeCounts?.[kind] ?? 0)])
+          ),
         }),
-        { recommendationsWritten: 0, attemptedReviews: 0, proposalsCreated: 0, scanErrors: 0, budgetExhaustions: 0, evaluatorRejects: 0 }
+        {
+          recommendationsWritten: 0,
+          attemptedReviews: 0,
+          proposalsCreated: 0,
+          scanErrors: 0,
+          budgetExhaustions: 0,
+          evaluatorRejects: 0,
+          outcomeCounts: blankOutcomeCounts(),
+        }
       ),
+      classificationVersion: RESEARCH_OUTCOME_VERSION,
       error,
     });
   };
@@ -1100,6 +1212,7 @@ async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = 
     startedAt,
     completedAt: null,
     agents: [],
+    classificationVersion: RESEARCH_OUTCOME_VERSION,
     error: null,
   });
 
@@ -1131,7 +1244,7 @@ async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = 
     const activeAgents = AGENTS.filter((a) => agentIds.includes(a.id));
     for (const agent of activeAgents) {
       try {
-        const summary = await runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, { breaker, boundaryToken, budget });
+        const summary = await runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, { breaker, boundaryToken, budget, runId });
         agentSummaries.push(summary);
       } catch (err) {
         console.error(`[Research] ${agent.id} failed:`, err.message);

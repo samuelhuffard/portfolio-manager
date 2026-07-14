@@ -1,0 +1,123 @@
+# ADR 0004 — Immutable Strategy-Proposal Lineage and Versioned Approval Signatures
+
+**Status:** Accepted architecture; implementation gated
+**Date:** 2026-07-13
+**Security impact:** High — approval signature and cross-repo proposal contract
+
+## Context
+
+The production Redis `ProposalSchema` represents allocation and lifecycle state: ticker, side, dollars, status, approval, fulfillment, and signature. The additive `StrategyProposalSchema` represents research lineage: intent, evidence, thesis, kill criteria, horizon, and owned SELL lots. Production research currently writes directly to the allocation proposal and does not persist the full strategy object.
+
+Adding all research fields directly to the mutable lifecycle row would make the proposal shape unwieldy and create ambiguity about which fields are immutable or signed. Leaving lineage outside the approval signature would allow research provenance to be changed without invalidating the authorization record.
+
+## Decision
+
+Persist an immutable strategy proposal separately and reference its fingerprint from the live allocation proposal.
+
+```text
+ResearchIntent
+  → EvidenceSnapshot
+  → immutable StrategyProposal
+       id + content fingerprint
+  → AllocationProposal
+       strategyProposalId + strategyProposalFingerprint
+  → manager decision signature v2
+       trade fields + strategyProposalFingerprint
+  → executor
+```
+
+### Strategy proposal
+
+The canonical strategy proposal contains:
+
+- ID and immutable content fingerprint.
+- Research intent ID/source.
+- Agent, mandate ID/version, ticker, side, and horizon.
+- Evidence snapshot ID and evidence timestamp.
+- Thesis and variant view.
+- At least two structured kill criteria for agent-reviewed actionable recommendations.
+- Requested target weight and deterministic sized dollars.
+- Score/basis/available points/completeness and peer/fallback metadata.
+- Evaluator run ID, verdict, revision count, and evaluated content fingerprint.
+- For SELLs: cited owner-strategy lot IDs/shares and remaining target weight.
+- Creation/expiry timestamps.
+
+Once written, a strategy proposal is append-only and cannot be updated. A revised thesis or evaluator revision creates a new strategy proposal/fingerprint.
+
+### Allocation proposal
+
+The existing live proposal remains the lifecycle object and adds:
+
+- `signatureVersion` (`1` for legacy, `2` for lineage-bound).
+- `strategyProposalId`.
+- `strategyProposalFingerprint`.
+
+New v2 proposals require both lineage fields. Historical v1 rows allow null lineage fields for read compatibility only.
+
+### Signature v2
+
+Signature v1 remains exactly as currently implemented for legacy rows. Signature v2 signs:
+
+```text
+id | status | agentId | ticker | side | amountDollars | maxPrice |
+decidedAt | decidedByUserId | strategyProposalFingerprint | signatureVersion
+```
+
+The executor selects the payload by `signatureVersion`, verifies the allocation proposal, loads the immutable strategy proposal, recomputes its fingerprint, and requires equality with the signed reference.
+
+The lineage does not authorize a different trade. Ticker, side, amount, limit, decision identity, and status remain directly signed.
+
+## Manual proposals
+
+Manual dashboard proposals are not exempt. The dashboard creates:
+
+- a `ResearchIntent` with `source=manual`;
+- a minimal human evidence snapshot containing the submitted rationale/risk context and timestamp;
+- a strategy proposal with mandate reference, thesis, kill criteria, and evaluator state explicitly marked `human_not_evaluated` when applicable; and
+- the linked allocation proposal.
+
+If manual input lacks the minimum lineage fields, it remains a saved research draft and cannot become an approvable allocation proposal.
+
+## Migration and cutover
+
+1. Add strategy/evidence tables and nullable lineage/signature-version columns.
+2. Deploy readers capable of v1 and v2 before any v2 writer.
+3. Mirror contracts and verify backend/dashboard/companion parity.
+4. Inspect outstanding approved v1 proposals.
+5. Allow existing v1 approvals only until their current expiry, or deliberately reject them before enforcing v2-only creation.
+6. Enable v2 writers for scheduled research, then Lab/alerts/exits/manual sources one at a time.
+7. After the compatibility window, reject creation/approval of new v1 proposals while retaining historical read support.
+
+No in-place signature conversion is permitted. A v1 approved proposal cannot be “upgraded” by adding lineage after approval; it must expire/reject or be recreated and reapproved.
+
+## Ownership and SELLs
+
+- A SELL strategy proposal must cite lots owned by its originating agent.
+- The compiler validates ownership before persistence.
+- Approval and execution revalidate current open shares/state.
+- Agent 4 may accept/reject the exact proposal but cannot change cited ownership, side, ticker, or size.
+
+## Canonical source and mirrors
+
+- Backend canonical contracts: `contracts/`.
+- Dashboard contract mirror: generated by `npm run contracts:sync`.
+- Backend persistence: `lib/redis.js`, Postgres research writer, and `lib/pg/dual-write.js` during migration.
+- Dashboard lifecycle/UI: `../portfolio-dashboard/lib/proposals.ts` and proposal routes.
+- Executor: `../portfolio-dashboard/scripts/companion-core.mjs` / `mac-companion.mjs`.
+
+All three runtime surfaces must support v2 in one coordinated release before v2 creation is enabled.
+
+## Consequences
+
+- Research provenance becomes immutable and cryptographically bound to approval.
+- Historical allocation proposals remain readable.
+- The signature implementation becomes versioned rather than silently changing the v1 payload.
+- Manual proposals require more structured input.
+- The rollout must be coordinated and independently reviewed; it is not a small-model solo task.
+
+## Rejected alternatives
+
+- **Put all lineage fields directly on the allocation proposal:** rejected because research truth and mutable lifecycle state have different responsibilities.
+- **Reference an unsigned strategy proposal:** rejected because provenance could change without invalidating approval.
+- **Change the v1 signature payload in place:** rejected because it would invalidate outstanding approvals and break compatibility.
+- **Exempt manual proposals:** rejected because every executable proposal must have one traceable origin and evidence state.

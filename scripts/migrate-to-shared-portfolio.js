@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { getServiceAccountClients, resolveSharedSpreadsheetId, getSheetIds, agentTabName, readAllLots, appendLots } from "../lib/sheets.js";
 import { openLot } from "../lib/tax-lots.js";
+import { isSecurityHoldingRow } from "../lib/holdings-rows.js";
 
 // One-off migration for the "3 independent agent pools -> 1 shared portfolio"
 // rearchitecture:
@@ -69,9 +70,7 @@ if (existingLots.length) {
   console.log(`Lots tab already has ${existingLots.length} row(s) — skipping legacy lot seeding.`);
 } else {
   const holdingsRes = await sheets.spreadsheets.values.get({ spreadsheetId: sharedSpreadsheetId, range: "Holdings!A2:D" });
-  const holdingRows = (holdingsRes.data.values || []).filter(
-    (row) => row[0] && row[0] !== "Cash" && !String(row[0]).startsWith("Last synced") && !String(row[0]).startsWith("⚠️")
-  );
+  const holdingRows = (holdingsRes.data.values || []).filter((row) => isSecurityHoldingRow(row));
 
   const legacyLots = holdingRows
     .map((row) => ({ ticker: row[0], shares: Number(row[2]), costPerShare: Number(row[3]) }))

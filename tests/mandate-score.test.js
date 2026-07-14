@@ -78,6 +78,18 @@ test("missing absolute evidence is explicit and rescaled, never scored zero", ()
   assert.equal(result.perMetric.estimateRevisions.points, null);
 });
 
+test("sub-80-point partial coverage is never actionable", () => {
+  const result = scoreMandateCandidate({
+    agentId: "agent-1",
+    metricVector: { revGrowth: 100 },
+    peerDistributions: distributions(0),
+    absoluteEvidence: { revGrowth: { currentGrowthPct: 20, accelerationPoints: 5 } },
+  });
+  assert.ok(result.maxAvailable < 80);
+  assert.equal(result.actionable, false);
+  assert.equal(result.noTradeReason, "insufficient_available_points");
+});
+
 test("special-sector provenance lists every substituted bank metric", () => {
   const bankEvidence = {
     ...AGENT_ONE_FULL,

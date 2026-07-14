@@ -34,7 +34,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * Failure is loud (Telegram) but never blocks research: the scan keeps using
  * the last good catalog, or falls back to the agent's seed watchlist.
  */
-export async function runUniverseRefresh() {
+export async function runUniverseRefresh({ strictPeerMetrics = false } = {}) {
   try {
     const existing = (await getUniverseCatalog()) ?? {};
     const listing = await fetchUsListing();
@@ -88,6 +88,10 @@ export async function runUniverseRefresh() {
         console.log(`[Universe] Peer metrics: cached ${Object.keys(peerRows).length} vectors this run.`);
       } catch (peerErr) {
         console.error("[Universe] Peer-metrics cache failed (catalog refresh unaffected):", peerErr.message);
+        // The legacy/direct refresh remains best-effort, but the orchestrated
+        // research-data workflow cannot safely build distributions from an
+        // unknowably stale cohort after a current-run persistence failure.
+        if (strictPeerMetrics) throw peerErr;
       }
     }
     const total = Object.keys(catalog).length;

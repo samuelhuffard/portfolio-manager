@@ -8,7 +8,7 @@ import {
   latestInstant,
   CONCEPTS,
 } from "../lib/edgar-facts.js";
-import { ttm, yoyGrowthSeries, deriveFundamentalMetrics, edgarMetricSubset } from "../lib/edgar-metrics.js";
+import { ttm, yoyGrowthSeries, deriveFundamentalMetrics, edgarMetricSubset, cagrFromSeries, marginHistory, interestCoverageHistory, deriveHistoryPrimitives } from "../lib/edgar-metrics.js";
 
 // --- synthetic companyfacts fixture -----------------------------------------
 const QUARTER_ENDS = [
@@ -114,4 +114,42 @@ test("missing concepts degrade to null, never throw", () => {
   const m = deriveFundamentalMetrics({ facts: { "us-gaap": {} } });
   assert.equal(m.revYoY, null);
   assert.equal(m.interestCoverage, null);
+});
+
+test("point-in-time series exclude facts filed after the observation cutoff", () => {
+  const restated = facts();
+  restated.facts["us-gaap"].Revenues.units.USD.push({ start: startFor("2024-12-31"), end: "2024-12-31", val: 999, fy: 2024, fp: "Q4", form: "10-K", filed: "2025-02-01", frame: null });
+  const current = quarterlySeries(restated, CONCEPTS.revenue);
+  const historical = quarterlySeries(restated, CONCEPTS.revenue, "USD", { asOf: "2025-01-01" });
+  assert.equal(current.at(-1).val, 999);
+  assert.equal(historical.at(-1).val, 140);
+});
+
+test("invalid point-in-time cutoff fails closed and concept fallback remains chronology-safe", () => {
+  const companyfacts = facts({
+    RevenueFromContractWithCustomerExcludingAssessedTax: { units: { USD: [{ ...flow("2024-12-31", 999), filed: "2025-02-01" }] } },
+  });
+  assert.throws(() => quarterlySeries(companyfacts, CONCEPTS.revenue, "USD", { asOf: "not-a-date" }), /Invalid asOf cutoff/);
+  const historical = quarterlySeries(companyfacts, CONCEPTS.revenue, "USD", { asOf: "2025-01-01" });
+  assert.equal(historical.at(-1).val, 140);
+});
+
+test("history primitives expose chronology-safe CAGR, margin, and coverage scaffolding", () => {
+  const series = [
+    { end: "2021-12-31", val: 100 },
+    { end: "2022-12-31", val: 110 },
+    { end: "2023-12-31", val: 121 },
+    { end: "2024-12-31", val: 133.1 },
+  ];
+  assert.ok(Math.abs(cagrFromSeries(series, 3) - 0.1) < 0.002);
+  assert.deepEqual(marginHistory([{ end: "2024-12-31", val: 50, filed: "2025-02-01" }], [{ end: "2024-12-31", val: 100, filed: "2025-03-01" }])[0], {
+    end: "2024-12-31", margin: 0.5, filed: "2025-03-01", source: "sec_xbrl",
+  });
+  assert.equal(interestCoverageHistory([{ end: "2024-12-31", val: 20 }], [{ end: "2024-12-31", val: -5 }])[0].value, 4);
+  assert.equal(interestCoverageHistory([{ end: "2024-12-31", val: 20 }], [{ end: "2024-12-31", val: 0 }])[0].value, null);
+  const history = deriveHistoryPrimitives(facts(), { asOf: "2025-01-01" });
+  assert.equal(history.revenueQuarterly.at(-1).val, 140);
+  assert.equal(history.epsCagr3y, null);
+  assert.ok(history.epsCagr3yRaw == null || typeof history.epsCagr3yRaw === "number");
+  assert.equal(history.gates.estimates, "unavailable");
 });

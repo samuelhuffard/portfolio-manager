@@ -1,0 +1,8 @@
+{
+  "agentId": "agent-3",
+  "mandateId": "agent_three",
+  "mandateVersion": "3.0",
+  "canonicalSourcePath": "agent_mandates/Agent_Three_Mandate_v3.md",
+  "targetUniversePolicyVersion": "eligible-us-operating-common-equities-v3",
+  "productionUniversePolicyVersion": "static-watchlist-v1"
+}
