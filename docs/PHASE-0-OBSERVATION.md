@@ -113,6 +113,37 @@ local/uncommitted until the final reviewed gate-closing release. Phase 0 therefo
 remains **0/10**, and the first possible Day 1 is a clean trading day after that
 release.
 
+### 2026-07-14 ET gate-closing backend release
+
+The reviewed backend release is deployed from `mandate-v3` at code commit
+`df9b9ef`. Migration `0007_position_quote_provenance.sql` applied, PM2 restarted
+cleanly with `unstable_restarts=0` and `exit_code=0`, and local Jetson `/health`
+returned 200 with every required dependency boolean true. The backend test suite
+passed 713/713 before release. Cost-governance, parity, restore, and observer
+changes each received independent blocker review; the final observer re-review and
+the restore-timezone re-review were clean.
+
+A post-migration shadow refresh and comparison produced exact transactional
+`MATCH` for the accounting snapshot, capital entries, lots, positions, and
+proposals. Valuation was honestly `NON_COMPARABLE`, not failed: the retained
+Sheets position predates the new content-bound quote version/source/timestamp, so
+neither side claimed same-snapshot valuation proof.
+
+The encrypted type-preserving v2 restore drill then passed against all seven live
+migrations and all 20 declared tables in a clean PGlite target. Exact counts,
+content digests, signature/HMAC bytes, foreign keys, and sequences survived; the
+privacy-safe proof is recorded at
+`ops/restore-drills/2026-07-14-postgres-shadow-v2.md`. Provider-native Neon PITR
+remains a separate pre-canonical-cutover gate.
+
+This release still does **not** start or backfill the clock. The Portfolio Manager
+monthly Anthropic ceiling and separately attributable credential/project remain
+human-gated and `NOT_CONFIGURED`. Dashboard companion contract commit `bbb5a5c` is
+pushed, but the local `portfolio-executor` restart awaits explicit approval, and
+the first scheduled immutable observer record has not yet run. Backend `main`
+also awaits explicit approval to fast-forward; production remains pinned to the
+reviewed `mandate-v3` branch. Phase 0 remains **0/10**.
+
 ### Watch, do not normalize away
 
 - Freshly distinguish the retired Python sync's 2026-07-10 failures from the MCP path;
@@ -155,7 +186,7 @@ consecutive safety-day decision.
 | Trading day | Status | MCP sync + reconciliation | Ledgers | Parity | Jobs / holdings monitoring | Proposal evidence | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Jul 13 | **Invalid — does not count** | Pass: MCP sync + reconciliation jobs recorded `ok` | Pass: 7/7 Investors, 43/43 Performance, 1/1 Trade, 1/1 Lots, 3,371 Audit | **Fail:** NVDA market value `$15.37` vs `$15.39` | Critical jobs ran, but 3 active P1s + PM2 restart/marker/Athena noise; scan accounting unproven | 36 reviews reported as HOLD, 0 proposals; usage-limit log contradiction | Alerting worked; exact parity and clean-P1 gate did not |
-| Jul 14 | Pending | — | — | — | — | — | |
+| Jul 14 | **Not eligible — does not count** | Existing receipts predate the new companion contract; restart pending | Prior signed-ledger proof clean | Transactional `MATCH`; valuation `NON_COMPARABLE` | Gate-closing deploy occurred after scheduled research; first v2 observer record pending | 36 conserved outcomes, 0 actionable proposals | Human cost ceiling/credential remains `NOT_CONFIGURED`; no retroactive Day 1 |
 | Jul 15 | Pending | — | — | — | — | — | |
 | Jul 16 | Pending | — | — | — | — | — | |
 | Jul 17 | Pending | — | — | — | — | — | |

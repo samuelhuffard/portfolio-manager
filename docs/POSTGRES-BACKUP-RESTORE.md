@@ -24,6 +24,14 @@ has been restored. Those require either a disposable Neon branch credential or
 PostgreSQL client/server tooling, neither of which is configured on the Mac or
 Jetson today.
 
+The same v2 path passed against the configured production shadow source after all
+seven live migrations on 2026-07-14. The privacy-safe evidence is
+[Postgres shadow restore evidence v2](../ops/restore-drills/2026-07-14-postgres-shadow-v2.md).
+The first live attempt usefully failed closed because Neon and PGlite rendered
+identical `TIMESTAMPTZ` instants in different session timezones; both dedicated
+digest sessions now canonicalize to UTC, with a regression test covering the
+production topology.
+
 ## Read-only drill against the configured database
 
 Run only from a trusted host whose `DATABASE_URL` points to the intended source:
