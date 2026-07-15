@@ -7,7 +7,34 @@ import {
 } from "../jobs/intraday-monitor.js";
 import { exitProposalAmount, requireQueuedExitProposal } from "../jobs/monitor-positions.js";
 import { buildHoldingMonitorCoverage, holdingMonitorCoveragePasses } from "../lib/holding-monitor-coverage.js";
-import { readHoldingsAllocation } from "../lib/sheets.js";
+import { readCashBalance, readHoldingsAllocation, readHoldingsDetail, readHoldingsReturnPct } from "../lib/sheets.js";
+
+test("Holdings money readers request unformatted values instead of parsing currency text as zero", async () => {
+  const requests = [];
+  const sheets = { spreadsheets: { values: { async get(request) {
+    requests.push(request);
+    const numericRows = [
+      ["NVDA", "Nvidia", 0.08, 200, 212.5, 17, 16, 1, 6.25],
+      [" Cash ", "", "", "", "", 85],
+    ];
+    const formattedRows = [
+      ["NVDA", "Nvidia", "0.08", "$200.00", "$212.50", "$17.00", "$16.00", "$1.00", "+6.25%"],
+      [" Cash ", "", "", "", "", "$85.00"],
+    ];
+    return { data: { values: request.valueRenderOption === "UNFORMATTED_VALUE" ? numericRows : formattedRows } };
+  } } } };
+
+  assert.equal(await readCashBalance(sheets, "sheet-id"), 85);
+  assert.deepEqual(await readHoldingsAllocation(sheets, "sheet-id"), [
+    { ticker: "NVDA", shares: 0.08, marketValue: 17 },
+  ]);
+  assert.deepEqual(await readHoldingsDetail(sheets, "sheet-id"), [
+    { ticker: "NVDA", shares: 0.08, currentPrice: 212.5, marketValue: 17, costBasis: 16 },
+  ]);
+  assert.deepEqual(await readHoldingsReturnPct(sheets, "sheet-id"), { NVDA: 6.25 });
+  assert.equal(requests.length, 4);
+  assert.ok(requests.every((request) => request.valueRenderOption === "UNFORMATTED_VALUE"));
+});
 
 test("holdings allocation preserves numeric zero but exposes missing, malformed, and negative shares", async () => {
   const sheets = { spreadsheets: { values: { async get() {
