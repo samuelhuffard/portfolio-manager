@@ -78,11 +78,11 @@ evidence. “Verified locally” is not “deployed,” and “deployed” is no
 | Area | Label | Status supported on 2026-07-14 | Evidence / unresolved fact |
 | --- | --- | --- | --- |
 | Live authority | TRUST | Human-supervised. Agent 4 is shadow-only. Agents 2/3 are supervised and static-watchlist-bound; they are not catalog-enabled. | [Decision D-003](RESEARCH-DECISION-REGISTER.md) and commit history supersede older “paper-only” wording. |
-| Live release | BOTH | Backend `mandate-v3` runtime is loaded at `e746bd5`: the gate-closing release, signed PM2 deploy-attestation control, and observer identity pinned to the code actually loaded by PM2. Migration `0007_position_quote_provenance.sql` is applied; PM2 is online and `/health` is 200. Dashboard companion contract `bbb5a5c` is loaded by local `portfolio-executor`, which is online with a fresh heartbeat. | Production proof on 2026-07-14. Sam approved and completed the original backend `main` alignment through `4d557e4`; the later reviewed fixes require a fresh approval for the final status commit to be pushed to both `mandate-v3` and `main`. Production stays pinned to the reviewed `mandate-v3` release. |
+| Live release | BOTH | Backend `mandate-v3` runtime is loaded at `e746bd5`: the gate-closing release, signed PM2 deploy-attestation control, and observer identity pinned to the code actually loaded by PM2. Migration `0007_position_quote_provenance.sql` is applied; PM2 is online and `/health` is 200. Dashboard companion contract `bbb5a5c` is loaded by local `portfolio-executor`, which is online with a fresh heartbeat. | Production proof on 2026-07-14. `origin/mandate-v3` contains the later reviewed fixes and evidence; `origin/main` is the only branch behind, aligned through the originally approved `4d557e4`. Fresh approval is required to create one final status commit on the current mandate head and push that identical commit to both branches. |
 | Phase 0 safety window | TRUST | **0/10 clean trading days.** No start may be inferred from service uptime or cleanup completion. | [Observation record](PHASE-0-OBSERVATION.md#exit-evidence-summary). Day 1 remains gated on the final gate-closing release and a clean next-trading-day observation. |
 | Historical production artifacts | TRUST | **Resolved.** Both smoke reconciliation artifacts have signed resolutions; the historic unsigned NVDA approval is rejected/closed. Live Redis has zero open reconciliation records and zero unsigned approved proposals. | Current live verification. Historical rows remain preserved rather than deleted. |
 | Restart investigation | TRUST | **Resolved for the observed count and automated going forward.** The first 40 restarts are manually attributable to controlled deploy/config changes; the immutable July 14 observer correctly retained the missing-marker failure. Restarts 41 and 42 were performed by the reviewed wrapper and accepted through dedicated-key signed exact `40→41` and `41→42` edges. PM2 remains `unstable_restarts=0`, `exit_code=0`, online, timestamped, and saved. | The sentinel atomically consumed each marker while advancing its baseline and then reported no PM2 anomaly. Any unsigned, forged, stale, incomplete, unstable, reset, or non-zero-exit edge remains P1. |
-| Current gate-closing state | BOTH | Transactional parity is an exact production `MATCH`; valuation remains honestly `NON_COMPARABLE` until a content-bound quote snapshot arrives. Restore, observer, cost controls, `$10` protected pool, companion restart, and runtime release are verified. The first scheduled signed observer record exists and correctly marks July 14 `FAIL_BOTH`, safety-day false, research-sample retained. | Phase 0 remains 0/10; the next ordinary trading day is the first candidate Day 1. The only immediate repository-hygiene approval is whether to create and push the final alignment status commit to both branches, bringing backend `main` forward from `4d557e4`. |
+| Current gate-closing state | BOTH | Transactional parity is an exact production `MATCH`; valuation remains honestly `NON_COMPARABLE` until a content-bound quote snapshot arrives. Restore, observer, cost controls, `$10` protected pool, companion restart, and runtime release are verified. The first scheduled signed observer record exists and correctly marks July 14 `FAIL_BOTH`, safety-day false, research-sample retained. | Phase 0 remains 0/10; the next ordinary trading day is the first candidate Day 1. `mandate-v3` is current; the only immediate repository-hygiene approval is whether to create the final alignment-status commit there and push the identical commit to both branches, bringing `main` forward from `4d557e4`. |
 | Research throughput | SKILL | A fresh 2026-07-14 scheduled run conserves all 36 outcomes (35 investment HOLD, 1 stale-data block, zero failures), but still produced zero genuine actionable proposals and zero evaluator approvals. | Outcome accounting is now proven; throughput/edge remains unproven. |
 | Research evidence spine | SKILL | Reviewed evidence-spine code and additive migrations are recorded as deployed at backend `79c778a` and dashboard `76d92b8`; promotion flags remain shadow/measurement-only. | [Jul 14 deployment record](PHASE-0-OBSERVATION.md#2026-07-14-et-reviewed-evidence-spine-deployment). |
 | Research packet implementation | SKILL | Several E1–E4 and E7 pieces are described as verified locally. Their runtime, evidence, and promotion gates remain separate. | [Execution ledger](RESEARCH-ROADMAP-EXECUTION-GUIDE.md#31-verified-local-implementation-ledger). |
@@ -138,9 +138,9 @@ behavioral class is. Undocumented production drift invalidates the affected day.
 
 ## 6. Immediate gate-closing release — Phase G0
 
-**Phase label: BOTH · Status: active · Owner: systems owner + independent reviewer**
+**Phase label: BOTH · Status: runtime complete; repository alignment approval open · Owner: systems owner + independent reviewer**
 
-This is the only planned safety-affecting release before the 10-day freeze. If
+This was the only planned safety-affecting release before the 10-day freeze. If
 execution evidence shows an item is already complete, attach that evidence and
 close it; do not repeat or merely assert it.
 
@@ -151,9 +151,9 @@ close it; do not repeat or merely assert it.
 | G0.3 Automate daily observation — **verified deployed with first scheduled record** | BOTH | builder + ops reviewer | Immutable/read-only daily result with commit, policy versions, critical jobs, MCP receipts, ledgers, transactional parity, valuation freshness, holding monitoring, research attempts/outcomes, proposals, approvals, fills, and exact reasons; concise notification | The HMAC-signed 2026-07-14 `phase0-observation-v2` record was created once and returned `FAIL_BOTH`, `countsTowardSafetyWindow=false`, and `countsTowardResearchCohort=true`; missing evidence did not pass. Changing pass semantics later is S2. |
 | G0.4 Prove research-run accounting — **verified complete for the current classifier** | SKILL | research builder + reviewer | The 2026-07-14 scheduled run reconciled all 36 attempts under `research-outcomes-v1`: 35 investment HOLD, 1 stale-data block, and zero budget/provider/evaluator/queue failures; no outcome was unclassified | This proves conserved outcome accounting, not proposal throughput or investment edge. A classifier change opens a new research cohort. |
 | G0.5 Install cost/capacity governance — **verified complete for current policy** | BOTH | Sam sets budget; builder enforces/observes | The atomic monthly/per-run/call controls, pricing, classifications, and privacy-safe report are deployed. Production enforces Sam's `$40` UTC-month ceiling, default 80% warning, and `$10` protected holding/evaluator pool inside that ceiling; telemetry is complete. Sam accepts the current shared credential for now. | Current report: `$3.6878` spent, `$0` active leases, `$36.3122` remaining. Capacity exhaustion cannot silently become an investment HOLD. A policy change affecting throughput opens a new research cohort. |
-| G0.6 Explain infrastructure restarts — **verified complete and automated** | TRUST | ops investigator | All 41 observed restarts are accounted for. The first 40 retain manual release/config evidence; restart 41 is the first dedicated-key signed, exact deploy edge. PM2 reports online, `unstable_restarts=0`, and `exit_code=0`; `--time` and the process list are persisted. | The follow-up sentinel trusted and atomically consumed marker `40→41`, recorded no PM2 anomaly, and advanced the baseline. Any future unmarked or unsafe restart invalidates the day. |
+| G0.6 Explain infrastructure restarts — **verified complete and automated** | TRUST | ops investigator | All 42 observed restarts are accounted for. The first 40 retain manual release/config evidence; restarts 41 and 42 use dedicated-key signed, exact deploy edges. PM2 reports online, `unstable_restarts=0`, and `exit_code=0`; `--time` and the process list are persisted. | The sentinel trusted and atomically consumed markers `40→41` and `41→42`, recorded no PM2 anomaly, and advanced the baseline after each edge. Any future unmarked or unsafe restart invalidates the day. |
 | G0.7 Backup/restore drill — **verified complete at the application layer** | TRUST | ops owner + reviewer | Type-preserving encrypted logical v2 restored all 20 declared tables after all seven live migrations into a clean PGlite target; exact counts/digests, signature bytes, foreign keys, and sequences verified. | [2026-07-14 v2 proof](../ops/restore-drills/2026-07-14-postgres-shadow-v2.md). The first production attempt exposed and then regression-tested a Neon-GMT/PGlite-host-timezone display mismatch; `df9b9ef` canonicalized both digest sessions to UTC and the rerun passed. Provider-native Neon PITR remains a separate pre-canonical-cutover gate. |
-| G0.8 Gate-closing release verification — **runtime and companion verified; later default-branch follow-up open** | BOTH | primary + independent reviewer | Backend `mandate-v3@9397eef` is deployed with secret scan, 721/721 tests, migration 0007, signed controlled restart, health 200, timestamped logs, transactional parity `MATCH`, scheduled observer evidence, application restore, and unchanged shadow authority. Dashboard `bbb5a5c` passed 109/109, TypeScript, and build; local `portfolio-executor` restart 10 is online with fresh heartbeat. | The originally approved `main` fast-forward completed through `4d557e4`. Because the restart-attestation fix was discovered afterward, moving `main` to the later reviewed head is a new exact human approval. This branch-hygiene item does not retroactively create Day 1. |
+| G0.8 Gate-closing release verification — **runtime and companion verified; later default-branch follow-up open** | BOTH | primary + independent reviewer | Backend `mandate-v3@e746bd5` is loaded with secret scan, 722/722 tests, migration 0007, signed controlled restart, health 200, timestamped logs, transactional parity `MATCH`, scheduled observer evidence, application restore, unchanged shadow authority, and observer identity pinned to the code actually loaded by PM2. Dashboard `bbb5a5c` passed 109/109, TypeScript, and build; local `portfolio-executor` restart 10 is online with fresh heartbeat. | The originally approved `main` fast-forward completed through `4d557e4`. Because the restart-attestation and loaded-runtime identity fixes were discovered afterward, the final same-commit alignment of `mandate-v3` and `main` is a new human approval. This branch-hygiene item does not retroactively create Day 1. |
 
 ## 7. Unified phase sequence
 
@@ -175,7 +175,7 @@ freeze” rules permit it, but no phase is promoted out of order.
 
 ### Phase 0 — Prove the supervised baseline
 
-**Label: BOTH · Status: blocked at 0/10 until Phase G0 closes**
+**Label: BOTH · Status: active at 0/10; G0 runtime closed, final branch-hygiene approval open**
 
 1. **[TRUST]** Freeze S1/S2 behavior after the gate-closing release.
 2. **[TRUST]** Run the daily checklist for 10 consecutive trading days.
@@ -421,6 +421,12 @@ not only in chat.
 | [Q-006](RESEARCH-DECISION-REGISTER.md) | SKILL | Sam + investing partner | Cash measure, duration, regimes, cooldown, horizon | Cash challenger |
 | [Q-007](RESEARCH-DECISION-REGISTER.md) | SKILL | Sam + investing partner/accounting input | Base/stressed spread, slippage, tax scope | Net historical results and edge claims |
 
+During Phase 0, Sam owns scheduling one focused session with the investing partner
+for Q-001–Q-004 and mandate ambiguities. The accepted answers must be recorded in
+the decision register before Phase 1 can exit; no meeting or no recorded answer
+means the affected capability remains blocked rather than receiving an inferred
+default. The HUMAN NEEDED task is the visible inbox for arranging and closing it.
+
 ### Legal/tax/outside-capital warning and autonomy gate — active now
 
 Sam explicitly chose on 2026-07-14 to accept the interim legal risk of manual
@@ -531,5 +537,7 @@ Do not during the freeze:
 | [INVARIANTS.md](INVARIANTS.md) | Non-negotiable implementation safety rules. |
 | [CHANGE_MAP.md](CHANGE_MAP.md) | Code ownership/copy map, not roadmap status. |
 
-The next action is Phase G0. The next promotion is Phase 0 exit. Later-phase code
+The next action is the first eligible Phase 0 trading-day observation; the separate
+G0 branch-alignment approval remains repository hygiene. The next promotion is
+Phase 0 exit. Later-phase code
 may exist or be prepared, but it does not change that ordering.

@@ -61,14 +61,28 @@ npm test && npm run lint && npm run build
 
 ## Deploys
 
-**Backend → Jetson** (after push to GitHub main):
+**Backend → Jetson** (after pushing the exact reviewed release named in
+`docs/portfolio-master-plan.md`; do not assume `main`):
 ```bash
 ssh sam@100.102.93.103
-cd ~/portfolio-manager && git pull && npm test
-pm2 restart portfolio-manager --update-env
-sleep 3 && curl -sS http://localhost:3200/health
+cd ~/portfolio-manager
+git fetch origin
+git switch <reviewed-release-branch>
+git pull --ff-only origin <reviewed-release-branch>
+git rev-parse HEAD  # must equal the reviewed release SHA
+npm test
+npm run deploy:restart
+curl -sS http://localhost:3200/health
+npm run sysloop:check
 ```
-Healthy = `{"ok":true,...,"deps":{redis,sheetsAuth,anthropicKey,webhookSecret,telegram: all true}}` and a startup log line listing the schedule. A deploy is NOT complete until health responds and the fresh log shows no crash.
+`npm run deploy:restart` is mandatory: it permits exactly one clean PM2 restart
+edge and signs it with the dedicated deploy key. Never substitute `pm2 restart`
+or another unmarked restart. The immediate sentinel run must trust and atomically
+consume that marker without a PM2 anomaly. Healthy also means
+`{"ok":true,...,"deps":{redis,sheetsAuth,anthropicKey,webhookSecret,telegram: all true}}`,
+PM2 online with zero unstable restarts and exit code zero, the loaded branch/SHA
+matching the reviewed release, and a fresh timestamped startup log with no crash.
+A deploy is not complete until all of those checks are clean.
 
 **Dashboard → Vercel:**
 ```bash

@@ -137,7 +137,11 @@ API routes (all under `app/api/`, ALL gated by `requireApiPermission` — no exc
 
 ## Deployment targets
 
-- Backend → Jetson: `ssh sam@100.102.93.103`, `cd ~/portfolio-manager && git pull && npm test && pm2 restart portfolio-manager --update-env`, verify `curl localhost:3200/health`.
+- Backend → Jetson: deploy only the exact reviewed branch/SHA named by the master
+  plan, then use the signed `npm run deploy:restart` flow and immediate sentinel
+  validation in [RUNBOOK.md](RUNBOOK.md). An unmarked direct PM2 restart is not a
+  valid deploy. Verify health, loaded revision, PM2 stability, fresh timestamped
+  logs, and marker consumption.
 - Dashboard → Vercel: `npx vercel --prod --scope samuelhuffard-9533s-projects` from the dashboard repo.
 - Companion → local Mac: `pm2 restart portfolio-executor --update-env` (runs from the working tree — a git pull is a deploy).
 

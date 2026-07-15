@@ -44,19 +44,38 @@ The system may call itself market-beating only after the evidence says so.
 
 ---
 
-## Current runtime truth — 2026-07-13
+## Historical runtime snapshot — 2026-07-13 (superseded)
 
-This section supersedes stale branch/status language elsewhere in earlier drafts.
+This section is preserved only as dated context for why the research roadmap was
+written. Every branch, deployment, worktree, count, and feature-state assertion
+below describes the 2026-07-13 snapshot and is **not current status**. It no longer
+supersedes any other document; the master plan's current-status table and linked
+evidence records are authoritative.
 
-- **Production is already on remote `main` at `6e0aa24`.** The Jetson PM2 process is online and `/health` is green.
-- The anti-fabrication fix and Agents 2/3 supervised-proposal promotion are already deployed. They are not waiting on a branch merge.
-- The latest stored scan began at `2026-07-13T17:38:54Z`, before the post-fix PM2 restart, and produced **36 HOLDs from 36 reviews**. The next clean post-fix scan is the first valid proof of whether the fabrication bug caused the streak.
-- The live universe contains **4,386 cataloged names**, of which **1,494 are sector-enriched (34%)**. Agent 1 currently screens 305 names through its existing technology-subvertical funnel; this is not yet the sector-agnostic v3 universe.
-- `PEER_METRICS_ENABLED` and `PEER_METRICS_EDGAR` are both off in production. Whole-market mandate scoring is therefore not running live.
-- Agents 2 and 3 still source research from static watchlists, but all three specialists are currently marked `supervised` and may create human-approval proposals.
-- The confidence-floor and research-budget-reserve changes in the local worktree remain **uncommitted, undeployed, and policy-gated**. Do not fold them into the research-record rollout without the Phase 0 evidence review.
-- The local worktree now contains the point-in-time observation spine, event and shadow-selection history, and edge-measurement primitives described below. They are **verified locally, uncommitted, undeployed, and inactive in production**.
-- Production may still contain the Holdings-marker leak because the local E0.1 classifier has not been deployed. The local backend and dashboard readers now share verified canonical mirrored classification semantics; deployment proof remains a separate gate.
+- At that snapshot, production was on remote `main` at `6e0aa24`; Jetson PM2
+  was online and `/health` was green.
+- The anti-fabrication fix and Agents 2/3 supervised-proposal promotion were
+  already deployed and were not waiting on a branch merge.
+- The latest stored scan had begun at `2026-07-13T17:38:54Z`, before the
+  post-fix PM2 restart, and produced **36 HOLDs from 36 reviews**. At the time,
+  the next clean post-fix scan was the first valid proof of whether the
+  fabrication bug caused the streak.
+- The live universe then contained **4,386 cataloged names**, of which **1,494
+  were sector-enriched (34%)**. Agent 1 screened 305 names through its existing
+  technology-subvertical funnel; this was not yet the sector-agnostic v3 universe.
+- `PEER_METRICS_ENABLED` and `PEER_METRICS_EDGAR` were both off in production,
+  so whole-market mandate scoring was not running live.
+- Agents 2 and 3 sourced research from static watchlists, while all three
+  specialists were marked `supervised` and could create human-approval proposals.
+- Confidence-floor and research-budget-reserve changes were **uncommitted,
+  undeployed, and policy-gated** in that worktree snapshot.
+- The point-in-time observation spine, event/shadow-selection history, and
+  edge-measurement primitives were **verified locally, uncommitted, undeployed,
+  and inactive in production** at that time.
+- Production might still have contained the Holdings-marker leak because the
+  local E0.1 classifier had not yet been deployed. Backend and dashboard readers
+  had verified mirrored classification semantics, with deployment proof still a
+  separate gate.
 
 ---
 
