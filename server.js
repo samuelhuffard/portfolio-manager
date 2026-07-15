@@ -10,6 +10,7 @@ import { recordMcpFill } from "./lib/mcp-accounting.js";
 import { getServiceAccountClients, getSheetIds, resolveSharedSpreadsheetId } from "./lib/sheets.js";
 import { validateResearchTickerRequest, buildLabOutcome } from "./lib/lab-research.js";
 import { fetchAthenaStatus } from "./lib/athena.js";
+import { writeAsyncJson } from "./lib/http-json.js";
 import { AGENTS } from "./config/agents.js";
 import { withWorkflowLock } from "./lib/workflow-lock.js";
 import { shadowWriteCapitalEntry, shadowWriteProposal } from "./lib/pg/dual-write.js";
@@ -181,13 +182,7 @@ const server = http.createServer(async (req, res) => {
   // immutable snapshots, and recorded shadow decisions; it never reads or
   // writes the live approval signature/execution queue.
   if (req.method === "GET" && url.pathname === "/portfolio-manager/shadow") {
-    try {
-      res.writeHead(200);
-      res.end(JSON.stringify(await getPortfolioManagerShadowState()));
-    } catch (e) {
-      res.writeHead(500);
-      res.end(JSON.stringify({ error: e.message }));
-    }
+    await writeAsyncJson(res, getPortfolioManagerShadowState);
     return;
   }
 

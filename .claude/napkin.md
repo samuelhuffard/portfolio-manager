@@ -7,8 +7,8 @@
 - Each item includes date + "Do instead".
 
 ## Execution & Validation (Highest Priority)
-1. **[2026-06-18] Investor ledger changes need money-math tests**
-   Do instead: run `npm test` after changing contributions, withdrawals, NAV, investor IDs, or ledger signing.
+1. **[2026-07-14] Capital events require unitized, daily NAV controls**
+   Do instead: run money-math tests after contribution, withdrawal, NAV, unit, investor-ID, or ledger-signing changes; derive breaker high-water from the final signed row per date so a cash-before-unit transition cannot create a false drawdown.
 2. **[2026-07-11] Robinhood scheduled sync requires a configured TOTP secret**
    Do instead: keep `ROBINHOOD_TOTP_SECRET` nonempty and `ROBINHOOD_STORE_SESSION=false`; restore MFA directly on the Jetson, then prove freshness with read-only reconciliation and holdings sync.
 3. **[2026-07-12] Holdings status rows are not positions**

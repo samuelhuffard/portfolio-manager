@@ -3,11 +3,14 @@ import assert from "node:assert/strict";
 import { createAthenaCircuit, getAthenaConfig, fetchAthenaDossier, fetchAthenaStatus, athenaDossierToEvidence, findImplausibleValuationFields } from "../lib/athena.js";
 import { sanitizeEvidenceItems } from "../lib/evidence.js";
 
-test("getAthenaConfig requires BOTH url and token (off by default)", () => {
+const ENABLED_ENV = { ATHENA_ENABLED: "true", ATHENA_AGENT_URL: "http://athena:8765", ATHENA_SERVICE_TOKEN: "tok" };
+
+test("getAthenaConfig requires explicit enablement plus BOTH url and token", () => {
   assert.equal(getAthenaConfig({}), null);
-  assert.equal(getAthenaConfig({ ATHENA_AGENT_URL: "http://athena:8765" }), null);
-  assert.equal(getAthenaConfig({ ATHENA_SERVICE_TOKEN: "t" }), null);
-  const config = getAthenaConfig({ ATHENA_AGENT_URL: "http://athena:8765/", ATHENA_SERVICE_TOKEN: " tok " });
+  assert.equal(getAthenaConfig({ ATHENA_ENABLED: "false", ATHENA_AGENT_URL: "http://athena:8765", ATHENA_SERVICE_TOKEN: "tok" }), null);
+  assert.equal(getAthenaConfig({ ATHENA_ENABLED: "true", ATHENA_AGENT_URL: "http://athena:8765" }), null);
+  assert.equal(getAthenaConfig({ ATHENA_ENABLED: "true", ATHENA_SERVICE_TOKEN: "t" }), null);
+  const config = getAthenaConfig({ ATHENA_ENABLED: "true", ATHENA_AGENT_URL: "http://athena:8765/", ATHENA_SERVICE_TOKEN: " tok " });
   assert.deepEqual(config, { url: "http://athena:8765", token: "tok" });
 });
 
@@ -25,7 +28,7 @@ test("fetchAthenaDossier sends the bearer token and parses JSON", async () => {
   let seenUrl = null;
   let seenAuth = null;
   const result = await fetchAthenaDossier("GOOD", {
-    env: { ATHENA_AGENT_URL: "http://athena:8765", ATHENA_SERVICE_TOKEN: "tok" },
+    env: ENABLED_ENV,
     fetchImpl: async (url, opts) => {
       seenUrl = url;
       seenAuth = opts.headers.Authorization;
@@ -38,7 +41,7 @@ test("fetchAthenaDossier sends the bearer token and parses JSON", async () => {
 });
 
 test("fetchAthenaDossier degrades to null on HTTP errors and network failures", async () => {
-  const env = { ATHENA_AGENT_URL: "http://athena:8765", ATHENA_SERVICE_TOKEN: "tok" };
+  const env = ENABLED_ENV;
   assert.equal(await fetchAthenaDossier("GOOD", { env, fetchImpl: async () => ({ ok: false, status: 503 }) }), null);
   assert.equal(
     await fetchAthenaDossier("GOOD", {
@@ -52,7 +55,7 @@ test("fetchAthenaDossier degrades to null on HTTP errors and network failures", 
 });
 
 test("Athena circuit skips remaining dossiers after repeated advisory failures", async () => {
-  const env = { ATHENA_AGENT_URL: "http://athena:8765", ATHENA_SERVICE_TOKEN: "tok" };
+  const env = ENABLED_ENV;
   const circuit = createAthenaCircuit({ failureThreshold: 2 });
   let calls = 0;
   const fetchImpl = async () => {
@@ -68,7 +71,7 @@ test("Athena circuit skips remaining dossiers after repeated advisory failures",
 });
 
 test("Athena timeout is classified as advisory failure", async () => {
-  const env = { ATHENA_AGENT_URL: "http://athena:8765", ATHENA_SERVICE_TOKEN: "tok" };
+  const env = ENABLED_ENV;
   const circuit = createAthenaCircuit({ failureThreshold: 1 });
   const result = await fetchAthenaDossier("SLOW", {
     env,
@@ -96,7 +99,7 @@ test("fetchAthenaStatus hits /api/agent/status with the bearer token and parses 
   let seenUrl = null;
   let seenAuth = null;
   const result = await fetchAthenaStatus({
-    env: { ATHENA_AGENT_URL: "http://athena:8765", ATHENA_SERVICE_TOKEN: "tok" },
+    env: ENABLED_ENV,
     fetchImpl: async (url, opts) => {
       seenUrl = url;
       seenAuth = opts.headers.Authorization;
@@ -109,7 +112,7 @@ test("fetchAthenaStatus hits /api/agent/status with the bearer token and parses 
 });
 
 test("fetchAthenaStatus degrades to null on HTTP errors and network failures", async () => {
-  const env = { ATHENA_AGENT_URL: "http://athena:8765", ATHENA_SERVICE_TOKEN: "tok" };
+  const env = ENABLED_ENV;
   assert.equal(await fetchAthenaStatus({ env, fetchImpl: async () => ({ ok: false, status: 503 }) }), null);
   assert.equal(
     await fetchAthenaStatus({

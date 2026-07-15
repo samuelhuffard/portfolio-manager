@@ -1,6 +1,37 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { assessCircuitBreaker, applyBreakerToProposal } from "../lib/circuit-breaker.js";
+import { assessCircuitBreaker, applyBreakerToProposal, deriveDailyNavBreakerBasis } from "../lib/circuit-breaker.js";
+
+test("daily NAV basis ignores a transitional capital row before units are issued", () => {
+  const basis = deriveDailyNavBreakerBasis([
+    { date: "2026-07-12", unitsOutstanding: 75, navPerUnit: 1.0121 },
+    { date: "2026-07-13", unitsOutstanding: 75, navPerUnit: 1.3397 },
+    { date: "2026-07-13", unitsOutstanding: 99.7011, navPerUnit: 1.0069 },
+    { date: "2026-07-13", unitsOutstanding: 99.7011, navPerUnit: 1.0067 },
+    { date: "2026-07-14", unitsOutstanding: 99.7011, navPerUnit: 1.013 },
+  ]);
+  assert.deepEqual(basis, {
+    current: 1.013,
+    highWaterMark: 1.013,
+    currentDate: "2026-07-14",
+    dailyRows: 3,
+    ignoredRows: 2,
+  });
+  assert.equal(assessCircuitBreaker({ current: basis.current, highWaterMark: basis.highWaterMark }).tier, "NONE");
+});
+
+test("daily NAV basis fails closed when no signed unitized measure is usable", () => {
+  assert.deepEqual(deriveDailyNavBreakerBasis([
+    { date: "2026-07-14", unitsOutstanding: null, navPerUnit: 1.01 },
+    { date: "", unitsOutstanding: 10, navPerUnit: 1.02 },
+  ]), {
+    current: null,
+    highWaterMark: null,
+    currentDate: null,
+    dailyRows: 0,
+    ignoredRows: 2,
+  });
+});
 
 test("tier boundaries: 7.9% NONE, 8% REDUCE, 12% NO_NEW_BUYS, 15% EXITS_ONLY, 20% HALT", () => {
   const hwm = 100;

@@ -16,7 +16,7 @@ import { getAIRecommendation } from "../lib/ai-overlay.js";
 import { applyRiskChecks } from "../lib/risk-engine.js";
 import { evaluateProposal, resolveFinalVerdict } from "../lib/evaluator.js";
 import { makeBoundaryToken, sanitizeEvidenceItems } from "../lib/evidence.js";
-import { assessCircuitBreaker, applyBreakerToProposal } from "../lib/circuit-breaker.js";
+import { assessCircuitBreaker, applyBreakerToProposal, deriveDailyNavBreakerBasis } from "../lib/circuit-breaker.js";
 import { sendMessage as sendTelegram } from "../lib/telegram.js";
 import { formatAgentMemoriesForPrompt, listAgentMemories } from "../lib/agent-memory.js";
 import {
@@ -137,12 +137,17 @@ function loadAgentConfig(agentId) {
 async function resolveCircuitBreaker(sheets, spreadsheetId) {
   let current = null;
   let basis = null;
+  let ledgerHighWaterMark = null;
   try {
     const history = await readPerformanceHistory(sheets, spreadsheetId);
-    const last = history.at(-1);
-    if (last?.navPerUnit != null && Number.isFinite(last.navPerUnit) && last.navPerUnit > 0) {
-      current = last.navPerUnit;
+    const daily = deriveDailyNavBreakerBasis(history);
+    if (daily.current != null) {
+      current = daily.current;
+      ledgerHighWaterMark = daily.highWaterMark;
       basis = "navPerUnit";
+      if (daily.ignoredRows > 0) {
+        console.log(`[Breaker] excluded ${daily.ignoredRows} duplicate-date or invalid Performance row(s); current signed daily row is ${daily.currentDate}.`);
+      }
     }
   } catch (err) {
     console.warn("[Breaker] Performance history unavailable:", err.message);
@@ -156,7 +161,13 @@ async function resolveCircuitBreaker(sheets, spreadsheetId) {
   }
 
   const stored = await getPortfolioHighWaterMark();
-  const priorHwm = stored && stored.basis === basis ? stored.value : null;
+  // NAV/unit is rebuilt from the signed daily ledger on every run so a
+  // transitional capital-event row cannot poison Redis indefinitely. The
+  // total-value fallback has no equivalent ledger series and retains the old
+  // persisted behavior.
+  const priorHwm = basis === "navPerUnit"
+    ? ledgerHighWaterMark
+    : (stored && stored.basis === basis ? stored.value : null);
   const assessment = assessCircuitBreaker({ current, highWaterMark: priorHwm });
 
   if (assessment.highWaterMark != null && basis) {
