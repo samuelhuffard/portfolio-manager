@@ -166,8 +166,8 @@ leases, and `$36.3122` remaining. A second non-persisting observer dry run no
 longer reported capacity readiness or monthly headroom as a failure. It still
 failed the date, correctly, because pre-release scheduled invocation/receipt
 histories and the due final sentinel/parity evidence cannot be recreated
-retroactively. The protected holding/evaluator pool remains `$0` pending Sam's
-separate choice; HUMAN NEEDED recommends `$10` inside the existing `$40` ceiling.
+retroactively. At this point the protected holding/evaluator pool remained `$0`;
+the later owner-gate completion below supersedes that condition.
 
 #### Later 2026-07-14 PM2 logging update
 
@@ -178,6 +178,36 @@ startup lines now carry `YYYY-MM-DDTHH:mm:ss` prefixes, `/health` remains 200 wi
 all dependencies true, and PM2 reports online, `unstable_restarts=0`, and
 `exit_code=0`. This improves future incident attribution but does not make any
 earlier raw line attributable or turn July 14 into Day 1.
+
+#### Later 2026-07-14 owner-gate and restart-attestation completion
+
+Sam approved all three immediate owner gates. Production now enforces a `$10`
+protected holding/evaluator pool inside the existing `$40` ceiling; the
+privacy-safe report remains complete at `$3.6878` spent, `$0` active leases, and
+`$36.3122` remaining. Backend `main` was fast-forwarded from `6e0aa24` through the
+then-reviewed `4d557e4`. Local `portfolio-executor` was restarted at dashboard
+`bbb5a5c`; PM2 reports online, restart 10, zero unstable restarts, and a fresh
+Redis heartbeat. The later backend deploy-attestation fix at `9397eef` leaves a
+new exact `main` alignment choice because it was outside the earlier SHA-specific
+approval.
+
+The scheduled 8:15 PM observer created the first immutable, HMAC-signed
+`phase0-observation-v2` record. It correctly returned `FAIL_BOTH`, did not count a
+safety day, and retained the research cohort sample. It passed deployment identity,
+critical-job summaries, proposal counts, reconciliation, transactional parity,
+capacity readiness, monthly capacity, and protected monitoring capacity. It failed
+the unrecoverable pre-release invocation/holding histories and the 8:10 PM
+untrusted-restart snapshot; research accounting and proposal throughput were
+insufficient rather than invented.
+
+That PM2 finding exposed a real automation gap: manual explanations could not be
+trusted by the sentinel. Commit `9397eef` added a dedicated-key signed deploy
+wrapper that observes and performs only exact `N → N+1` edges; contiguous markers
+bind host, process, branch, commit, stable/exit metadata, and process start time.
+The first 40 restarts remain manually evidenced and July 14 remains failed.
+Restart `40→41` was signed, independently accepted, atomically consumed with the
+new baseline, and followed by a sentinel snapshot containing no PM2 anomaly.
+Production is online at restart 41 with zero unstable restarts and exit code zero.
 
 ### Watch, do not normalize away
 
@@ -221,7 +251,7 @@ consecutive safety-day decision.
 | Trading day | Status | MCP sync + reconciliation | Ledgers | Parity | Jobs / holdings monitoring | Proposal evidence | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Jul 13 | **Invalid — does not count** | Pass: MCP sync + reconciliation jobs recorded `ok` | Pass: 7/7 Investors, 43/43 Performance, 1/1 Trade, 1/1 Lots, 3,371 Audit | **Fail:** NVDA market value `$15.37` vs `$15.39` | Critical jobs ran, but 3 active P1s + PM2 restart/marker/Athena noise; scan accounting unproven | 36 reviews reported as HOLD, 0 proposals; usage-limit log contradiction | Alerting worked; exact parity and clean-P1 gate did not |
-| Jul 14 | **Not eligible — does not count** | Existing receipts predate the new companion contract; restart pending | Prior signed-ledger proof clean | Transactional `MATCH`; valuation `NON_COMPARABLE` | Gate-closing deploy occurred after scheduled research; first v2 observer record pending | 36 conserved outcomes, 0 actionable proposals | `$40` ceiling is enforced and shared credentials are accepted for now; pre-release histories remain unrecoverable, so no retroactive Day 1 |
+| Jul 14 | **Observed `FAIL_BOTH` — does not count** | Pre-release invocation receipts cannot be recreated; companion is now restarted with a fresh heartbeat for future days | Prior signed-ledger proof clean | Transactional `MATCH`; valuation `NON_COMPARABLE` warning | Signed v2 observer: critical-job summaries pass, but scheduled-invocation and holding-coverage histories fail; its retained 8:10 snapshot contains one untrusted-restart P1 | 36 conserved outcomes, 0 actionable proposals; research sample retained, throughput insufficient | `$40` ceiling plus `$10` protected pool now enforced. Later `40→41` signed deploy proof clears the future restart path but cannot rewrite the immutable failed day |
 | Jul 15 | Pending | — | — | — | — | — | |
 | Jul 16 | Pending | — | — | — | — | — | |
 | Jul 17 | Pending | — | — | — | — | — | |
