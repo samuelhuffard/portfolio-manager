@@ -238,8 +238,10 @@ so the 0/10 window is unaffected and no recorded verdict changes:
    ledger rows; an explicit migration-only legacy-key list preserves every
    existing signed record (including the immutable July 14 `FAIL_BOTH`). Merely
    configuring investor/audit keys no longer grants them operational verification
-   authority after cutover. Remove the legacy-list variable once retained rows
-   roll over, without removing keys still required by their own subsystems.
+   authority after cutover. Long-lived Performance/Trade/Lot rows require a
+   deliberate re-sign/migration; after that and the immutable retention window,
+   remove the legacy-list variable without removing keys still required by their
+   own subsystems.
    The unattested `clearReconciliation` delete path was removed outright.
 
 ### Watch, do not normalize away
