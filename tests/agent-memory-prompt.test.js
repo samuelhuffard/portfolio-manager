@@ -4,7 +4,7 @@ import { formatAgentMemoriesForPrompt, isResearchPromptMemory } from "../lib/age
 
 test("dashboard workflow preferences stay out of investment research prompts", () => {
   const operational = [
-    { text: "Push proposals directly to the approval tab with one-click accept." },
+    { text: "All proposals should be pushed directly to the Approvals tab with a one-click Accept button." },
     { text: "Remind Sam to revoke accepted trades when needed." },
   ];
   assert.equal(isResearchPromptMemory(operational[0]), false);
