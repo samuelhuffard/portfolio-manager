@@ -30,6 +30,7 @@
     "sysloop:triage": "node scripts/sysloop-triage.mjs",
     "sysloop:weekly": "node scripts/sysloop-weekly.mjs",
     "sysloop:fixlist": "node scripts/sysloop-fixlist.mjs",
+    "deploy:restart": "node scripts/restart-with-pm2-deploy-marker.js",
     "test": "node --test tests/*.test.js",
     "contracts:sync": "node contracts/sync.mjs",
     "db:migrate": "node lib/pg/migrate.js",

@@ -18,7 +18,7 @@ export async function runSystemSentinel({ dryRun = false } = {}) {
   const started = Date.now();
   console.log(`[Sysloop] Sentinel run starting...${dryRun ? " (dry run — no Redis publish, no Telegram)" : ""}`);
 
-  const { snapshot, nextState, prevAnomalyFingerprints } = await assembleSnapshot({ repoRoot: REPO_ROOT });
+  const { snapshot, nextState, prevAnomalyFingerprints, consumedDeployMarkerKeys } = await assembleSnapshot({ repoRoot: REPO_ROOT });
 
   const prev = new Set(prevAnomalyFingerprints);
   const fresh = snapshot.anomalies.filter((a) => !prev.has(a.fingerprint));
@@ -41,7 +41,12 @@ export async function runSystemSentinel({ dryRun = false } = {}) {
     }
   }
 
-  const published = dryRun ? false : await persistSnapshot({ snapshot, nextState, repoRoot: REPO_ROOT });
+  const published = dryRun ? false : await persistSnapshot({
+    snapshot,
+    nextState,
+    repoRoot: REPO_ROOT,
+    consumedDeployMarkerKeys,
+  });
   console.log(`[Sysloop] Done in ${Date.now() - started}ms (published=${published})`);
   return snapshot;
 }

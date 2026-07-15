@@ -27,10 +27,12 @@ Deploy only the exact reviewed release branch/commit named in
 `docs/portfolio-master-plan.md` (currently `mandate-v3`; do not assume `main`) →
 `ssh sam@100.102.93.103`, fast-forward that branch, install dependencies/apply
 reviewed migrations when required, then
-`pm2 restart portfolio-manager --update-env --time`. Verify the exact
+`npm run deploy:restart`. That fail-closed helper observes exactly one PM2
+restart edge, persists PM2, and writes a dedicated-key signed marker for the
+sentinel; never replace it with an unmarked direct restart. Verify the exact
 branch/commit, `curl localhost:3200/health`
 (200 with all `deps` true), timestamped fresh logs, PM2 restart metadata, parity,
-and the release-specific evidence. Persist reviewed PM2 configuration with
-`pm2 save`. Deployment is not complete until those checks are clean.
+and the release-specific evidence. Deployment is not complete until those checks
+are clean.
 
 Companion repo: `../portfolio-dashboard` (dashboard on Vercel + Mac executor `scripts/mac-companion.mjs`, PM2 `portfolio-executor` — restart it after pulling executor changes).
