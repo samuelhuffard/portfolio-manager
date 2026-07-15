@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { assessCircuitBreaker, applyBreakerToProposal, deriveDailyNavBreakerBasis } from "../lib/circuit-breaker.js";
+import { assessCircuitBreaker, applyBreakerToProposal, deriveDailyNavBreakerBasis, reconcileNavHighWaterMark } from "../lib/circuit-breaker.js";
 
 test("daily NAV basis ignores a transitional capital row before units are issued", () => {
   const basis = deriveDailyNavBreakerBasis([
@@ -31,6 +31,57 @@ test("daily NAV basis fails closed when no signed unitized measure is usable", (
     dailyRows: 0,
     ignoredRows: 2,
   });
+});
+
+test("scheduled scans retain a stricter stored HWM when signed ledger history shrinks", () => {
+  const control = reconcileNavHighWaterMark({
+    ledgerHighWaterMark: 1.2,
+    dailyRows: 12,
+    stored: { basis: "navPerUnit", value: 1.5, dailyRows: 13 },
+  });
+  assert.equal(control.highWaterMark, 1.5);
+  assert.equal(control.dailyRows, 13);
+  assert.deepEqual(control.issues, ["ledger_high_water_mark_decreased", "signed_daily_row_count_decreased"]);
+  assert.equal(control.shouldAlert, true);
+  assert.equal(assessCircuitBreaker({ current: 1.2, highWaterMark: control.highWaterMark }).tier, "HALT");
+});
+
+test("an unchanged ledger-integrity anomaly is deduplicated until manually accepted", () => {
+  const first = reconcileNavHighWaterMark({
+    ledgerHighWaterMark: 1.2,
+    dailyRows: 12,
+    stored: { basis: "navPerUnit", value: 1.5, dailyRows: 13 },
+  });
+  const repeated = reconcileNavHighWaterMark({
+    ledgerHighWaterMark: 1.2,
+    dailyRows: 12,
+    stored: {
+      basis: "navPerUnit",
+      value: 1.5,
+      dailyRows: 13,
+      lastIntegrityAlertKey: first.integrityAlertKey,
+    },
+  });
+  assert.equal(repeated.shouldAlert, false);
+
+  const accepted = reconcileNavHighWaterMark({
+    ledgerHighWaterMark: 1.2,
+    dailyRows: 12,
+    stored: { basis: "navPerUnit", value: 1.2, dailyRows: 12 },
+  });
+  assert.equal(accepted.highWaterMark, 1.2);
+  assert.deepEqual(accepted.issues, []);
+});
+
+test("new signed NAV highs and additional daily rows advance both watermarks", () => {
+  const control = reconcileNavHighWaterMark({
+    ledgerHighWaterMark: 1.6,
+    dailyRows: 14,
+    stored: { basis: "navPerUnit", value: 1.5, dailyRows: 13 },
+  });
+  assert.equal(control.highWaterMark, 1.6);
+  assert.equal(control.dailyRows, 14);
+  assert.deepEqual(control.issues, []);
 });
 
 test("tier boundaries: 7.9% NONE, 8% REDUCE, 12% NO_NEW_BUYS, 15% EXITS_ONLY, 20% HALT", () => {

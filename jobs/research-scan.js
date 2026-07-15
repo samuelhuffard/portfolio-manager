@@ -16,7 +16,7 @@ import { getAIRecommendation } from "../lib/ai-overlay.js";
 import { applyRiskChecks } from "../lib/risk-engine.js";
 import { evaluateProposal, resolveFinalVerdict } from "../lib/evaluator.js";
 import { makeBoundaryToken, sanitizeEvidenceItems } from "../lib/evidence.js";
-import { assessCircuitBreaker, applyBreakerToProposal, deriveDailyNavBreakerBasis } from "../lib/circuit-breaker.js";
+import { assessCircuitBreaker, applyBreakerToProposal, deriveDailyNavBreakerBasis, reconcileNavHighWaterMark } from "../lib/circuit-breaker.js";
 import { sendMessage as sendTelegram } from "../lib/telegram.js";
 import { formatAgentMemoriesForPrompt, listAgentMemories } from "../lib/agent-memory.js";
 import {
@@ -138,12 +138,14 @@ async function resolveCircuitBreaker(sheets, spreadsheetId) {
   let current = null;
   let basis = null;
   let ledgerHighWaterMark = null;
+  let ledgerDailyRows = null;
   try {
     const history = await readPerformanceHistory(sheets, spreadsheetId);
     const daily = deriveDailyNavBreakerBasis(history);
     if (daily.current != null) {
       current = daily.current;
       ledgerHighWaterMark = daily.highWaterMark;
+      ledgerDailyRows = daily.dailyRows;
       basis = "navPerUnit";
       if (daily.ignoredRows > 0) {
         console.log(`[Breaker] excluded ${daily.ignoredRows} duplicate-date or invalid Performance row(s); current signed daily row is ${daily.currentDate}.`);
@@ -152,7 +154,15 @@ async function resolveCircuitBreaker(sheets, spreadsheetId) {
   } catch (err) {
     console.warn("[Breaker] Performance history unavailable:", err.message);
   }
-  if (current == null) {
+  const stored = await getPortfolioHighWaterMark();
+  // Once NAV/unit is the established safety basis, unreadable or unusable NAV
+  // evidence must not switch units and erase its ratchet. Stay UNKNOWN until
+  // the signed ledger returns. Total value remains the bootstrap fallback only
+  // when no NAV/unit safety record exists yet.
+  if (current == null && stored?.basis === "navPerUnit") {
+    basis = "navPerUnit";
+  }
+  if (current == null && basis == null) {
     const totalValue = await getCachedPortfolioTotalValue();
     if (totalValue != null && Number.isFinite(totalValue) && totalValue > 0) {
       current = totalValue;
@@ -160,18 +170,28 @@ async function resolveCircuitBreaker(sheets, spreadsheetId) {
     }
   }
 
-  const stored = await getPortfolioHighWaterMark();
-  // NAV/unit is rebuilt from the signed daily ledger on every run so a
-  // transitional capital-event row cannot poison Redis indefinitely. The
-  // total-value fallback has no equivalent ledger series and retains the old
-  // persisted behavior.
-  const priorHwm = basis === "navPerUnit"
-    ? ledgerHighWaterMark
+  // Rebuild NAV/unit from the signed daily ledger, but preserve Redis as a
+  // monotonic safety ratchet. Valid row deletion must not lower the HWM or hide
+  // a drawdown; only the explicit breaker:recompute --apply repair accepts a
+  // decrease after investigation.
+  const navControl = basis === "navPerUnit"
+    ? reconcileNavHighWaterMark({ ledgerHighWaterMark, dailyRows: ledgerDailyRows, stored })
+    : null;
+  const priorHwm = navControl
+    ? navControl.highWaterMark
     : (stored && stored.basis === basis ? stored.value : null);
   const assessment = assessCircuitBreaker({ current, highWaterMark: priorHwm });
 
   if (assessment.highWaterMark != null && basis) {
-    await setPortfolioHighWaterMark({ value: assessment.highWaterMark, basis });
+    await setPortfolioHighWaterMark({
+      value: assessment.highWaterMark,
+      basis,
+      ...(navControl ? {
+        dailyRows: navControl.dailyRows,
+        ledgerHighWaterMark: navControl.ledgerHighWaterMark,
+        lastIntegrityAlertKey: navControl.integrityAlertKey ? (stored?.lastIntegrityAlertKey ?? null) : null,
+      } : {}),
+    });
   }
   const priorState = await getBreakerState();
   await setBreakerState({ tier: assessment.tier, drawdownPct: assessment.drawdownPct, basis });
@@ -190,6 +210,26 @@ async function resolveCircuitBreaker(sheets, spreadsheetId) {
       await sendTelegram(msg);
     } catch (err) {
       console.error("[Breaker] Telegram alert failed:", err.message, "—", msg);
+    }
+  }
+  if (navControl?.shouldAlert) {
+    const msg =
+      `⚠️ Portfolio breaker ledger integrity warning: ${navControl.issues.join(" and ")}. ` +
+      `Observed signed daily rows ${navControl.observedDailyRows}; retained watermark ${navControl.dailyRows}. ` +
+      `Observed ledger HWM ${navControl.ledgerHighWaterMark}; retained safety HWM ${assessment.highWaterMark}. ` +
+      `The stricter breaker remains active. Investigate, then run breaker:recompute --apply to accept an intentional decrease.`;
+    console.error(`[Breaker] ${msg}`);
+    try {
+      await sendTelegram(msg);
+      await setPortfolioHighWaterMark({
+        value: assessment.highWaterMark,
+        basis,
+        dailyRows: navControl.dailyRows,
+        ledgerHighWaterMark: navControl.ledgerHighWaterMark,
+        lastIntegrityAlertKey: navControl.integrityAlertKey,
+      });
+    } catch (err) {
+      console.error("[Breaker] Integrity Telegram alert failed:", err.message, "—", msg);
     }
   }
   return assessment;

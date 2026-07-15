@@ -12,6 +12,19 @@ test("dashboard workflow preferences stay out of investment research prompts", (
   assert.equal(formatAgentMemoriesForPrompt(operational), "");
 });
 
+test("typed memory categories override natural-language phrasing", () => {
+  const workflowVariants = [
+    { category: "workflow", text: "Send buys straight to the review queue." },
+    { category: "workflow", text: "Notify me before accepting anything under fifty dollars." },
+    { category: "workflow", text: "Clear my pending items every Friday." },
+  ];
+  assert.ok(workflowVariants.every((memory) => isResearchPromptMemory(memory) === false));
+  assert.equal(formatAgentMemoriesForPrompt(workflowVariants), "");
+
+  const investment = { category: "investment", text: "Prefer durable margins even if the workflow mentions an approvals tab." };
+  assert.equal(isResearchPromptMemory(investment), true);
+});
+
 test("genuine investment lessons remain in the research prompt", () => {
   const memories = [
     { text: "Avoid averaging down when the original thesis has weakened." },

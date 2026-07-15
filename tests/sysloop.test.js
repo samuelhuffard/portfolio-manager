@@ -8,7 +8,7 @@ import {
   checkPm2, checkHealthDeps, checkJobFreshness, checkDashboard, checkApprovalsFlow,
   checkCompanionHeartbeat, checkRedisQueue, checkProposalLifecycle, checkSheetsSchema,
   checkSheetsFreshness, checkLogClusters, checkDocPaths, runChecks, checkPhase0Throughput,
-  checkReconciliationQueue, checkResearchDataHealth,
+  checkReconciliationQueue, checkResearchDataHealth, checkTrackedFindings,
 } from "../lib/sysloop/checks.js";
 
 test("checkReconciliationQueue is quiet when empty, P1 per open item, fail-closed on unreadable", () => {
@@ -350,6 +350,20 @@ test("logs: new cluster is P2, 3x growth is P1, stable clusters quiet", () => {
 test("docs: missing referenced paths are P3", () => {
   const out = checkDocPaths({ missingRefs: [{ path: "lib/gone.js", doc: "docs/RUNBOOK.md" }] });
   assert.equal(out[0].severity, "P3");
+});
+
+test("tracked open P0/P1 findings remain active sentinel anomalies with the same fingerprint", () => {
+  const out = checkTrackedFindings({ open: [
+    { id: "F-2026-095", severity: "P1", status: "open", title: "Rotate exposed credentials", file: "finding.md", fingerprint: "5e76eca847f8" },
+    { id: "F-2026-096", severity: "P2", status: "open", title: "Lower priority", file: "other.md", fingerprint: "abcdef123456" },
+  ] });
+  assert.deepEqual(out, [{
+    check: "tracked-finding",
+    severity: "P1",
+    title: "Tracked finding F-2026-095: Rotate exposed credentials",
+    detail: "status=open; details=ops/findings/finding.md",
+    fingerprint: "5e76eca847f8",
+  }]);
 });
 
 // ── findings ledger ──────────────────────────────────────────────────────────

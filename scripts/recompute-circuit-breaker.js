@@ -44,7 +44,12 @@ const report = {
 console.log(JSON.stringify(report, null, 2));
 
 if (apply) {
-  await setPortfolioHighWaterMark({ value: assessment.highWaterMark, basis: "navPerUnit" });
+  await setPortfolioHighWaterMark({
+    value: assessment.highWaterMark,
+    basis: "navPerUnit",
+    dailyRows: basis.dailyRows,
+    ledgerHighWaterMark: basis.highWaterMark,
+  });
   await setBreakerState({ tier: assessment.tier, drawdownPct: assessment.drawdownPct, basis: "navPerUnit" });
   const verifiedHighWaterMark = await getPortfolioHighWaterMark();
   const verifiedState = await getBreakerState();

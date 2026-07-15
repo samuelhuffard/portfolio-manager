@@ -244,6 +244,33 @@ so the 0/10 window is unaffected and no recorded verdict changes:
    own subsystems.
    The unattested `clearReconciliation` delete path was removed outright.
 
+## 2026-07-14 ET (late): adversarial follow-up and credential hold (S2)
+
+A second adversarial review found no release blocker in the deployed repairs, but
+identified one breaker-integrity gap and one untracked credential incident. Both
+are now explicit Trust controls before any observation day has counted:
+
+1. The scheduled NAV breaker may raise its signed-ledger high-water mark, but may
+   no longer lower the stored HWM or maximum observed signed daily-row count. A
+   validly signed row deletion therefore retains the stricter tier and sends one
+   deduplicated Telegram warning. Only the explicit, read-back-verified
+   `npm run breaker:recompute -- --apply` path accepts an investigated decrease.
+   If the signed NAV ledger is unreadable, an established NAV basis remains
+   `UNKNOWN`; a total-value fallback cannot erase its ratchet.
+2. `F-2026-095` records the private-task-transcript credential exposure as an open
+   P1 with ordered rotation and legacy-HMAC migration requirements. Git-tracked
+   open/acknowledged P0/P1 findings are now included in the daily sentinel, so the
+   observer's `open_p0_p1` Trust check fails while this finding remains active.
+   **No Phase 0 Day 1 may count until rotation, presence-only verification, ledger
+   verification, signed-approval verification, and finding closure are complete.**
+
+The same follow-up added typed `investment` versus `workflow` durable-memory
+categories (with regex fallback only for legacy rows), generic client-facing 500
+responses for the shadow endpoint, contained aborted-response writes, and bounded
+structured summaries for non-Error Yahoo failures. These prevent operational UI
+preferences and internal exception details from contaminating research evidence or
+client responses; they do not expand trading authority.
+
 ### Watch, do not normalize away
 
 - Freshly distinguish the retired Python sync's 2026-07-10 failures from the MCP path;
@@ -287,7 +314,7 @@ consecutive safety-day decision.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Jul 13 | **Invalid — does not count** | Pass: MCP sync + reconciliation jobs recorded `ok` | Pass: 7/7 Investors, 43/43 Performance, 1/1 Trade, 1/1 Lots, 3,371 Audit | **Fail:** NVDA market value `$15.37` vs `$15.39` | Critical jobs ran, but 3 active P1s + PM2 restart/marker/Athena noise; scan accounting unproven | 36 reviews reported as HOLD, 0 proposals; usage-limit log contradiction | Alerting worked; exact parity and clean-P1 gate did not |
 | Jul 14 | **Observed `FAIL_BOTH` — does not count** | Pre-release invocation receipts cannot be recreated; companion is now restarted with a fresh heartbeat for future days | Prior signed-ledger proof clean | Transactional `MATCH`; valuation `NON_COMPARABLE` warning | Signed v2 observer: critical-job summaries pass, but scheduled-invocation and holding-coverage histories fail; its retained 8:10 snapshot contains one untrusted-restart P1 | 36 conserved outcomes, 0 actionable proposals; research sample retained, throughput insufficient | `$40` ceiling plus `$10` protected pool now enforced. Later `40→41` signed deploy proof clears the future restart path but cannot rewrite the immutable failed day |
-| Jul 15 | Pending | — | — | — | — | — | |
+| Jul 15 | Pending — cannot count while `F-2026-095` is active | — | — | — | — | — | Credential rotation and verification are a Trust prerequisite |
 | Jul 16 | Pending | — | — | — | — | — | |
 | Jul 17 | Pending | — | — | — | — | — | |
 | Jul 20 | Pending | — | — | — | — | — | |
