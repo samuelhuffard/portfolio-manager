@@ -187,9 +187,9 @@ privacy-safe report remains complete at `$3.6878` spent, `$0` active leases, and
 `$36.3122` remaining. Backend `main` was fast-forwarded from `6e0aa24` through the
 then-reviewed `4d557e4`. Local `portfolio-executor` was restarted at dashboard
 `bbb5a5c`; PM2 reports online, restart 10, zero unstable restarts, and a fresh
-Redis heartbeat. The later backend deploy-attestation fix at `9397eef` leaves a
-new exact `main` alignment choice because it was outside the earlier SHA-specific
-approval.
+Redis heartbeat. The later backend deploy-attestation and loaded-runtime identity
+fixes through `e746bd5` leave a new `main` alignment choice because they were
+outside the earlier SHA-specific approval.
 
 The scheduled 8:15 PM observer created the first immutable, HMAC-signed
 `phase0-observation-v2` record. It correctly returned `FAIL_BOTH`, did not count a
@@ -207,7 +207,12 @@ bind host, process, branch, commit, stable/exit metadata, and process start time
 The first 40 restarts remain manually evidenced and July 14 remains failed.
 Restart `40→41` was signed, independently accepted, atomically consumed with the
 new baseline, and followed by a sentinel snapshot containing no PM2 anomaly.
-Production is online at restart 41 with zero unstable restarts and exit code zero.
+Commit `e746bd5` then made the observer prefer the trusted wrapper's pinned PM2
+branch/commit over repository HEAD, preventing a later documentation-only pull
+from being misreported as loaded code. Its signed `41→42` restart was likewise
+accepted and atomically consumed. Production is online at restart 42 with zero
+unstable restarts, exit code zero, all `/health` dependencies true, and only the
+pre-existing P2 for eight expired proposals in the post-deploy sentinel snapshot.
 
 ### Watch, do not normalize away
 
