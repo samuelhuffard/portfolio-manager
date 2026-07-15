@@ -63,11 +63,14 @@ export function dueCriticalJobNames(now = new Date()) {
   return base;
 }
 
-async function deployedRevision({ env = process.env, exec = execFileAsync } = {}) {
-  const configured = [env.RESEARCH_CODE_REVISION, env.GIT_COMMIT, env.VERCEL_GIT_COMMIT_SHA]
+export async function deployedRevision({ env = process.env, exec = execFileAsync } = {}) {
+  // The trusted PM2 restart wrapper pins the code actually loaded by the
+  // process. Prefer that identity over repository HEAD, which may move later
+  // through a docs-only pull without restarting the runtime.
+  const configured = [env.SYSLOOP_DEPLOYED_COMMIT, env.RESEARCH_CODE_REVISION, env.GIT_COMMIT, env.VERCEL_GIT_COMMIT_SHA]
     .map((value) => value?.trim()).find(Boolean);
   let commit = configured ?? null;
-  let branch = env.GIT_BRANCH?.trim() || null;
+  let branch = env.SYSLOOP_DEPLOYED_BRANCH?.trim() || env.GIT_BRANCH?.trim() || null;
   try {
     if (!commit) commit = (await exec("git", ["rev-parse", "HEAD"], { cwd: REPO_ROOT })).stdout.trim();
     if (!branch) branch = (await exec("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: REPO_ROOT })).stdout.trim();

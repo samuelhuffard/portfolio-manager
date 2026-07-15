@@ -4,13 +4,29 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { buildPhase0Observation, formatPhase0Observation } from "../lib/phase0-observer.js";
-import { consumedResearchRunIds, dueCriticalJobNames, finalSentinelIsFresh, latestScheduledResearch, mapAnthropicBudgetReadiness, persistPhase0Observation, selectUnobservedScheduledResearch } from "../jobs/phase0-observer.js";
+import { consumedResearchRunIds, deployedRevision, dueCriticalJobNames, finalSentinelIsFresh, latestScheduledResearch, mapAnthropicBudgetReadiness, persistPhase0Observation, selectUnobservedScheduledResearch } from "../jobs/phase0-observer.js";
 import { blankOutcomeCounts, RESEARCH_OUTCOME_VERSION } from "../lib/research-run-report.js";
 import { buildHoldingMonitorCoverage } from "../lib/holding-monitor-coverage.js";
 import { signPhase0Observation } from "../lib/phase0-observation-ledger.js";
 import { expectedJobInvocationIds } from "../lib/job-invocation-history.js";
 
 const DATE = "2026-07-14";
+
+test("deployed revision prefers the code identity pinned by the PM2 restart wrapper", async () => {
+  let gitCalled = false;
+  const revision = await deployedRevision({
+    env: {
+      SYSLOOP_DEPLOYED_COMMIT: "9397eef61879cc362328887f0e98802cad6a215d",
+      SYSLOOP_DEPLOYED_BRANCH: "mandate-v3",
+    },
+    exec: async () => { gitCalled = true; throw new Error("git should not be needed"); },
+  });
+  assert.deepEqual(revision, {
+    commit: "9397eef61879cc362328887f0e98802cad6a215d",
+    branch: "mandate-v3",
+  });
+  assert.equal(gitCalled, false);
+});
 
 function researchReport(overrides = {}) {
   const counts = { ...blankOutcomeCounts(), investment_hold: 2, proposal_created: 1, ...(overrides.outcomeCounts ?? {}) };
