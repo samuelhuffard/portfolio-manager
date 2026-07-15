@@ -4,6 +4,7 @@ import {
   assertOperationalLedgerEntries,
   assertPerformanceSourceRequestEntries,
   computePerformanceSourceRequestHmac,
+  getOperationalLedgerVerificationSecrets,
   signOperationalLedgerEntry,
   verifyOperationalLedgerEntries,
 } from "../lib/operational-ledger.js";
@@ -90,4 +91,56 @@ test("backfill refuses to overwrite an existing invalid signature", async () => 
   });
   await assert.rejects(() => backfillOperationalLedgers({ sheets, spreadsheetId: "sheet", secret: SECRET }), /refusing backfill/);
   assert.equal(sheets.updates.length, 0);
+});
+
+test("verification accepts rows signed with a configured fallback secret and signing stays primary", () => {
+  const legacySecret = "legacy-investor-fallback-secret";
+  const dedicatedSecret = "new-dedicated-operational-secret";
+  const legacySigned = signOperationalLedgerEntry("performance", performance, legacySecret);
+  const saved = {};
+  const keys = ["OPERATIONAL_LEDGER_HMAC_SECRET", "OPERATIONAL_LEDGER_LEGACY_HMAC_SECRETS", "INVESTOR_LEDGER_HMAC_SECRET", "AUDIT_HMAC_SECRET"];
+  for (const key of keys) saved[key] = process.env[key];
+  try {
+    process.env.OPERATIONAL_LEDGER_HMAC_SECRET = dedicatedSecret;
+    process.env.INVESTOR_LEDGER_HMAC_SECRET = legacySecret;
+    delete process.env.AUDIT_HMAC_SECRET;
+    delete process.env.OPERATIONAL_LEDGER_LEGACY_HMAC_SECRETS;
+    // A key needed by another subsystem is not automatically trusted for the
+    // operational ledger after the dedicated-key cutover.
+    assert.equal(verifyOperationalLedgerEntries("performance", [legacySigned], dedicatedSecret).mismatched.length, 1);
+    process.env.OPERATIONAL_LEDGER_LEGACY_HMAC_SECRETS = legacySecret;
+    // Historical row signed with the fallback still verifies under the new primary.
+    assert.equal(verifyOperationalLedgerEntries("performance", [legacySigned], dedicatedSecret).verified, 1);
+    assert.doesNotThrow(() => assertOperationalLedgerEntries("performance", [legacySigned], dedicatedSecret));
+    // A row signed with a secret outside the configured chain still fails.
+    const foreign = signOperationalLedgerEntry("performance", performance, "unconfigured-attacker-secret");
+    assert.equal(verifyOperationalLedgerEntries("performance", [foreign], dedicatedSecret).mismatched.length, 1);
+    // New signatures use the primary secret.
+    const fresh = signOperationalLedgerEntry("performance", performance);
+    assert.equal(verifyOperationalLedgerEntries("performance", [fresh], dedicatedSecret).verified, 1);
+    delete process.env.OPERATIONAL_LEDGER_LEGACY_HMAC_SECRETS;
+    assert.equal(verifyOperationalLedgerEntries("performance", [legacySigned], dedicatedSecret).mismatched.length, 1);
+  } finally {
+    for (const key of keys) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+  }
+});
+
+test("dedicated-key cutover trusts legacy keys only through the explicit migration list", () => {
+  const shared = {
+    INVESTOR_LEDGER_HMAC_SECRET: "investor-secret",
+    AUDIT_HMAC_SECRET: "audit-secret",
+  };
+  assert.deepEqual(getOperationalLedgerVerificationSecrets(shared), ["investor-secret", "audit-secret"]);
+  assert.deepEqual(getOperationalLedgerVerificationSecrets({
+    ...shared,
+    OPERATIONAL_LEDGER_HMAC_SECRET: "dedicated-secret",
+  }), ["dedicated-secret"]);
+  assert.deepEqual(getOperationalLedgerVerificationSecrets({
+    ...shared,
+    OPERATIONAL_LEDGER_HMAC_SECRET: "dedicated-secret",
+    OPERATIONAL_LEDGER_LEGACY_HMAC_SECRETS: "old-one, old-two, old-one",
+  }), ["dedicated-secret", "old-one", "old-two"]);
 });

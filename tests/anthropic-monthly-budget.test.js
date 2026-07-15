@@ -458,3 +458,43 @@ test("all Anthropic SDK clients disable automatic retries", () => {
     assert.match(source, /new Anthropic\(\{[^}]*maxRetries:\s*0[^}]*\}\)/s, `${path} must set maxRetries: 0`);
   }
 });
+
+test("ANTHROPIC_BUDGET_REQUIRED=true refuses unbudgeted calls when the ceiling is missing", async () => {
+  const monthly = createAnthropicMonthlyBudget({
+    env: { ANTHROPIC_BUDGET_REQUIRED: "true" },
+    now: () => NOW,
+    redis: redisWith([]),
+  });
+  await assert.rejects(
+    () => monthly.authorizeCall({ role: "generator", model: "claude-opus-4-8", request: boundedRequest() }),
+    (error) => error.code === "monthly_budget_config_invalid" && /ANTHROPIC_MONTHLY_MAX_USD is not configured/.test(error.message)
+  );
+});
+
+test("a success response without usage token counts settles at its full reservation, never $0", async () => {
+  const redis = redisWith([]);
+  const monthly = createAnthropicMonthlyBudget({
+    env: { ANTHROPIC_MONTHLY_MAX_USD: "10" },
+    now: () => NOW,
+    redis,
+  });
+  const auth = await monthly.authorizeCall({ role: "generator", model: "claude-opus-4-8", request: boundedRequest(), reserveUsd: 0.25 });
+  const record = buildAnthropicUsageRecord({
+    role: "generator",
+    model: "claude-opus-4-8",
+    usage: {},
+    pricingVersion: auth.pricingVersion,
+    now: new Date(auth.authorizedAt),
+  });
+  assert.equal(record.usageComplete, false);
+  assert.equal(record.estimatedCostUsd, 0);
+  await monthly.settleCall(auth, { persisted: true, error: null, record });
+  assert.equal(monthly.snapshot().outstandingUsd, 0);
+  assert.equal(monthly.snapshot().spentUsd, auth.reserveUsd);
+  const state = await redis.hgetall(anthropicBudgetStatusKey(NOW));
+  assert.equal(Number(state.ambiguousFailureSettlements), 1);
+  assert.equal(monthly.snapshot().poisonedReason, null);
+  const report = await getAnthropicSpendReport({ env: { ANTHROPIC_MONTHLY_MAX_USD: "10" }, now: NOW, redis });
+  assert.equal(report.estimatedCostUsd, auth.reserveUsd);
+  assert.equal(report.remainingUsd, 10 - auth.reserveUsd);
+});

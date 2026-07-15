@@ -33,6 +33,10 @@ Google Sheet: create a blank Sheet in a personal Drive, share it Editor with the
 | UPSTASH_REDIS_REST_URL / TOKEN | ✅ | ✅ | ✅ (cascade, see below) |
 | SPREADSHEET_ID / SAM_EMAIL | ✅ | ✗ (Redis lookup) | via backend checkout |
 | INVESTOR_LEDGER_HMAC_SECRET | ✅ | ✗ | via backend checkout |
+| OPERATIONAL_LEDGER_HMAC_SECRET / OPERATIONAL_LEDGER_LEGACY_HMAC_SECRETS | ✅ (dedicated signer + comma-separated migration-only legacy verification keys. Once the dedicated key exists, investor/audit keys are **not** implicitly trusted; remove only the legacy-list variable after retained old rows roll over) | ✗ | via backend checkout |
+| SYSLOOP_DEPLOY_HMAC_SECRET | ✅ (**dedicated, no fallback** — signs PM2 deploy markers) | ✗ | ✗ |
+| ANTHROPIC_MONTHLY_MAX_USD / ANTHROPIC_MONTHLY_PROTECTED_RESERVE_USD | ✅ ($40 ceiling / $10 protected pool) | ✗ | ✗ |
+| ANTHROPIC_BUDGET_REQUIRED | ✅ (**set `true` in production** — a missing ceiling then refuses calls instead of silently removing the cap) | ✗ | ✗ |
 | AUDIT_HMAC_SECRET | ✅ (must match Vercel) | ✅ | ✅ (signs/verifies approvals) |
 | PORTFOLIO_SERVER_PORT / PORTFOLIO_WEBHOOK_SECRET | ✅ (**required** — fail-closed) | ✅ (URL + same secret) | ✗ |
 | PORTFOLIO_BACKEND_URL | ✗ | ✅ | ✗ |

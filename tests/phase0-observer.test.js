@@ -667,3 +667,44 @@ test("scheduled ledger verification turns a false diagnostic result into a faile
   assert.match(scheduler, /HOLDING_COVERAGE/);
   assert.match(scheduler, /holdingMonitoring: result\?\.holdingMonitoring/);
 });
+
+test("an empty unconsumed history cannot pass when the same-day run was due", () => {
+  const input = passingInput();
+  input.research = { fresh: false, requiredRunPresent: false, newSample: false, reports: [] };
+  const result = buildPhase0Observation(input);
+  const research = result.checks.find((row) => row.name === "research_accounting");
+  assert.equal(research.status, "fail");
+  assert.equal(research.evidence.reason, "cadence_missing");
+  assert.equal(result.skillVerdict, "FAIL");
+  assert.equal(result.countsTowardResearchCohort, false);
+});
+
+test("a day with no required run and an empty consumed history passes accounting without sample credit", () => {
+  const input = passingInput();
+  input.research = { fresh: false, requiredRunPresent: true, newSample: false, reports: [] };
+  const result = buildPhase0Observation(input);
+  const research = result.checks.find((row) => row.name === "research_accounting");
+  assert.equal(research.status, "pass");
+  assert.equal(result.countsTowardResearchCohort, false);
+  assert.equal(result.skillProgress.validResearchSamples, 0);
+  const throughput = result.checks.find((row) => row.name === "proposal_throughput");
+  assert.equal(throughput.status, "fail");
+});
+
+test("unreadable or unknown research history is insufficient, never a pass", async () => {
+  const input = passingInput();
+  input.research = { fresh: false, requiredRunPresent: null, newSample: false, reports: [] };
+  const research = buildPhase0Observation(input).checks.find((row) => row.name === "research_accounting");
+  assert.equal(research.status, "insufficient");
+  assert.equal(research.evidence.reason, "history_unreadable");
+
+  const gathered = await latestScheduledResearch(
+    { async lrange() { throw new Error("history unavailable"); } },
+    new Date("2026-07-14T00:15:00.000Z"),
+    "Tue",
+    [],
+  );
+  assert.equal(gathered.requiredRunPresent, null);
+  assert.equal(gathered.newSample, false);
+  assert.deepEqual(gathered.reports, []);
+});

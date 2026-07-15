@@ -36,6 +36,7 @@ test("extractUsage maps Anthropic cache usage fields and computes total input", 
     cacheCreation1hInputTokens: 0,
     cacheReadInputTokens: 3000,
     totalInputTokens: 4050,
+    usageComplete: true,
   });
 });
 
@@ -181,4 +182,14 @@ test("spend report omits tickers, private rationale, prompts, and raw records", 
   });
   assert.doesNotMatch(output, /PRIVATE|do not expose|rationale|prompt/i);
   assert.match(output, /claude-opus-4-8/);
+});
+
+test("extractUsage marks missing input/output token counts as incomplete instead of free", () => {
+  assert.equal(extractUsage({ input_tokens: 10, output_tokens: 2 }).usageComplete, true);
+  assert.equal(extractUsage({}).usageComplete, false);
+  assert.equal(extractUsage(undefined).usageComplete, false);
+  assert.equal(extractUsage(null).usageComplete, false);
+  assert.equal(extractUsage({ input_tokens: 10 }).usageComplete, false);
+  assert.equal(extractUsage({ output_tokens: 2 }).usageComplete, false);
+  assert.equal(extractUsage({ input_tokens: 0, output_tokens: 0 }).usageComplete, true);
 });

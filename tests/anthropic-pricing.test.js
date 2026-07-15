@@ -48,6 +48,7 @@ test("extractUsage preserves Anthropic's detailed cache classes", () => {
     cacheCreation1hInputTokens: 5,
     cacheReadInputTokens: 30,
     totalInputTokens: 65,
+    usageComplete: true,
   });
 });
 

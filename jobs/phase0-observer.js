@@ -132,7 +132,12 @@ export async function consumedResearchRunIds(redis, secret) {
 }
 
 export async function latestScheduledResearch(redis, now, weekday, consumedRunIds = []) {
-  const rows = await redis.lrange("pm:research-scan:history", 0, 49).catch(() => []);
+  const rows = await redis.lrange("pm:research-scan:history", 0, 49).catch(() => null);
+  if (!Array.isArray(rows)) {
+    // An unreadable history must surface as insufficient evidence, never as
+    // "no sample due"; requiredRunPresent=null routes to the fail-closed branch.
+    return { fresh: false, requiredRunPresent: null, newSample: false, reports: [], report: null, completedAt: null };
+  }
   const statuses = selectUnobservedScheduledResearch(rows.map(parse), consumedRunIds, now);
   const expectedSameDay = ["Mon", "Tue", "Wed", "Thu"].includes(weekday);
   const currentDayPresent = statuses.some((status) => dateET(status.completedAt) === etDateString(now));

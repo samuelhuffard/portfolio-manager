@@ -214,6 +214,34 @@ accepted and atomically consumed. Production is online at restart 42 with zero
 unstable restarts, exit code zero, all `/health` dependencies true, and only the
 pre-existing P2 for eight expired proposals in the post-deploy sentinel snapshot.
 
+## 2026-07-14 ET (late): pre-Day-1 observer/budget hardening (S2, before any counted day)
+
+An independent adversarial review of the gate-closing release found no P0/P1 but
+four P2s. All were repaired the same evening, before any observation day counted,
+so the 0/10 window is unaffected and no recorded verdict changes:
+
+1. **Observer research-accounting branch inversion fixed.** With an empty
+   unconsumed history, a due-but-missing Mon–Thu run previously returned
+   `pass ("no sample due")` and an all-consumed Friday returned `insufficient`.
+   Now: due-and-missing → `fail (cadence_missing)`; nothing due → `pass`;
+   unreadable history (including a failed Redis read, which previously became an
+   empty list) → `insufficient`. This changes pass/fail meaning (S2) and was made
+   before Day 1 existed.
+2. **Budget fail-closed switch.** `ANTHROPIC_BUDGET_REQUIRED=true` (set on the
+   Jetson at deploy) makes a missing/removed `ANTHROPIC_MONTHLY_MAX_USD` refuse
+   Anthropic calls instead of silently removing the `$40` ceiling.
+3. **Unpriceable responses are never free.** A success response with no usage
+   token counts now settles its lease conservatively at the full reservation
+   (`AMBIGUOUS_FAILURE`) instead of recording a `$0` priced call.
+4. **Dedicated operational-ledger secret.** `OPERATIONAL_LEDGER_HMAC_SECRET` is
+   introduced as the signing secret for Phase 0 observations and operational
+   ledger rows; an explicit migration-only legacy-key list preserves every
+   existing signed record (including the immutable July 14 `FAIL_BOTH`). Merely
+   configuring investor/audit keys no longer grants them operational verification
+   authority after cutover. Remove the legacy-list variable once retained rows
+   roll over, without removing keys still required by their own subsystems.
+   The unattested `clearReconciliation` delete path was removed outright.
+
 ### Watch, do not normalize away
 
 - Freshly distinguish the retired Python sync's 2026-07-10 failures from the MCP path;
