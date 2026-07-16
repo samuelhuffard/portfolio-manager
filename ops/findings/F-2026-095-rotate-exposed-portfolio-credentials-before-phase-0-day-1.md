@@ -4,7 +4,7 @@ fingerprint: 5e76eca847f8
 check: security
 type: security
 severity: P1
-status: open
+status: fixed
 firstSeen: 2026-07-15T03:32:21.000Z
 lastSeen: 2026-07-15T03:32:21.000Z
 occurrences: 1
@@ -38,8 +38,17 @@ observer, so no Phase 0 Day 1 may count while this item is open or acknowledged.
 
 Do not print secret values during any step. Use presence/length checks only.
 
-**Next step:** Complete the coordinated rotation, run `npm run ledgers:verify`, verify one signed approval and the Phase 0 observation ledger, record sanitized proof below, then set this finding to `fixed` and regenerate `ops/FIXLIST.md`.
+**Next step:** Monitor for regression. When the first genuine proposal appears, Sam must personally review and sign it before the normal runtime signature verification and execution gates are exercised.
 
 ## Resolution
 
-Open. Deadline: before the first Phase 0 Day 1 is allowed to count.
+Fixed 2026-07-15/16 before any Phase 0 day had counted.
+
+- Sam confirmed the replacement-credential actions were completed and the exposed revocable credentials were revoked. Presence-only checks confirmed the replacement configuration without printing values.
+- Runtime checks proved Redis, Sheets, Anthropic readiness, Telegram delivery, the database connection, and the authenticated webhook path; an unauthenticated webhook request was rejected.
+- `npm run ledgers:verify` verified 7/7 Investors, 51/51 Performance, 1/1 Trade, 1/1 Lots, and 5,210 Audit rows with zero unsigned or mismatched rows. The signed Phase 0 observation record also verified.
+- No genuine proposal existed, so none was fabricated or approved for closure evidence. A non-persisting signature-contract check passed. The first genuine proposal remains subject to Sam's personal review and signature plus normal runtime verification before execution.
+- The credential rotation left seven Postgres `capital_entries.row_hmac` shadow copies signed with the prior investor-ledger key. A fail-closed preview proved 7 authoritative rows and 7 shadow rows with identical non-signature payloads and no missing, duplicate, mismatched, or invalid rows. The one-time transaction changed only those seven shadow HMAC copies using compare-and-swap guards.
+- Immediate post-transaction parity returned `MATCH` for `accounting_snapshot`, `capital_entries`, `lots`, `positions`, and `proposals`. Position valuation remained correctly marked `NON_COMPARABLE` because versioned quote provenance was unavailable; it was not reported as a false match.
+
+No secret values were recorded in this finding, repository, logs, or synced memory.

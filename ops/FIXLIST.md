@@ -4,15 +4,13 @@
 
 # Portfolio Manager — Fix List
 
-_Regenerated 2026-07-15T03:33:15.675Z · 1 need attention · 1 acknowledged · 10 recently fixed_
+_Regenerated 2026-07-16T02:56:18.554Z · 0 need attention · 1 acknowledged · 10 recently fixed_
 
 **For Claude Code sessions:** these are system-loop findings (docs/SYSTEM-LOOP-PLAN.md), detected by deterministic checks and deduped by fingerprint. For each item under "Needs attention", judge whether it warrants fixing in your current session: read the linked finding file for evidence, verify against live state before acting (checks are point-in-time), and respect docs/INVARIANTS.md on anything money-path. When you fix one: set its `status: fixed`, note the fix in the finding file, run `npm run sysloop:fixlist`. If a fixed item's fingerprint reappears, the loop auto-escalates it to regressed.
 
 ## Needs attention
 
-- [ ] **P1** `F-2026-095` [security] Rotate credentials exposed in a private task transcript before Phase 0 Day 1 — seen 1×, 2026-07-15 → 2026-07-15
-  - Next step: Complete the coordinated rotation, run `npm run ledgers:verify`, verify one signed approval and the Phase 0 observation ledger, record sanitized proof below, then set this finding to `fixed` and regenerate `ops/FIXLIST.md`.
-  - Details: `ops/findings/F-2026-095-rotate-exposed-portfolio-credentials-before-phase-0-day-1.md`
+(none — clean)
 
 ## Acknowledged (known, deliberately not fixed yet)
 
@@ -25,6 +23,9 @@ _Regenerated 2026-07-15T03:33:15.675Z · 1 need attention · 1 acknowledged · 1
 
 ## Recently fixed (watching for regression)
 
+- **P1** `F-2026-095` [security] Rotate credentials exposed in a private task transcript before Phase 0 Day 1 — seen 1×, 2026-07-15 → 2026-07-15
+  - Next step: Monitor for regression. When the first genuine proposal appears, Sam must personally review and sign it before the normal runtime signature verification and execution gates are exercised.
+  - Details: `ops/findings/F-2026-095-rotate-exposed-portfolio-credentials-before-phase-0-day-1.md`
 - **P1** `F-2026-001` [lifecycle] Approved proposal NVDA BUY has no decision signature — seen 4×, 2026-07-05 → 2026-07-10
   - Details: `ops/findings/F-2026-001-approved-proposal-nvda-buy-has-no-decision-signa.md`
 - **P2** `F-2026-010` [unknown] Job weekly-review has never recorded a run — seen 3×, 2026-07-07 → 2026-07-10
@@ -43,5 +44,3 @@ _Regenerated 2026-07-15T03:33:15.675Z · 1 need attention · 1 acknowledged · 1
   - Details: `ops/findings/F-2026-004-doc-references-missing-file-config-weights-json.md`
 - **P3** `F-2026-005` [docs] Doc references missing file: lib/deep-research.js — seen 1×, 2026-07-05 → 2026-07-05
   - Details: `ops/findings/F-2026-005-doc-references-missing-file-lib-deep-research-js.md`
-- **P3** `F-2026-006` [docs] Doc references missing file: tests/evaluator-parsing.test.js — seen 1×, 2026-07-05 → 2026-07-05
-  - Details: `ops/findings/F-2026-006-doc-references-missing-file-tests-evaluator-pars.md`
