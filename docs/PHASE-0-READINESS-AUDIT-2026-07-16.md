@@ -44,6 +44,7 @@ fails closed.
 | Audit Redis read errors looked empty | An unavailable audit day was treated as zero rows and could pass ledger verification | Redis and JSON failures are explicit ledger-verification problems |
 | Companion heartbeat could overlap or reject unhandled | Slow broker work could overlap the next tick; a top-level rejection could restart the companion | Serialized heartbeat tick with top-level catch/finally and overlap suppression |
 | Raw Redis REST errors were not checked | HTTP/Upstash errors could be interpreted as undefined command results | Both Redis helpers reject non-2xx responses and command error payloads |
+| MCP child errors dumped full commands | A broker-read failure could copy the prompt and account identifier into PM2 logs/receipts | Failure summaries stop before command text, redact the account identifier, strip controls, and cap length |
 | Observer had only five minutes after final sentinel | Ordinary latency left little operational margin | Observer moved from 8:15 to 8:20 PM ET; final sentinel remains at 8:10 |
 
 ## Tuned clock boundaries
