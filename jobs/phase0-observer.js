@@ -92,12 +92,24 @@ export async function deployedRevision({ env = process.env, exec = execFileAsync
     .map((value) => value?.trim()).find(Boolean);
   let commit = configured ?? null;
   let branch = env.SYSLOOP_DEPLOYED_BRANCH?.trim() || env.GIT_BRANCH?.trim() || null;
-  const startedAt = env.SYSLOOP_DEPLOYED_AT?.trim() || null;
+  let startedAt = env.SYSLOOP_DEPLOYED_AT?.trim() || null;
+  if (!commit || !branch || !startedAt) {
+    try {
+      const pm2 = JSON.parse((await exec("pm2", ["jlist"], { cwd: REPO_ROOT })).stdout);
+      const processName = env.SYSLOOP_PM2_NAME?.trim() || "portfolio-manager";
+      const runtime = pm2.find((entry) => entry?.name === processName)?.pm2_env;
+      if (!commit) commit = runtime?.SYSLOOP_DEPLOYED_COMMIT?.trim() || null;
+      if (!branch) branch = runtime?.SYSLOOP_DEPLOYED_BRANCH?.trim() || null;
+      if (!startedAt) startedAt = runtime?.SYSLOOP_DEPLOYED_AT?.trim() || null;
+    } catch (error) {
+      console.warn(`[Phase0] PM2 deployed identity lookup incomplete: ${error.message}`);
+    }
+  }
   try {
     if (!commit) commit = (await exec("git", ["rev-parse", "HEAD"], { cwd: REPO_ROOT })).stdout.trim();
     if (!branch) branch = (await exec("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: REPO_ROOT })).stdout.trim();
   } catch (error) {
-    console.warn(`[Phase0] deployed revision lookup incomplete: ${error.message}`);
+    console.warn(`[Phase0] git revision lookup incomplete: ${error.message}`);
   }
   return { commit, branch, startedAt };
 }

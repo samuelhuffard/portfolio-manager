@@ -18,15 +18,39 @@ test("deployed revision prefers the code identity pinned by the PM2 restart wrap
     env: {
       SYSLOOP_DEPLOYED_COMMIT: "9397eef61879cc362328887f0e98802cad6a215d",
       SYSLOOP_DEPLOYED_BRANCH: "mandate-v3",
+      SYSLOOP_DEPLOYED_AT: "2026-07-14T20:00:00.000Z",
     },
     exec: async () => { gitCalled = true; throw new Error("git should not be needed"); },
   });
   assert.deepEqual(revision, {
     commit: "9397eef61879cc362328887f0e98802cad6a215d",
     branch: "mandate-v3",
-    startedAt: null,
+    startedAt: "2026-07-14T20:00:00.000Z",
   });
   assert.equal(gitCalled, false);
+});
+
+test("manual observer diagnostics recover the pinned identity from PM2", async () => {
+  const revision = await deployedRevision({
+    env: {},
+    exec: async (command, args) => {
+      assert.equal(command, "pm2");
+      assert.deepEqual(args, ["jlist"]);
+      return { stdout: JSON.stringify([{
+        name: "portfolio-manager",
+        pm2_env: {
+          SYSLOOP_DEPLOYED_COMMIT: "abcdef1234567890",
+          SYSLOOP_DEPLOYED_BRANCH: "mandate-v3",
+          SYSLOOP_DEPLOYED_AT: "2026-07-16T14:37:23.064Z",
+        },
+      }]) };
+    },
+  });
+  assert.deepEqual(revision, {
+    commit: "abcdef1234567890",
+    branch: "mandate-v3",
+    startedAt: "2026-07-16T14:37:23.064Z",
+  });
 });
 
 function researchReport(overrides = {}) {
