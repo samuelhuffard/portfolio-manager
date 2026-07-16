@@ -46,8 +46,11 @@ TRUST checks are deployment identity, every due critical job, every expected
 scheduled invocation, both sentinel runs, reconciliation, transactional parity,
 and valuation/holding-monitoring safety. Daily bounded histories require all five
 holdings receipts, the reconciliation receipt, all 14 intraday slots, and both
-sentinel slots; any earlier failed retry remains blocking. Successful broker-read
-receipts must pass the shared schema and prove the pinned account-policy version.
+sentinel slots. Histories retain every attempt, but a retry is judged by the final
+retained attempt for that exact invocation: a valid recovered retry satisfies the
+slot, while a final failed or malformed attempt remains blocking. Successful
+broker-read receipts must pass the shared schema and prove the pinned account-policy
+version.
 Each due monitor must conserve `held = monitored + explicitly degraded + failed`
 with zero failed, overflow, or silent skips, and exact degradation/failure reason
 totals. Aggregate reasons make degradation visible without persisting tickers.

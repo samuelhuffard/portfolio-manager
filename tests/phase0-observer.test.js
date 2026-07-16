@@ -167,10 +167,15 @@ test("holding coverage passes explicit degradation but fails silent skips and ab
   assert.equal(buildPhase0Observation(absent).checks.find((row) => row.name === "holding_monitoring").status, "insufficient");
 });
 
-test("every scheduled invocation is required and an earlier failure cannot be masked", () => {
+test("every scheduled invocation is required, with a recovered same-slot retry accepted", () => {
   const input = passingInput();
-  const intraday = input.scheduledInvocations.find((entry) => entry.name === "intraday-monitor");
-  intraday.records.push({ ...intraday.records[0], ok: false, error: "earlier failure" });
+  const holdings = input.scheduledInvocations.find((entry) => entry.name === "holdings-sync");
+  const initial = holdings.records[0];
+  holdings.records.unshift({ ...initial, ok: false, outcome: "failed", error: "transient MCP failure" });
+  const recovered = buildPhase0Observation(input);
+  assert.equal(recovered.trustVerdict, "PASS");
+
+  holdings.records.push({ ...initial, ok: false, outcome: "failed", error: "final MCP failure" });
   const failed = buildPhase0Observation(input);
   assert.equal(failed.trustVerdict, "FAIL");
   assert.match(failed.trustReasons.join(" "), /scheduled_invocations/);

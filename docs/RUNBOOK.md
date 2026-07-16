@@ -127,7 +127,8 @@ pm2 describe portfolio-executor
   included in Jetson backups; verify their HMAC before using them as evidence.
 - Phase 0 also requires bounded per-invocation histories: holdings at 9:30/11:00/
   13:00/15:00/16:30, reconciliation at 16:40, all 14 intraday checks, and both
-  sentinel runs. A later success does not hide an earlier slot failure.
+  sentinel runs. Histories retain every attempt; for the same exact invocation,
+  a valid final retry satisfies the slot, while a final failure remains blocking.
 - Jetson queues the 4:40 PM ET report-only broker-vs-ledger reconciliation for the Mac companion. The companion performs the MCP read against the pinned Agentic account, writes a durable receipt, alerts on a missing or malformed ledger match, and never records a trade or alters an order.
 - Mac PM2 process `portfolio-sysloop` (this repo's working tree): cross-watch every 30 min, triage 6:35 PM Mon–Fri (`npm run sysloop:triage`), weekly Sun 10 AM (`npm run sysloop:weekly`). Both accept `--force` to bypass the once-per-period Redis rate cap.
 - Findings ledger: `ops/findings/*.md` (git-tracked). To close one, edit `status: open` → `fixed`; if the fingerprint reappears it auto-flips to `regressed` and escalates. Weekly artifacts: `ops/reports/`, `ops/proposed-tests/`, `ops/proposed-patches/` — all propose-only, nothing is applied automatically.
