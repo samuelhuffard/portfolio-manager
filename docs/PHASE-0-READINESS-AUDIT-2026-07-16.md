@@ -166,3 +166,21 @@ isolated from TRUST behavior.
 - The manual observer ran in dry-run mode, wrote nothing, recovered the pinned
   PM2 identity, and correctly refused to count the release date itself. Missing
   later-day jobs in that daytime diagnostic remained fail-closed as expected.
+
+### Post-release closing-chain and FIFO canary
+
+A same-day production dress rehearsal increased confidence in the first eligible
+day without attempting to backfill or count the release date:
+
+- Signed-ledger verification passed 7/7 Investors, 52/52 Performance, 1/1 Trade,
+  1/1 Lots, and 5,303/5,303 audit rows, with zero unsigned or mismatched rows.
+- The authoritative Sheet-to-Postgres refresh completed and transactional parity
+  matched for accounting snapshot, capital entries, lots, positions, and
+  proposals. Valuation remained correctly `NON_COMPARABLE`.
+- Health remained green and a dry sentinel returned zero P0/P1 with only the
+  acknowledged expired-proposal P2.
+- Two synthetic, read-only order-reconciliation invocations were atomically
+  enqueued behind one another. The companion completed them in FIFO order with
+  distinct successful account-bound receipts, acknowledged each head exactly
+  once, drained the queue to zero, retained a fresh heartbeat, and left zero open
+  reconciliations. No order was placed, changed, reviewed, or cancelled.
