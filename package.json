@@ -38,6 +38,7 @@
     "db:parity": "node scripts/db-parity.mjs",
     "db:restore-drill": "node scripts/postgres-restore-drill.mjs",
     "db:backfill": "node scripts/db-backfill.mjs",
+    "db:migrate-capital-hmacs": "node scripts/migrate-capital-entry-hmacs.mjs",
     "db:refresh-positions": "node scripts/refresh-shadow-positions.js",
     "agent4:policy:set": "node scripts/set-agent4-shadow-policy.mjs",
     "ledgers:verify": "node scripts/verify-ledgers.js",
