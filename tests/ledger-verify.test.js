@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildInvestorLedgerEntry, parseInvestorLedgerRow, investorLedgerRow } from "../lib/investor-ledger.js";
 import { verifyInvestorLedger, verifyAuditRows, computeAuditRowHmac } from "../lib/ledger-verify.js";
+import { verifyRecentAuditLog } from "../scripts/verify-ledgers.js";
 
 const SECRET = "verify-test-secret";
 
@@ -62,4 +63,24 @@ test("audit rows verify and detect tampering (mirrors dashboard lib/audit.ts for
 
   const tampered = verifyAuditRows([{ ...row, action: "PORTFOLIO_READ" }], SECRET, { computeHmac: computeAuditRowHmac });
   assert.equal(tampered.mismatched.length, 1);
+});
+
+test("audit verification fails closed when Redis is unreadable or rows are malformed", async () => {
+  const unreadable = await verifyRecentAuditLog({
+    redis: { async lrange() { throw new Error("network down"); } },
+    auditSecret: SECRET,
+    days: 1,
+    now: new Date("2026-07-16T22:00:00.000Z"),
+  });
+  assert.equal(unreadable.problems.length, 1);
+  assert.match(unreadable.problems[0], /Redis read failed/);
+
+  const malformed = await verifyRecentAuditLog({
+    redis: { async lrange() { return ["{not-json"]; } },
+    auditSecret: SECRET,
+    days: 1,
+    now: new Date("2026-07-16T22:00:00.000Z"),
+  });
+  assert.equal(malformed.problems.length, 1);
+  assert.match(malformed.problems[0], /malformed JSON/);
 });

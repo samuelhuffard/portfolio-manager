@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { buildPhase0Observation, formatPhase0Observation } from "../lib/phase0-observer.js";
-import { consumedResearchRunIds, deployedRevision, dueCriticalJobNames, finalSentinelIsFresh, latestScheduledResearch, mapAnthropicBudgetReadiness, persistPhase0Observation, selectUnobservedScheduledResearch } from "../jobs/phase0-observer.js";
+import { consumedResearchRunIds, deployedRevision, dueCriticalJobNames, dueObservedJobs, finalSentinelIsFresh, latestScheduledResearch, mapAnthropicBudgetReadiness, observationPersistenceWindowIsOpen, persistPhase0Observation, selectUnobservedScheduledResearch } from "../jobs/phase0-observer.js";
 import { blankOutcomeCounts, RESEARCH_OUTCOME_VERSION } from "../lib/research-run-report.js";
 import { buildHoldingMonitorCoverage } from "../lib/holding-monitor-coverage.js";
 import { signPhase0Observation } from "../lib/phase0-observation-ledger.js";
@@ -24,6 +24,7 @@ test("deployed revision prefers the code identity pinned by the PM2 restart wrap
   assert.deepEqual(revision, {
     commit: "9397eef61879cc362328887f0e98802cad6a215d",
     branch: "mandate-v3",
+    startedAt: null,
   });
   assert.equal(gitCalled, false);
 });
@@ -112,6 +113,7 @@ function passingInput() {
     deployment: {
       commit: "abcdef123456",
       branch: "mandate-v3",
+      startedAt: "2026-07-13T16:00:00.000Z",
       policies: {
         mandateVersions: { "agent-1": "3.0", "agent-2": "3.0", "agent-3": "3.0" },
         researchSelection: { policyVersion: "research-selection-v1", mode: "shadow" },
@@ -133,6 +135,23 @@ test("pure verdict passes only when every required evidence class passes", () =>
   assert.ok(result.checks.every((row) => ["TRUST", "SKILL", "BOTH"].includes(row.domain)));
   assert.match(formatPhase0Observation(result), /TRUST PASS — safety day counts: YES/);
   assert.match(formatPhase0Observation(result), /SKILL PASS — research cohort samples retained: YES/);
+});
+
+test("the deployment day itself cannot count, while the next trading day can", () => {
+  const sameDay = passingInput();
+  sameDay.deployment.startedAt = "2026-07-14T14:00:00.000Z";
+  const blocked = buildPhase0Observation(sameDay);
+  assert.equal(blocked.trustVerdict, "FAIL");
+  assert.equal(blocked.countsTowardSafetyWindow, false);
+  assert.equal(blocked.checks.find((row) => row.name === "deployment_eligibility").status, "fail");
+
+  const priorDay = passingInput();
+  assert.equal(buildPhase0Observation(priorDay).countsTowardSafetyWindow, true);
+});
+
+test("observation persistence stays locked until the complete-day cutoff", () => {
+  assert.equal(observationPersistenceWindowIsOpen(new Date("2026-07-15T00:19:59.000Z")), false);
+  assert.equal(observationPersistenceWindowIsOpen(new Date("2026-07-15T00:20:00.000Z")), true);
 });
 
 test("unknown evidence fails closed and active P1s remain visible", () => {
@@ -481,6 +500,22 @@ test("weekday observer roster follows the Sun-Thu scheduler without making Sunda
   assert.ok(!friday.includes("research-scan"));
   assert.ok(!friday.includes("exit-monitor"));
   assert.ok(friday.includes("db-parity"));
+  const domains = Object.fromEntries(dueObservedJobs(new Date("2026-07-16T23:00:00.000Z")).map((job) => [job.name, job.domain]));
+  assert.equal(domains["holdings-sync"], "TRUST");
+  assert.equal(domains["exit-monitor"], "TRUST");
+  assert.equal(domains["research-scan"], "SKILL");
+  assert.equal(domains["performance-review"], "SKILL");
+  assert.equal(domains["premarket-check"], undefined);
+});
+
+test("a failed SKILL job does not reset an otherwise clean TRUST day", () => {
+  const input = passingInput();
+  input.criticalJobs.push({ name: "research-scan", domain: "SKILL", run: { dateET: DATE, ok: false } });
+  const result = buildPhase0Observation(input);
+  assert.equal(result.trustVerdict, "PASS");
+  assert.equal(result.skillVerdict, "FAIL");
+  assert.equal(result.countsTowardSafetyWindow, true);
+  assert.equal(result.checks.find((row) => row.name === "skill_jobs").status, "fail");
 });
 
 test("a Sunday scheduled research run is selected once on Monday and never again Tuesday", () => {
@@ -666,7 +701,8 @@ test("scheduled ledger verification turns a false diagnostic result into a faile
   const scheduler = fs.readFileSync(new URL("../scheduler.js", import.meta.url), "utf8");
   assert.match(scheduler, /verified !== true/);
   assert.match(scheduler, /Signed-ledger verification reported problems/);
-  assert.match(scheduler, /15 20 \* \* 1-5/);
+  assert.match(scheduler, /20 20 \* \* 1-5/);
+  assert.match(scheduler, /runPhase0Observer\(\{ persist: true \}\)/);
   assert.match(scheduler, /10 20 \* \* 1-5/);
   assert.match(scheduler, /15 17 \* \* 0-4/);
   assert.match(scheduler, /HOLDING_COVERAGE/);

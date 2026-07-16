@@ -8,11 +8,14 @@ performance.
 
 ## Runtime
 
-- Scheduled at **8:15 PM ET, Monday–Friday**, after the 8:00 PM Postgres shadow
+- Scheduled at **8:20 PM ET, Monday–Friday**, after the 8:00 PM Postgres shadow
   parity job and an **8:10 PM final sentinel refresh**. The earlier 6:15 PM
   sentinel remains the timely alert; only a current final snapshot supports the
   end-of-day verdict.
-- Manual command: `npm run phase0:observe`.
+- Manual command: `npm run phase0:observe` is a dry run: it prints the current
+  verdict but never persists or notifies. The scheduled path explicitly enables
+  persistence; any explicit persistence call is code-locked until 8:20 PM ET so
+  partial-day evidence cannot become the immutable record.
 - One create-once `phase0-observation-v2` record is stored at
   `pm:phase0-observation:<YYYY-MM-DD>` with a SHA-256 content hash and an HMAC
   using the existing operational-ledger secret chain. Every retained read is
@@ -42,7 +45,8 @@ builder emits:
   authoritative clock fields;
 - separate `trustReasons` and `skillReasons`, plus versioned `skillProgress`.
 
-TRUST checks are deployment identity, every due critical job, every expected
+TRUST checks are deployment identity and start date, every due money/control
+critical job, every expected
 scheduled invocation, both sentinel runs, reconciliation, transactional parity,
 and valuation/holding-monitoring safety. Daily bounded histories require all five
 holdings receipts, the reconciliation receipt, all 14 intraday slots, and both
@@ -51,11 +55,15 @@ retained attempt for that exact invocation: a valid recovered retry satisfies th
 slot, while a final failed or malformed attempt remains blocking. Successful
 broker-read receipts must pass the shared schema and prove the pinned account-policy
 version.
+The deployment date must predate the observation date. This enforces the master
+plan rule that the deployment day itself cannot count and the first eligible day
+is the next trading day.
 Each due monitor must conserve `held = monitored + explicitly degraded + failed`
 with zero failed, overflow, or silent skips, and exact degradation/failure reason
 totals. Aggregate reasons make degradation visible without persisting tickers.
 
-SKILL checks are research outcome accounting, proposal-count readability, and
+SKILL checks include research-scan and performance-review job completion,
+research outcome accounting, proposal-count readability, and
 actionable proposal/evaluator throughput. Monthly cost governance is `BOTH`
 readiness: `NOT_CONFIGURED`, invalid pricing, or unreadable telemetry leaves G0
 insufficient. Once governance is configured, ordinary monthly/provider exhaustion
@@ -104,6 +112,11 @@ claim that this is every evaluator approval in the run.
 - Scheduled ledger verification now throws into the scheduler wrapper when its
   diagnostic returns `false`; a signature problem can no longer be recorded as
   a successful job merely because the verifier returned instead of throwing.
+- Audit-log verification fails closed on Redis read errors and malformed rows;
+  an unavailable day can no longer look like an empty, clean audit log.
+- Scheduled MCP broker reads use an invocation-specific FIFO. A retrying request
+  cannot coalesce away later holdings slots; each slot retains its own durable
+  request, account-bound receipt, and final-attempt verdict.
 - Terminal research history is idempotent by `runId`: an identical terminal
   replay is ignored and a conflicting terminal outcome fails instead of adding
   a second history row.

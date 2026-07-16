@@ -73,12 +73,17 @@ export async function runPerformanceReview() {
   const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
   const sheetIds = await getSheetIds(sheets, spreadsheetId);
 
+  const failures = [];
   for (const agent of AGENTS) {
     try {
       await runPerformanceReviewForAgent(agent, sheets, spreadsheetId, sheetIds);
     } catch (err) {
       console.error(`[Performance] ${agent.id} failed:`, err.message);
+      failures.push(`${agent.id}: ${err.message}`);
     }
+  }
+  if (failures.length) {
+    throw new Error(`${failures.length}/${AGENTS.length} agent performance review(s) failed: ${failures.join("; ")}`);
   }
 }
 

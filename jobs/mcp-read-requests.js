@@ -4,15 +4,34 @@ import { getRedis } from "../lib/redis.js";
 import { etDateString } from "../lib/market-calendar.js";
 
 const REQUEST_TTL_SECONDS = 36 * 60 * 60;
+const ENQUEUE_REQUEST_SCRIPT = `
+local existing = redis.call("GET", KEYS[2])
+if existing then return {0, existing} end
+redis.call("SET", KEYS[2], ARGV[1], "EX", tonumber(ARGV[2]))
+redis.call("RPUSH", KEYS[1], ARGV[1])
+redis.call("EXPIRE", KEYS[1], tonumber(ARGV[2]))
+return {1, ARGV[1]}
+`;
 
 export function mcpReadRequestKey(kind) {
   return `pm:mcp-read:${McpReadJobKindSchema.parse(kind)}:request`;
 }
 
+export function mcpReadQueueKey(kind) {
+  return `pm:mcp-read:${McpReadJobKindSchema.parse(kind)}:queue`;
+}
+
+export function mcpReadInvocationKey(kind, invocationId) {
+  const parsedKind = McpReadJobKindSchema.parse(kind);
+  const normalized = String(invocationId ?? "").trim();
+  if (!normalized) throw new Error("invocationId is required for a durable MCP request.");
+  return `pm:mcp-read:${parsedKind}:invocation:${encodeURIComponent(normalized)}`;
+}
+
 /**
- * Queue one durable, read-only broker job for the Mac companion. NX means a
- * sleeping Mac accumulates one fresh request rather than five duplicate broker
- * reads; the companion's lease/receipt protocol owns actual completion.
+ * Queue one durable, read-only broker job per scheduled invocation. The atomic
+ * invocation marker prevents duplicate scheduler delivery while the FIFO keeps
+ * later slots distinct when an earlier broker read is retrying.
  */
 export async function enqueueMcpReadRequest(kind, { redis = getRedis(), now = new Date(), invocationId = null } = {}) {
   const parsedKind = McpReadJobKindSchema.parse(kind);
@@ -24,17 +43,15 @@ export async function enqueueMcpReadRequest(kind, { redis = getRedis(), now = ne
     requestedForET: etDateString(now),
     invocationId,
   });
-  const result = await redis.set(mcpReadRequestKey(parsedKind), JSON.stringify(request), {
-    nx: true,
-    ex: REQUEST_TTL_SECONDS,
-  });
-  if (result === "OK") return { queued: true, request };
-
-  // A scheduled run found already-pending work. Report the request the Mac
-  // will actually process instead of inventing a misleading request id.
-  const existingRaw = await redis.get(mcpReadRequestKey(parsedKind));
-  const existing = McpReadRequestSchema.parse(typeof existingRaw === "string" ? JSON.parse(existingRaw) : existingRaw);
-  return { queued: false, request: existing };
+  const payload = JSON.stringify(request);
+  const result = await redis.eval(
+    ENQUEUE_REQUEST_SCRIPT,
+    [mcpReadQueueKey(parsedKind), mcpReadInvocationKey(parsedKind, request.invocationId)],
+    [payload, String(REQUEST_TTL_SECONDS)],
+  );
+  if (!Array.isArray(result) || result.length !== 2) throw new Error("MCP request enqueue returned an invalid result.");
+  const retained = McpReadRequestSchema.parse(typeof result[1] === "string" ? JSON.parse(result[1]) : result[1]);
+  return { queued: Number(result[0]) === 1, request: retained };
 }
 
 export const requestMcpHoldingsSync = (options) => enqueueMcpReadRequest("holdings-sync", options);

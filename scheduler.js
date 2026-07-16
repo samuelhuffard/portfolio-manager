@@ -132,7 +132,7 @@ async function queueMcpReadJob(name, label, requestFn, invocationSlot) {
     if (redis) await redis.set(`pm:job:${name}:last-request`, JSON.stringify({
       ts: new Date().toISOString(), dateET, queued, requestId: request.id, durationMs: Date.now() - started,
     }));
-    console.log(`[${label}] ${queued ? "queued" : "already pending"} request ${request.id}`);
+    console.log(`[${label}] ${queued ? "queued" : "already queued"} invocation ${request.invocationId} as request ${request.id}`);
   } catch (error) {
     if (redis) await redis.set(`pm:job:${name}:last-run`, JSON.stringify({
       ts: new Date().toISOString(), dateET, ok: false, durationMs: Date.now() - started, error: error.message,
@@ -241,7 +241,7 @@ cron.schedule("10 20 * * 1-5", wrapJob("system-sentinel", "SysloopFinal", runSys
 // Runs after the final scheduled evidence producer (8 PM parity). It reads only
 // existing job/sentinel/parity/research/reconciliation state, records one
 // immutable bounded result per ET date, and fails closed on missing evidence.
-cron.schedule("15 20 * * 1-5", wrapJob("phase0-observer", "Phase0", runPhase0Observer), TZ);
+cron.schedule("20 20 * * 1-5", wrapJob("phase0-observer", "Phase0", () => runPhase0Observer({ persist: true })), TZ);
 
 // ── Weekly review (Friday 6:30 PM ET) ────────────────────────────────────────
 // Closes the feedback loop: deterministic per-agent scorecard (proposals,
@@ -269,5 +269,5 @@ console.log(
   "system sentinel 6:15 PM | advisory research-data refresh 7:30 PM (Mon-Fri, ET; gated) | " +
   "holdings sync 9:30 AM/11 AM/1 PM/3 PM/4:30 PM | exit/research Sun-Thu | " +
   "weekly review Fri 6:30 PM ET | investor update Fri 6:45 PM ET | " +
-  "shadow parity 8:00 PM daily | final sentinel 8:10 PM weekdays | Phase 0 observer 8:15 PM weekdays"
+  "shadow parity 8:00 PM daily | final sentinel 8:10 PM weekdays | Phase 0 observer 8:20 PM weekdays"
 );

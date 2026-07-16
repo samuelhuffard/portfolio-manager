@@ -200,12 +200,12 @@ test("research-data health flags stale, failed, and implausible aggregate counts
   });
   assert.match(stale[0].title, /stale/);
   const failed = checkResearchDataHealth({ researchData: { state: "failed", failureStage: "peer-distributions" }, enabled: true, nowMs });
-  assert.equal(failed[0].severity, "P1");
+  assert.equal(failed[0].severity, "P2");
   const implausible = checkResearchDataHealth({
     nowMs, enabled: true,
     researchData: { state: "completed", completedAt: "2026-07-13T21:00:00Z", cataloged: 10, classified: 12, metricRows: 12 },
   });
-  assert.equal(implausible[0].severity, "P1");
+  assert.equal(implausible[0].severity, "P2");
   assert.match(implausible[0].title, /implausible/);
 });
 
@@ -226,6 +226,10 @@ test("cron freshness: missing, missed, and failed runs are flagged", () => {
   assert.match(titles, /research-scan failed/);
   assert.match(titles, /verify-ledgers has never recorded/);
   assert.ok(!/premarket-check/.test(titles));
+  const researchFailure = out.find((row) => /research-scan failed/.test(row.title));
+  const ledgerFailure = out.find((row) => /verify-ledgers has never/.test(row.title));
+  assert.equal(researchFailure.severity, "P2");
+  assert.equal(ledgerFailure.severity, "P1");
 });
 
 test("cron freshness: weekend runs are quiet", () => {

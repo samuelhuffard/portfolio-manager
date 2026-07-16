@@ -14,6 +14,38 @@ import { sendMessage } from "../lib/telegram.js";
 
 const AUDIT_DAYS = Number(process.env.LEDGER_VERIFY_AUDIT_DAYS ?? 7);
 
+export async function verifyRecentAuditLog({ redis, auditSecret, days = AUDIT_DAYS, now = new Date() }) {
+  const problems = [];
+  let total = 0;
+  let mismatched = 0;
+  for (let i = 0; i < days; i++) {
+    const date = new Date(now.getTime() - i * 86_400_000).toISOString().slice(0, 10);
+    let raw;
+    try {
+      raw = await redis.lrange(`pm:audit:${date}`, 0, -1);
+      if (!Array.isArray(raw)) throw new Error("response was not an array");
+    } catch (error) {
+      problems.push(`Audit log ${date}: Redis read failed (${error.message}).`);
+      continue;
+    }
+    let rows;
+    try {
+      rows = raw.map((row) => (typeof row === "string" ? JSON.parse(row) : row));
+    } catch (error) {
+      problems.push(`Audit log ${date}: malformed JSON (${error.message}).`);
+      continue;
+    }
+    if (!rows.length) continue;
+    const result = verifyAuditRows(rows, auditSecret, { computeHmac: computeAuditRowHmac });
+    total += result.total;
+    mismatched += result.mismatched.length;
+    for (const bad of result.mismatched) {
+      problems.push(`Audit TAMPER on ${date}: ${bad?.action ?? "?"} ${bad?.route ?? "?"} at ${bad?.timestamp ?? "?"} fails its signature.`);
+    }
+  }
+  return { problems, total, mismatched };
+}
+
 export async function runLedgerVerification() {
   const problems = [];
   const { sheets, drive } = getServiceAccountClients();
@@ -64,21 +96,9 @@ export async function runLedgerVerification() {
     if (!redis) {
       problems.push("Audit log: Redis not configured — cannot verify.");
     } else {
-      let total = 0;
-      let mismatched = 0;
-      for (let i = 0; i < AUDIT_DAYS; i++) {
-        const date = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
-        const raw = await redis.lrange(`pm:audit:${date}`, 0, -1).catch(() => []);
-        const rows = raw.map((r) => (typeof r === "string" ? JSON.parse(r) : r));
-        if (!rows.length) continue;
-        const result = verifyAuditRows(rows, auditSecret, { computeHmac: computeAuditRowHmac });
-        total += result.total;
-        mismatched += result.mismatched.length;
-        for (const bad of result.mismatched) {
-          problems.push(`Audit TAMPER on ${date}: ${bad?.action ?? "?"} ${bad?.route ?? "?"} at ${bad?.timestamp ?? "?"} fails its signature.`);
-        }
-      }
-      console.log(`[Verify] Audit: checked ${total} row(s) over ${AUDIT_DAYS} day(s), ${mismatched} mismatched.`);
+      const result = await verifyRecentAuditLog({ redis, auditSecret });
+      problems.push(...result.problems);
+      console.log(`[Verify] Audit: checked ${result.total} row(s) over ${AUDIT_DAYS} day(s), ${result.mismatched} mismatched.`);
     }
   }
 

@@ -164,6 +164,7 @@ test("trusted restart helper observes and signs only the restart it performs", a
           pm_uptime: NOW.getTime() - (restarted ? 10_000 : 120_000),
           SYSLOOP_DEPLOYED_BRANCH: restarted ? deployedEnv.SYSLOOP_DEPLOYED_BRANCH : undefined,
           SYSLOOP_DEPLOYED_COMMIT: restarted ? deployedEnv.SYSLOOP_DEPLOYED_COMMIT : undefined,
+          SYSLOOP_DEPLOYED_AT: restarted ? deployedEnv.SYSLOOP_DEPLOYED_AT : undefined,
         },
       }]) };
     }
@@ -174,6 +175,7 @@ test("trusted restart helper observes and signs only the restart it performs", a
   });
   assert.equal(marker.beforeRestarts, 39);
   assert.equal(marker.afterRestarts, 40);
+  assert.equal(deployedEnv.SYSLOOP_DEPLOYED_AT, NOW.toISOString());
   assert.equal(writes[0][0], pm2DeployMarkerKey(PROCESS, 40));
   assert.equal(writes[0][2].nx, true);
 });

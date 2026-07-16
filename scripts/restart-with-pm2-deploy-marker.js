@@ -97,6 +97,7 @@ export async function restartWithPm2DeployMarker({
     ...process.env,
     SYSLOOP_DEPLOYED_BRANCH: branch,
     SYSLOOP_DEPLOYED_COMMIT: commit,
+    SYSLOOP_DEPLOYED_AT: now.toISOString(),
     SYSLOOP_DEPLOY_TARGET: target,
   };
   await execFn("pm2", ["restart", processName, "--update-env", "--time"], {
@@ -114,8 +115,10 @@ export async function restartWithPm2DeployMarker({
   if (afterEnv.unstable_restarts !== beforeEnv.unstable_restarts) throw new Error("PM2 unstable restart count changed.");
   if (afterEnv.exit_code !== 0) throw new Error("PM2 exit code is non-zero after restart.");
   if (!Number.isFinite(afterEnv.pm_uptime) || afterEnv.pm_uptime <= beforeEnv.pm_uptime) throw new Error("PM2 process start time did not advance.");
-  if (afterEnv.SYSLOOP_DEPLOYED_BRANCH !== branch || afterEnv.SYSLOOP_DEPLOYED_COMMIT !== commit) {
-    throw new Error("PM2 did not retain the deployed branch/commit identity.");
+  if (afterEnv.SYSLOOP_DEPLOYED_BRANCH !== branch
+    || afterEnv.SYSLOOP_DEPLOYED_COMMIT !== commit
+    || afterEnv.SYSLOOP_DEPLOYED_AT !== restartEnv.SYSLOOP_DEPLOYED_AT) {
+    throw new Error("PM2 did not retain the deployed branch/commit/start-time identity.");
   }
 
   const createdAt = now.toISOString();

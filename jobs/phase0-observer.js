@@ -23,6 +23,7 @@ const INDEX_KEY = "pm:phase0-observation:index";
 const RETENTION_SECONDS = 90 * 24 * 60 * 60;
 const MAX_DAYS = 90;
 const SENTINEL_MAX_AGE_MS = 30 * 60 * 1000;
+const PERSISTENCE_CUTOFF_MINUTE_ET = 20 * 60 + 20;
 const DEFAULT_ARCHIVE_DIR = path.join(REPO_ROOT, "ops", "phase0-observations");
 const ENSURE_OBSERVATION_INDEX_SCRIPT = `
 redis.call("LREM", KEYS[1], 0, ARGV[1])
@@ -53,14 +54,34 @@ export function finalSentinelIsFresh(snapshot, now, observationDate = etDateStri
   return snapshot?.date === observationDate && ageMs >= 0 && ageMs <= SENTINEL_MAX_AGE_MS;
 }
 
-export function dueCriticalJobNames(now = new Date()) {
+export function dueObservedJobs(now = new Date()) {
   const weekday = weekdayET(now);
-  const base = [
-    "premarket-check", "holdings-sync", "order-reconciliation", "intraday-monitor",
-    "performance-review", "verify-ledgers", "system-sentinel", "shadow-positions-refresh", "db-parity",
+  const jobs = [
+    { name: "holdings-sync", domain: "TRUST" },
+    { name: "order-reconciliation", domain: "TRUST" },
+    { name: "intraday-monitor", domain: "TRUST" },
+    { name: "performance-review", domain: "SKILL" },
+    { name: "verify-ledgers", domain: "TRUST" },
+    { name: "system-sentinel", domain: "TRUST" },
+    { name: "shadow-positions-refresh", domain: "TRUST" },
+    { name: "db-parity", domain: "TRUST" },
   ];
-  if (["Mon", "Tue", "Wed", "Thu"].includes(weekday)) base.push("exit-monitor", "research-scan");
-  return base;
+  if (["Mon", "Tue", "Wed", "Thu"].includes(weekday)) {
+    jobs.push({ name: "exit-monitor", domain: "TRUST" }, { name: "research-scan", domain: "SKILL" });
+  }
+  return jobs;
+}
+
+export function dueCriticalJobNames(now = new Date()) {
+  return dueObservedJobs(now).map((job) => job.name);
+}
+
+export function observationPersistenceWindowIsOpen(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(now);
+  const value = (type) => Number(parts.find((part) => part.type === type)?.value);
+  return (value("hour") % 24) * 60 + value("minute") >= PERSISTENCE_CUTOFF_MINUTE_ET;
 }
 
 export async function deployedRevision({ env = process.env, exec = execFileAsync } = {}) {
@@ -71,13 +92,14 @@ export async function deployedRevision({ env = process.env, exec = execFileAsync
     .map((value) => value?.trim()).find(Boolean);
   let commit = configured ?? null;
   let branch = env.SYSLOOP_DEPLOYED_BRANCH?.trim() || env.GIT_BRANCH?.trim() || null;
+  const startedAt = env.SYSLOOP_DEPLOYED_AT?.trim() || null;
   try {
     if (!commit) commit = (await exec("git", ["rev-parse", "HEAD"], { cwd: REPO_ROOT })).stdout.trim();
     if (!branch) branch = (await exec("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: REPO_ROOT })).stdout.trim();
   } catch (error) {
     console.warn(`[Phase0] deployed revision lookup incomplete: ${error.message}`);
   }
-  return { commit, branch };
+  return { commit, branch, startedAt };
 }
 
 function localPolicyVersions() {
@@ -224,7 +246,8 @@ export async function gatherPhase0Evidence({
   if (!redis) throw new Error("Redis is not configured; Phase 0 evidence cannot be read or recorded.");
   const observationDate = etDateString(now);
   const weekday = weekdayET(now);
-  const jobNames = dueCriticalJobNames(now);
+  const observedJobs = dueObservedJobs(now);
+  const jobNames = observedJobs.map((job) => job.name);
   const historyJobs = ["holdings-sync", "order-reconciliation", "intraday-monitor", "system-sentinel"];
   const consumedRunIds = await consumedResearchRunIds(redis, secret);
   const [jobRows, historyRows, parityRaw, sentinelRaw, reconciliations, research, queueCounts, revision, agent4Raw, readiness] = await Promise.all([
@@ -239,7 +262,7 @@ export async function gatherPhase0Evidence({
     redis.get("pm:allocation-policy:active").catch(() => null),
     budgetReadiness({ now, redis }).catch(() => null),
   ]);
-  const jobs = jobNames.map((name, index) => ({ name, run: parse(jobRows?.[index]) }));
+  const jobs = observedJobs.map((job, index) => ({ ...job, run: parse(jobRows?.[index]) }));
   const scheduledInvocations = historyJobs.map((name, index) => ({
     name,
     expected: expectedJobInvocationIds(name, observationDate),
@@ -359,11 +382,19 @@ export async function persistPhase0Observation(record, {
 
 export async function runPhase0Observer(options = {}) {
   const evidence = await gatherPhase0Evidence(options);
-  const secret = options.secret ?? getOperationalLedgerSecret();
-  const record = signPhase0Observation({
+  const unsignedRecord = {
     ...buildPhase0Observation(evidence),
     metrics: { proposalQueue: evidence.proposalQueue },
-  }, secret);
+  };
+  if (options.persist !== true) {
+    console.log(`[Phase0] DRY RUN — no observation was persisted or sent. ${formatPhase0Observation(unsignedRecord).replaceAll("\n", " | ")}`);
+    return unsignedRecord;
+  }
+  if (!observationPersistenceWindowIsOpen(options.now ?? new Date())) {
+    throw new Error("Phase 0 persistence is locked until 8:20 PM ET so partial-day evidence cannot become immutable.");
+  }
+  const secret = options.secret ?? getOperationalLedgerSecret();
+  const record = signPhase0Observation(unsignedRecord, secret);
   const persisted = await persistPhase0Observation(record, { ...options, secret });
   const retained = persisted.record;
   const redis = options.redis ?? getRedis();
@@ -379,7 +410,8 @@ export async function runPhase0Observer(options = {}) {
 }
 
 if (fileURLToPath(import.meta.url) === process.argv[1]) {
-  runPhase0Observer()
+  const persist = process.argv.slice(2).includes("--persist");
+  runPhase0Observer({ persist })
     .then((record) => process.exit(record.verdict === "PASS_BOTH" || record.verdict === "SKIP" ? 0 : 2))
     .catch((error) => {
       console.error("[Phase0] observer failed:", error.message);
