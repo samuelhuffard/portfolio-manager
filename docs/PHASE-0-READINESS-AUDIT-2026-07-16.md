@@ -116,7 +116,8 @@ shadow; and the observer reads evidence without repairing it.
 ## Verification evidence
 
 - Backend: 761/761 tests passing after the FIFO and observer changes.
-- Dashboard/companion: 123/123 tests passing and `tsc --noEmit` clean.
+- Dashboard/companion: 124/124 tests passing, `tsc --noEmit` clean, and the
+  production Next build complete.
 - Backend dependency audit: zero known vulnerabilities.
 - Dashboard dependency audit: no high/critical findings; four moderate transitive
   findings. The affected paths are Next/PostCSS build/style serialization and
@@ -149,3 +150,19 @@ heartbeat, FIFO request compatibility, final sentinel, and a dry-run observer.
 This S2 release is the final gate-closing boundary. Any later S1/S2 change resets
 the safety clock; pure R1 work opens only a new research cohort when it remains
 isolated from TRUST behavior.
+
+## Live release proof
+
+- Backend `mandate-v3@3c01d03f52f70b33fcf85222ee591527adc844e0` is loaded on
+  Jetson through signed restart edge `55→56`. PM2 is online with zero unstable
+  restarts and exit code zero; `/health` is green for Redis, Sheets, Anthropic,
+  webhook, and Telegram dependencies.
+- Companion `main@e04a602` is loaded by `portfolio-executor`. PM2 is online with
+  zero unstable restarts and exit code zero. Its Redis heartbeat was three
+  seconds old at verification; both FIFO queues were empty with no legacy
+  singleton or outstanding lease.
+- A post-release published sentinel had zero P0/P1 and one known P2: eight
+  historical expired proposals. The previous new-log-cluster P2 did not recur.
+- The manual observer ran in dry-run mode, wrote nothing, recovered the pinned
+  PM2 identity, and correctly refused to count the release date itself. Missing
+  later-day jobs in that daytime diagnostic remained fail-closed as expected.
