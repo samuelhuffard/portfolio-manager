@@ -1,5 +1,5 @@
 {
-  "description": "SEED/FALLBACK ONLY since universe.json switched agent-1 to source=catalog: the research scan draws its daily slate from the full NYSE/NASDAQ tech catalog (jobs/universe-refresh.js + lib/candidate-slate.js) and only uses these tickers when the catalog is empty or unreadable (logged loudly). Benchmark is still read from here.",
+  "description": "SEED/FALLBACK ONLY. Agent One normally consumes the shared NYSE/NASDAQ operating-common-equity catalog; these names are used only when that catalog is explicitly degraded or rolled back. Benchmark is still read from here.",
   "benchmark": "SPY",
   "tickers": ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "AVGO", "AMD"]
 }

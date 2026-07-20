@@ -6,6 +6,7 @@ import { runIntradayMonitor } from "./jobs/intraday-monitor.js";
 import { listPriceAlerts, addPriceAlert, removePriceAlert } from "./lib/price-alerts.js";
 import { syncHoldings } from "./jobs/holdings-sync.js";
 import { getProposalById, markProposalFulfilled, getRedis, getUniverseStatus, getResearchDataStatus, getShadowSelectionStatus, setLabResearchStatus, getLabResearchStatus, getSlateSnapshot, getLastSystemActivity } from "./lib/redis.js";
+import { toPublicSlateSnapshot } from "./lib/public-slate-snapshot.js";
 import { recordMcpFill } from "./lib/mcp-accounting.js";
 import { getServiceAccountClients, getSheetIds, resolveSharedSpreadsheetId } from "./lib/sheets.js";
 import { validateResearchTickerRequest, buildLabOutcome } from "./lib/lab-research.js";
@@ -122,10 +123,21 @@ const server = http.createServer(async (req, res) => {
     // funnel observability). Informational like universe: counts only, never
     // tickers, never part of ok.
     let slate = null;
+    let slates = {};
     try {
-      slate = await getSlateSnapshot("agent-1");
+      const snapshots = await Promise.all(
+        ["agent-1", "agent-2", "agent-3"].map(async (agentId) => [
+          agentId,
+          toPublicSlateSnapshot(await getSlateSnapshot(agentId)),
+        ])
+      );
+      slates = Object.fromEntries(snapshots);
+      // Retain the legacy field for dashboard compatibility while exposing the
+      // same aggregate-only observation proof for all three live agents.
+      slate = slates["agent-1"] ?? null;
     } catch {
       slate = null;
+      slates = {};
     }
     // Advisory research-data progress. The Redis helper persists an allow-listed
     // aggregate payload only, so this public endpoint never leaks tickers,
@@ -152,7 +164,7 @@ const server = http.createServer(async (req, res) => {
     // since Athena being down must never take our own health down with it.
     const athena = await fetchAthenaStatus({ timeoutMs: 3000 });
     res.writeHead(ok ? 200 : 503);
-    res.end(JSON.stringify({ ok, scanRunning, deps, universe, slate, researchData, shadowSelection, researchDataEnabled, athena }));
+    res.end(JSON.stringify({ ok, scanRunning, deps, universe, slate, slates, researchData, shadowSelection, researchDataEnabled, athena }));
     return;
   }
 

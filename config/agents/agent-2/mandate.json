@@ -4,5 +4,5 @@
   "mandateVersion": "3.0",
   "canonicalSourcePath": "agent_mandates/Agent_Two_Mandate_v3.md",
   "targetUniversePolicyVersion": "eligible-us-operating-common-equities-v3",
-  "productionUniversePolicyVersion": "static-watchlist-v1"
+  "productionUniversePolicyVersion": "agent-2-medium-momentum-catalog-v1"
 }

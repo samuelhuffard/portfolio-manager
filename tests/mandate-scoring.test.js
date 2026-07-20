@@ -64,7 +64,7 @@ test("one workflow runId reaches durable observations before the Redis latest vi
       assert.equal(payload.observations[0].runId, "workflow-run-1");
       assert.equal(payload.observations[0].scoreCause, "initial");
       assert.equal(payload.evidenceSnapshots.length, 1);
-      assert.equal(payload.summary.detail.productionUniversePolicyVersion, "catalog-technology-subverticals-v1");
+      assert.equal(payload.summary.detail.productionUniversePolicyVersion, "agent-1-sector-agnostic-velocity-catalog-v1");
     },
     writeLatestView: async (_agentId, payload) => {
       events.push("cache");

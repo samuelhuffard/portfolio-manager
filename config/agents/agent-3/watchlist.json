@@ -1,5 +1,5 @@
 {
-  "description": "Agent 3's watchlist slice — research-only/paper until Sam provisions a spreadsheet (SPREADSHEET_ID_AGENT_3). No personality assigned yet; this slice is just a structural split of the original 26-ticker starter list so the three agents aren't all researching identical names. Edit freely once a philosophy is assigned.",
+  "description": "SEED/FALLBACK ONLY. Agent Three normally consumes the shared NYSE/NASDAQ catalog; these names are used only when that catalog is explicitly degraded or rolled back.",
   "benchmark": "SPY",
   "tickers": ["CVX", "COST", "WMT", "HD", "PG", "KO", "CAT", "LIN"]
 }
