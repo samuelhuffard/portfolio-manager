@@ -15,8 +15,8 @@
    Do instead: keep every Holdings reader/parity projection filtering `Last synced`, `Synced via Robinhood Agentic MCP`, cash, and sample-marker rows; regression-test any new marker format.
 4. **[2026-07-13] Research outcomes require decision-time facts**
    Do instead: classify outcomes from structured scan facts and persist versioned aggregates; treat legacy Sheet/Redis rows as non-classifiable instead of parsing rationale text.
-5. **[2026-07-13] Observation days need clean parity and sentinel state**
-   Do instead: count a Phase 0 day only after the scheduled jobs complete with no active P1s and live Sheets/Postgres parity is `MATCH`; local commits and basic `/health` cannot substitute for that evidence.
+5. **[2026-07-20] Phase 0 needs five clean days plus throughput proof**
+   Do instead: count a Phase 0 day only after scheduled jobs complete with no active P1s and live Sheets/Postgres parity is `MATCH`; require five consecutive TRUST days plus three genuine actionable proposals and one evaluator approval, without treating the result as investment-performance proof or new trading authority.
 6. **[2026-07-13] API-key presence is not research availability**
    Do instead: reconcile attempted reviews to explicit successes, blocks, and failures and inspect current provider errors; never treat a green key-presence `/health` check or a completed job wrapper as proof the model calls worked.
 7. **[2026-07-14] Position accounting parity excludes quote-derived market value**

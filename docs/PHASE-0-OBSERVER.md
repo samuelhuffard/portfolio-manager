@@ -129,7 +129,7 @@ claim that this is every evaluator approval in the run.
 `TRUST PASS` means the automated safety evidence for that date is eligible to
 count even when SKILL is failing. `countsTowardResearchCohort: true` preserves
 valid research samples even when TRUST fails. Neither field by itself declares
-Phase 0 complete: the source-of-truth roadmap still requires both the 10-day
+Phase 0 complete: the source-of-truth roadmap still requires both the five-day
 safety window and cumulative proposal/evaluator gates.
 Any later-discovered contradictory evidence invalidates the date in the human
 record rather than rewriting the immutable automated observation.

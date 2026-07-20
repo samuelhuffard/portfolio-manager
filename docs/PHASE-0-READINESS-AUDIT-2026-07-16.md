@@ -87,8 +87,13 @@ fails closed.
 
 The automated observer establishes daily eligibility; it does not unilaterally
 promote autonomy. The human record must still attest no manual ledger repair or
-contradictory evidence. Phase 0 exits only after both 10/10 consecutive TRUST days
+contradictory evidence. At the time of this audit, Phase 0 exited only after both 10/10 consecutive TRUST days
 and the current-version proposal/evaluator gates are met.
+
+> **Superseded policy:** on 2026-07-20 Sam reduced the supervised workflow-readiness
+> threshold to 5/5 consecutive TRUST days while retaining the proposal/evaluator
+> gates and human approval authority. This dated audit preserves its then-current
+> 10/10 wording as historical evidence.
 
 ## Schedule and dependency review
 

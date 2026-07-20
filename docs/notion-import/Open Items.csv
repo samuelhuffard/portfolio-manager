@@ -1,5 +1,5 @@
 Item,Priority,Phase,Owner,Status,Why It Matters,Source
-"Start and record the clean 10-trading-day observation window","P0","0","Engineering","Open","The Phase 0 exit gate is evidence-based and cannot be inferred from deployment success.","docs/AUTONOMY-ROADMAP.md"
+"Start and record the clean 5-trading-day observation window","P0","0","Engineering","Open","The Phase 0 exit gate is evidence-based and cannot be inferred from deployment success.","docs/AUTONOMY-ROADMAP.md"
 "Review daily MCP read-sync, order reconciliation, and Postgres parity evidence","P0","0","Engineering","Open","Keeps the read-only migration and financial shadow truthful.","docs/AUTONOMY-ROADMAP.md"
 "Confirm Vercel production is dashboard main tip d56911e","P0","0","Engineering","Open","The latest dashboard client/MCP changes may be pushed but not deployed.","2026-07-12 PM Meta-Audit dev log"
 "Regenerate FIXLIST from fresh post-deploy evidence","P1","0","Engineering","Open","The current 88-item list is dominated by one log-clustering echo and predates the release.","2026-07-12 PM Meta-Audit dev log"

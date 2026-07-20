@@ -79,10 +79,10 @@ evidence. “Verified locally” is not “deployed,” and “deployed” is no
 | --- | --- | --- | --- |
 | Live authority | TRUST | Human-supervised. Agent 4 is shadow-only. Agents 2/3 are supervised and static-watchlist-bound; they are not catalog-enabled. | [Decision D-003](RESEARCH-DECISION-REGISTER.md) and commit history supersede older “paper-only” wording. |
 | Live release | BOTH | Backend `mandate-v3` runtime is loaded at `e746bd5`: the gate-closing release, signed PM2 deploy-attestation control, and observer identity pinned to the code actually loaded by PM2. Migration `0007_position_quote_provenance.sql` is applied; PM2 is online and `/health` is 200. Dashboard companion contract `bbb5a5c` is loaded by local `portfolio-executor`, which is online with a fresh heartbeat. | Production proof on 2026-07-14. Sam approved the final repository alignment; `origin/mandate-v3` and `origin/main` now share the same current documentation/evidence head. The later documentation-only commits do not change the PM2-pinned runtime identity. |
-| Phase 0 safety window | TRUST | **0/10 clean trading days.** No start may be inferred from service uptime or cleanup completion. | [Observation record](PHASE-0-OBSERVATION.md#exit-evidence-summary). Day 1 remains gated on the final gate-closing release and a clean next-trading-day observation. |
+| Phase 0 safety window | TRUST | **0/5 clean trading days.** No start may be inferred from service uptime or cleanup completion. | [Observation record](PHASE-0-OBSERVATION.md#exit-evidence-summary). Day 1 remains gated on the final gate-closing release and a clean next-trading-day observation. |
 | Historical production artifacts | TRUST | **Resolved.** Both smoke reconciliation artifacts have signed resolutions; the historic unsigned NVDA approval is rejected/closed. Live Redis has zero open reconciliation records and zero unsigned approved proposals. | Current live verification. Historical rows remain preserved rather than deleted. |
 | Restart investigation | TRUST | **Resolved for the observed count and automated going forward.** The first 40 restarts are manually attributable to controlled deploy/config changes; the immutable July 14 observer correctly retained the missing-marker failure. Restarts 41 and 42 were performed by the reviewed wrapper and accepted through dedicated-key signed exact `40→41` and `41→42` edges. PM2 remains `unstable_restarts=0`, `exit_code=0`, online, timestamped, and saved. | The sentinel atomically consumed each marker while advancing its baseline and then reported no PM2 anomaly. Any unsigned, forged, stale, incomplete, unstable, reset, or non-zero-exit edge remains P1. |
-| Current gate-closing state | BOTH | Transactional parity is an exact production `MATCH`; valuation remains honestly `NON_COMPARABLE` until a content-bound quote snapshot arrives. Restore, observer, cost controls, `$10` protected pool, companion restart, runtime release, and repository alignment are verified. The first scheduled signed observer record exists and correctly marks July 14 `FAIL_BOTH`, safety-day false, research-sample retained. | Phase 0 remains 0/10; the next ordinary trading day is the first candidate Day 1. No immediate repository-hygiene approval remains open. |
+| Current gate-closing state | BOTH | Transactional parity is an exact production `MATCH`; valuation remains honestly `NON_COMPARABLE` until a content-bound quote snapshot arrives. Restore, observer, cost controls, `$10` protected pool, companion restart, runtime release, and repository alignment are verified. The first scheduled signed observer record exists and correctly marks July 14 `FAIL_BOTH`, safety-day false, research-sample retained. | Phase 0 remains 0/5; the next ordinary trading day is the first candidate Day 1. No immediate repository-hygiene approval remains open. |
 | Research throughput | SKILL | A fresh 2026-07-14 scheduled run conserves all 36 outcomes (35 investment HOLD, 1 stale-data block, zero failures), but still produced zero genuine actionable proposals and zero evaluator approvals. | Outcome accounting is now proven; throughput/edge remains unproven. |
 | Research evidence spine | SKILL | Reviewed evidence-spine code and additive migrations are recorded as deployed at backend `79c778a` and dashboard `76d92b8`; promotion flags remain shadow/measurement-only. | [Jul 14 deployment record](PHASE-0-OBSERVATION.md#2026-07-14-et-reviewed-evidence-spine-deployment). |
 | Research packet implementation | SKILL | Several E1–E4 and E7 pieces are described as verified locally. Their runtime, evidence, and promotion gates remain separate. | [Execution ledger](RESEARCH-ROADMAP-EXECUTION-GUIDE.md#31-verified-local-implementation-ledger). |
@@ -101,7 +101,7 @@ safety evidence, while material safety changes cannot hide inside “research wo
 
 - Measures consecutive clean trading days under one materially stable safety and
   operations release.
-- Phase 0 requires **10 consecutive clean trading days**.
+- Phase 0 requires **five consecutive clean trading days** for supervised workflow readiness. This does not establish investment performance or expand trading authority.
 - Starts on the first trading day after the gate-closing release is deployed,
   independently reviewed, and all Day 0 blockers have signed resolutions.
 - A day counts only after scheduled work finishes and the daily observer records a
@@ -171,7 +171,7 @@ behavioral class is. Undocumented production drift invalidates the affected day.
 
 **Phase label: BOTH · Status: complete · Owner: systems owner + independent reviewer**
 
-This was the only planned safety-affecting release before the 10-day freeze. If
+This was the only planned safety-affecting release before the five-day freeze. If
 execution evidence shows an item is already complete, attach that evidence and
 close it; do not repeat or merely assert it.
 
@@ -206,10 +206,10 @@ freeze” rules permit it, but no phase is promoted out of order.
 
 ### Phase 0 — Prove the supervised baseline
 
-**Label: BOTH · Status: active at 0/10; G0 complete**
+**Label: BOTH · Status: active at 0/5; G0 complete**
 
 1. **[TRUST]** Freeze S1/S2 behavior after the gate-closing release.
-2. **[TRUST]** Run the daily checklist for 10 consecutive trading days.
+2. **[TRUST]** Run the daily checklist for five consecutive trading days.
 3. **[TRUST]** Maintain 100% holding monitoring even when Athena/Yahoo/FRED or other evidence
    sources degrade; degraded inputs must visibly block or downgrade action.
 4. **[SKILL]** Accumulate at least three genuine actionable specialist proposals and at least
@@ -222,7 +222,7 @@ freeze” rules permit it, but no phase is promoted out of order.
 transactional parity, valuation freshness, timestamped logs, proposal/evaluator
 lineage, deployment/policy versions.
 
-**Exit gate [BOTH]:** safety clock 10/10; zero unresolved critical incidents or manual
+**Exit gate [BOTH]:** safety clock 5/5; zero unresolved critical incidents or manual
 ledger repairs; research baseline and proposal throughput proven; health, logs,
 dashboard, ledgers, broker receipts, and parity agree.
 

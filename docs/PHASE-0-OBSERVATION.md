@@ -6,9 +6,16 @@
 > [the master plan](portfolio-master-plan.md).
 
 **Owner:** Codex, with Sam as final authority  
-**Purpose:** the authoritative human-readable record for the 10 consecutive clean
+**Purpose:** the authoritative human-readable record for the five consecutive clean
 trading-day Phase 0 exit gate in `AUTONOMY-ROADMAP.md`. This is evidence tracking,
 not a substitute for the Jetson system sentinel or signed ledgers.
+
+> **2026-07-20 policy update:** the supervised workflow-readiness gate is five
+> consecutive clean trading days, with the existing three-actionable-proposal and
+> one-evaluator-approval gates unchanged. This shortens only the operational
+> observation window; it does not establish investment performance or expand
+> trading authority. Dated historical entries retain their then-current 10-day
+> wording rather than being rewritten.
 
 ## Window rule
 

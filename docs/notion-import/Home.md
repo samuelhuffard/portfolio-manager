@@ -10,13 +10,13 @@
 - MCP read-sync replaced the unsupported unattended Robinhood login. The 2026-07-11 read-only smoke passed holdings and reconciliation.
 - Ownership/contracts are live. Unattributed legacy lots are quarantined; `ENFORCE_OWNERSHIP=false` is the explicit emergency rollback.
 - **Neon Postgres migration is active:** `PG_DUAL_WRITE=true`, migrations and financial backfill are in place, and daily fail-closed parity governs the shadow-read period. Sheets/Redis remain the authoritative operational path only until the explicit canonical-read cutover gate; the target state is Postgres canonical accounting with Sheets as a read-only reporting projection.
-- The 10-trading-day Phase 0 observation window begins with the next clean trading day. It needs at least three genuine actionable proposals and one evaluator approval, not merely quiet uptime.
+- The five-trading-day Phase 0 observation window begins with the next clean trading day. It needs at least three genuine actionable proposals and one evaluator approval, not merely quiet uptime; it proves supervised workflow readiness, not investment performance or new trading authority.
 
 ## This window’s proof targets
 
 | Signal | Required evidence |
 | --- | --- |
-| Operational stability | 10 consecutive trading days without a missed critical job, ambiguous fill, manual ledger repair, hidden failure, or unsafe client exposure |
+| Operational stability | 5 consecutive trading days without a missed critical job, ambiguous fill, manual ledger repair, hidden failure, or unsafe client exposure |
 | Throughput | At least 3 genuine actionable proposals and 1 evaluator APPROVE |
 | Monitoring | Every holding monitored even if quote sources fail |
 | Truth agreement | Dashboard, health, logs, and reconciliation agree |

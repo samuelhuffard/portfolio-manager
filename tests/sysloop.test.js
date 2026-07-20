@@ -47,7 +47,7 @@ test("checkPhase0Throughput stays quiet early in the window", () => {
 });
 
 test("checkPhase0Throughput flags a maturing window that hasn't proven throughput", () => {
-  const out = checkPhase0Throughput({ actionableProposals: 1, evaluatorApprovals: 0, tradingDaysElapsed: 9 });
+  const out = checkPhase0Throughput({ actionableProposals: 1, evaluatorApprovals: 0, tradingDaysElapsed: 4 });
   assert.equal(out.length, 1);
   assert.equal(out[0].severity, "P2");
   assert.match(out[0].detail, /1\/3 actionable proposals and 0\/1 evaluator APPROVE/);
@@ -55,13 +55,13 @@ test("checkPhase0Throughput flags a maturing window that hasn't proven throughpu
 
 test("checkPhase0Throughput passes when the bar is met", () => {
   assert.deepEqual(
-    checkPhase0Throughput({ actionableProposals: 4, evaluatorApprovals: 2, tradingDaysElapsed: 10 }),
+    checkPhase0Throughput({ actionableProposals: 4, evaluatorApprovals: 2, tradingDaysElapsed: 5 }),
     []
   );
 });
 
 test("checkPhase0Throughput fails closed on unreadable counts", () => {
-  const out = checkPhase0Throughput({ tradingDaysElapsed: 9 });
+  const out = checkPhase0Throughput({ tradingDaysElapsed: 4 });
   assert.equal(out.length, 1);
   assert.match(out[0].title, /input UNKNOWN/);
 });

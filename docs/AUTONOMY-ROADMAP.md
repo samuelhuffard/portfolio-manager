@@ -73,7 +73,7 @@ Work is gate-sequenced, not strictly code-sequenced: production remains in Phase
 
 ## Phase 0 — Stabilize the live supervised system
 
-**Status:** Current. Phase 0A, ownership/contracts, and MCP read-sync are deployed. The read-only smoke passed on 2026-07-11 ET; start the 10-trading-day observation clock on the next clean trading day.
+**Status:** Current. Phase 0A, ownership/contracts, and MCP read-sync are deployed. The read-only smoke passed on 2026-07-11 ET; start the five-trading-day observation clock on the next clean trading day.
 
 Finish the existing 0A/0B/0C work: fail-closed research and fill attribution, signed ledger reads, truthful degraded-run status, Jetson-owned monitoring/reconciliation, live companion health, budget governance, and a unified manager surface.
 
@@ -82,7 +82,7 @@ the evidence-spine transition. Its controlled promotion to `main` is governed
 by [ADR-0005](adr/0005-production-branch-policy.md); every deploy must prove
 the exact branch and commit, and no branch policy changes execution authority.
 
-**Exit gate:** 10 consecutive trading days after deployment with no missed critical job, ambiguous fill, manual ledger repair, hidden failure, or unsafe client exposure; at least three genuine actionable proposals and one evaluator approval; every holding monitored despite quote failures; health, dashboard, logs, and reconciliation agree.
+**Exit gate:** five consecutive trading days after deployment with no missed critical job, ambiguous fill, manual ledger repair, hidden failure, or unsafe client exposure; at least three genuine actionable proposals and one evaluator approval; every holding monitored despite quote failures; health, dashboard, logs, and reconciliation agree. Five days establish supervised workflow readiness, not investment-performance proof or new trading authority.
 
 ---
 
@@ -154,7 +154,7 @@ Every promotion requires a written policy version, capital/risk caps, observatio
 
 Execute in this order:
 
-1. Start the 10-trading-day observation window on the next clean trading day; inspect fresh Jetson/companion logs and the scheduled parity report each day.
+1. Start the five-trading-day observation window on the next clean trading day; inspect fresh Jetson/companion logs and the scheduled parity report each day.
 2. Keep the MCP account-binding and exact read-only allowlists under regression watch; any failed receipt or ledger mismatch returns the system to human-supervised mode.
 3. Convert the Agent 2, Agent 3, and Agent 4 inputs into versioned mandate templates. Record ambiguities for Sam/his friend; do not invent investment rules. Keep Agents 2/3 supervised and static-watchlist-bound, and Agent 4 shadow-only.
 4. Finish Phase 1's `PortfolioDecision`/allocation contract, unified-compiler proof, ownership lineage, and manager UI before adding Agent 4 runtime behavior.
