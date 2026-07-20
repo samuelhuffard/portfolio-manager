@@ -259,6 +259,42 @@ throughput is still zero, remain in Phase 0, diagnose locally, make one declared
 research release, and restart only the research cohort unless safety behavior also
 changed.
 
+### Deferred plan: common post-close evidence snapshot and next-session recheck
+
+**Status: proposed for implementation only after the current Phase 0 window ·
+Label: SKILL, with S2 review required if critical-job cadence or observer coverage
+would change.** This plan extends the point-in-time research spine in
+[`ROADMAP-FORMIDABLE-FUND.md`](ROADMAP-FORMIDABLE-FUND.md#phase-1--build-the-point-in-time-scoring-record);
+it does not alter current live timing, authority, or the observation clock.
+
+1. Freeze one shared post-close evidence snapshot, initially targeted for roughly
+   **5:30–5:45 PM America/New_York**, after regular-session prices and the first
+   wave of after-hours filings/earnings reporting are available. Record source,
+   filing/as-of/retrieval timestamps and freshness for every fact.
+2. Derive all three mandate-specific slates from that identical snapshot. Their
+   discovery, evidence, generator, evaluator, risk, approval, signature, and
+   ledger workflow stays common; only mandate attention, horizon, and scoring
+   interpretation differ.
+3. Stagger the bounded agent passes after snapshot capture rather than making
+   competing live fetches simultaneously. Preserve equal per-agent capacity,
+   one run identity, deterministic ordering, and aggregate-safe receipts.
+4. Keep proposal generation and human review after close. On the next trading
+   day, add a **read-only 9:35–9:45 AM ET freshness recheck** before an already
+   human-approved execution: current quote, material overnight filing/news,
+   market status, and signed limits. A material change invalidates or sends the
+   proposal back to research; the recheck cannot create, upgrade, approve, sign,
+   or execute a trade.
+5. First run the cadence and recheck in local/shadow mode for at least ten
+   trading days. Compare source freshness, after-hours evidence capture,
+   provider/rate-limit errors, run duration, equal-agent coverage, evaluator
+   throughput, and proposal quality against the frozen current baseline.
+
+**Promotion gate:** only a declared, reviewed release may replace the current
+schedule. It must retain every Phase 0 receipt/observer requirement, prove no
+holding-monitoring coverage loss, preserve human approval and signed execution,
+and state whether the schedule change is R1-only or S2 due to critical-job
+semantics.
+
 ### Phase 1 — Freeze mandates, ownership, and decision contracts
 
 **Label: BOTH · Owner: Sam/investing partner for policy; primary reviewer for contracts**

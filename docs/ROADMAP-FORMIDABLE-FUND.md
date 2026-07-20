@@ -146,6 +146,26 @@ Work:
 
 **Exit gate:** one clean post-fix run with 36/36 attempts accounted for; zero fabricated unsupported figures; zero status rows treated as securities; no silently dropped output; budget and action counts agree across logs, Redis status, Sheets, and the dashboard.
 
+### Deferred cadence experiment — shared snapshot, staggered review, morning recheck
+
+**Status:** planned after the current Phase 0 window; local/shadow before any
+production timing change. This is the research-detail implementation of the
+master plan's [deferred cadence plan](portfolio-master-plan.md#deferred-plan-common-post-close-evidence-snapshot-and-next-session-recheck).
+
+- Capture one timestamped post-close evidence snapshot for all agents, with the
+  initial target after the main after-hours reporting window (roughly 5:30–5:45
+  PM ET). Do not compare or merge facts from different retrieval windows.
+- Build each mandate's attention slate from the same frozen facts, then stagger
+  bounded agent review to avoid provider contention while preserving equal
+  capacity and deterministic lineage.
+- Keep a next-session freshness check read-only and downgrade-only: it verifies
+  quote, material overnight evidence, market status, and signed limits around
+  9:35–9:45 AM ET. A material change invalidates/researches a proposal; it may
+  never originate, upgrade, approve, sign, or execute one.
+- Shadow-measure freshness, late filing/earnings capture, provider errors,
+  duration, coverage, evaluator throughput, and proposal quality for at least
+  ten trading days before a separately reviewed release.
+
 ---
 
 ### Phase 1 — Build the point-in-time scoring record
