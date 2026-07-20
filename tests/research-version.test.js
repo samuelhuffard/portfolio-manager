@@ -61,7 +61,7 @@ test("mandate metadata comes from explicit config files only", () => {
     mandateVersion: "3.0",
     canonicalSourcePath: "agent_mandates/Agent_One_Mandate_v3.md",
     targetUniversePolicyVersion: "eligible-us-operating-common-equities-v3",
-    productionUniversePolicyVersion: "catalog-technology-subverticals-v1",
+    productionUniversePolicyVersion: "agent-1-sector-agnostic-velocity-catalog-v1",
   });
   assert.equal(mandateVersionFor("agent-1"), "3.0");
   assert.throws(() => mandateMetadataFor("agent-9"), /Unknown mandate agentId/);

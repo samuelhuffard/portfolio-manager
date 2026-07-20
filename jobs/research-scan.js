@@ -7,7 +7,7 @@ import { fetchFundamentals, fetchFundamentalsBatch, fetchDailyBars, fetchQuotes,
 import { scoreCandidates } from "../lib/quant-scorer.js";
 import { rsi, atr, avgDailyDollarVolume, weeklyVolatility, classifySubVertical } from "../lib/indicators.js";
 import { evaluateDataGates } from "../lib/data-gates.js";
-import { screenUniverse } from "../lib/screener.js";
+import { screenCatalogForAgent } from "../lib/mandate-catalog-screen.js";
 import { assembleEntrySignals, assessConviction } from "../lib/conviction.js";
 import { tavilySearch } from "../lib/tavily.js";
 import { fetchRecentFilings } from "../lib/edgar.js";
@@ -38,18 +38,24 @@ import {
 } from "../lib/redis.js";
 import { sizeProposalAmount, hasOpenProposal, hasRecentProposal } from "../lib/proposal-sizing.js";
 import { syncMarketScansFromRobinhood } from "../lib/market-scan-sync.js";
-import { toScreenerCandidates } from "../lib/universe.js";
 import { buildSlate, formatSlateCounts } from "../lib/candidate-slate.js";
+import {
+  ATTENTION_POLICY_VERSIONS,
+  buildLiveResearchCandidateBus,
+  resolveAgentCatalogMode,
+} from "../lib/research-candidate-bus.js";
+import { allocateFairAgentRunCaps } from "../lib/research-capacity.js";
+import { projectAgentOwnedHoldings } from "../lib/research-holding-ownership.js";
+import { resolveSectorExposureKey } from "../lib/sector-exposure.js";
 import { readResearchLedger, applyResearchRecords, formatResearchHistoryForPrompt, summarizeResearchLedger } from "../lib/research-ledger.js";
 import { getAthenaConfig, createAthenaCircuit, fetchAthenaDossier, athenaDossierToEvidence } from "../lib/athena.js";
 import {
   getServiceAccountClients,
   resolveSharedSpreadsheetId,
   getSheetIds,
-  readHoldingsTickers,
   readCashBalance,
   readHoldingsAllocation,
-  readHoldingsReturnPct,
+  readAllLots,
   readMarketScans,
   readAgentStrategyNotes,
   appendAgentRecommendations,
@@ -87,6 +93,8 @@ function blankAgentScanSummary(agentId) {
     budgetExhaustions: 0,
     evaluatorRejects: 0,
     outcomeCounts: blankOutcomeCounts(),
+    discovery: null,
+    capacity: null,
     startedAt: new Date().toISOString(),
     completedAt: null,
     error: null,
@@ -354,6 +362,7 @@ async function buildCandidate(f, riskLimits, { now, threeMonthsAgo, oneMonthAgo,
 
   return {
     ...f,
+    sector: f.sector ?? f.raw?.assetProfile?.sector ?? null,
     subVertical: classifySubVertical(f),
     momentum3m: percentChange(closesSince(threeMonthsAgo)),
     momentum1m: percentChange(closesSince(oneMonthAgo)),
@@ -369,33 +378,35 @@ async function buildCandidate(f, riskLimits, { now, threeMonthsAgo, oneMonthAgo,
 
 /**
  * Portfolio-wide context shared by every ticker an agent reviews in one run:
- * benchmark entry price; current exposure by ticker/sub-vertical (% of invested
- * capital, for the v5 concentration cap — the risk engine still uses legacy
- * field names internally); macro backdrop (shared market fact — fetched/cached
+ * benchmark entry price; current exposure by ticker/broad sector (% of invested
+ * capital, with legacy sub-vertical only as a fallback when sector is absent);
+ * macro backdrop (shared market fact — fetched/cached
  * once globally, not per-agent); and the sizing/dedup context for auto-queueing
  * risk-gated BUY/SELL calls into the approval queue. openProposals and
  * availableCashForBuys are mutated as tickers queue within a run so a later
  * ticker (or the next agent's run) doesn't double-queue against a list fetched
  * before the run started.
  */
-async function buildAgentReviewContext(sheets, spreadsheetId, { candidates, riskLimits, benchmark }) {
+async function buildAgentReviewContext(sheets, spreadsheetId, { candidates, riskLimits, benchmark, heldAllocation = null }) {
   const spyQuote = await fetchQuotes([benchmark]);
   const spyEntryPrice = spyQuote[benchmark]?.regularMarketPrice ?? null;
 
-  const [heldAllocation, cashBalance] = await Promise.all([
-    readHoldingsAllocation(sheets, spreadsheetId),
+  const [resolvedHeldAllocation, cashBalance] = await Promise.all([
+    heldAllocation ? Promise.resolve(heldAllocation) : readHoldingsAllocation(sheets, spreadsheetId),
     readCashBalance(sheets, spreadsheetId),
   ]);
+  heldAllocation = resolvedHeldAllocation;
   const investedTotal = heldAllocation.reduce((sum, h) => sum + (h.marketValue ?? 0), 0);
   const tickerWeightPct = {};
-  const subVerticalWeightPct = {};
+  const sectorWeightPct = {};
   for (const h of heldAllocation) {
     if (!h.marketValue || !investedTotal) continue;
     const weightPct = (h.marketValue / investedTotal) * 100;
     tickerWeightPct[h.ticker] = weightPct;
-    const known = candidates.find((c) => c.ticker === h.ticker)?.subVertical;
-    const subVertical = known ?? classifySubVertical(await fetchFundamentals(h.ticker));
-    if (subVertical) subVerticalWeightPct[subVertical] = (subVerticalWeightPct[subVertical] ?? 0) + weightPct;
+    const known = candidates.find((c) => c.ticker === h.ticker);
+    const evidence = known ?? await fetchFundamentals(h.ticker);
+    const sector = resolveSectorExposureKey(evidence);
+    if (sector) sectorWeightPct[sector] = (sectorWeightPct[sector] ?? 0) + weightPct;
   }
 
   let macroSnapshot = await getCachedMacro();
@@ -419,7 +430,7 @@ async function buildAgentReviewContext(sheets, spreadsheetId, { candidates, risk
     spyEntryPrice,
     heldAllocation,
     tickerWeightPct,
-    subVerticalWeightPct,
+    sectorWeightPct,
     macroText,
     totalPortfolioValue,
     openProposals,
@@ -599,9 +610,10 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     console.error(`[Evidence] ${agent.id}: model flagged suspect evidence for ${c.ticker}: ${proposal.suspectEvidence.join("; ")}`);
   }
 
+  const sector = resolveSectorExposureKey(c);
   const riskContext = {
-    sector: c.subVertical,
-    currentSectorWeightPct: ctx.subVerticalWeightPct[c.subVertical] ?? 0,
+    sector,
+    currentSectorWeightPct: sector ? (ctx.sectorWeightPct[sector] ?? 0) : 0,
     currentPositionWeightPct: ctx.tickerWeightPct[c.ticker] ?? 0,
     // Friend's rule: never average down into a losing held position, and never let a
     // stale-data read slip past the AI overlay into a live proposal.
@@ -667,6 +679,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
           rsi14: c.rsi ?? null,
           avgDailyDollarVolume: c.avgDollarVolume ?? null,
           heldPositionWeightPct: ctx.tickerWeightPct[c.ticker] ?? 0,
+          sector,
           subVertical: c.subVertical ?? null,
         },
         newsBlock: safeNews.map((n) => `- ${n.title} (${n.url})\n  ${(n.content ?? "").slice(0, 300)}`).join("\n"),
@@ -793,7 +806,10 @@ async function reviewCandidateForAgent(agent, c, ctx) {
         totalPortfolioValue: ctx.totalPortfolioValue,
         // Actual position dollars — SELLs exit what's really held, and BUY
         // increments are computed against the same total-value denominator.
-        currentPositionValue: ctx.heldAllocation.find((h) => h.ticker === c.ticker)?.marketValue ?? 0,
+        currentPositionValue:
+          rec.action === "SELL"
+            ? ctx.ownedPositionValueByTicker[c.ticker] ?? 0
+            : ctx.heldAllocation.find((h) => h.ticker === c.ticker)?.marketValue ?? 0,
         cashAvailable: rec.action === "BUY" ? ctx.availableCashForBuys : undefined,
         limits: riskLimits,
       });
@@ -955,19 +971,32 @@ async function reviewCandidateForAgent(agent, c, ctx) {
 
 /**
  * Runs one agent's full scan (quant score -> AI overlay -> risk engine -> write) against
- * its own daily universe (catalog-sourced candidate slate, or seed watchlist for agents
- * without a mandate — see universe.json), but the SAME shared portfolio/spreadsheet as
+ * its own daily universe (the shared catalog through its mandate screen, or an
+ * explicit degraded seed-watchlist rollback), but the SAME shared portfolio/spreadsheet as
  * the other two agents —
  * so risk checks (sector/position-size limits) see real combined exposure across all
  * three agents, and one agent's proposal can be downgraded because of another agent's
  * existing position. One agent's failure doesn't block the others (see runResearchScan).
  */
-async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, { breaker, boundaryToken, budget, runId } = {}) {
+async function runResearchScanForAgent(
+  agent,
+  sheets,
+  spreadsheetId,
+  sheetIds,
+  { breaker, boundaryToken, budget, runId, candidateBus = null, runBudgetCapUsd = null, verifiedLots = [] } = {}
+) {
   const summary = blankAgentScanSummary(agent.id);
   breaker = breaker ?? { tier: "NONE", drawdownPct: 0 };
   boundaryToken = boundaryToken ?? makeBoundaryToken();
   const evidenceFlags = []; // injection-suspect evidence collected across the run, Telegramed once at the end
   const { watchlist, weights: weightsConfig, riskLimits, personality, universe: universeCfg } = loadAgentConfig(agent.id);
+  const catalogMode = resolveAgentCatalogMode(agent.id, universeCfg);
+  summary.capacity = {
+    allocationPolicyVersion: "equal-agent-run-cap-v1",
+    maxUsd: runBudgetCapUsd,
+    starting: budget?.snapshot?.() ?? null,
+    ending: null,
+  };
   const marketScans = await readMarketScans(sheets, spreadsheetId).catch((err) => {
     console.warn(`[Research] ${agent.id}: market scan context unavailable:`, err.message);
     return [];
@@ -975,11 +1004,17 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
 
   // Holdings + research ledger come first now: the candidate slate needs both
   // before the day's universe is even known (catalog-sourced agents).
-  const [holdingTickers, strategyNotes, heldReturnPct] = await Promise.all([
-    readHoldingsTickers(sheets, spreadsheetId),
+  const [accountHoldings, strategyNotes] = await Promise.all([
+    readHoldingsAllocation(sheets, spreadsheetId),
     readAgentStrategyNotes(sheets, spreadsheetId, agent.id),
-    readHoldingsReturnPct(sheets, spreadsheetId),
   ]);
+  const ownedHoldings = projectAgentOwnedHoldings({
+    agentId: agent.id,
+    lots: verifiedLots,
+    holdings: accountHoldings,
+  });
+  const holdingTickers = ownedHoldings.tickers;
+  const heldReturnPct = ownedHoldings.returnPctByTicker;
   const researchLedger = await readResearchLedger(agent.id);
 
   // For catalog agents the watchlist is no longer the universe — scan names only
@@ -987,30 +1022,43 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
   const scanTickers = selectMarketScanTickers(
     agent.id,
     marketScans,
-    universeCfg.source === "catalog" ? holdingTickers : watchlist.tickers
+    catalogMode.effectiveSource === "catalog" ? holdingTickers : watchlist.tickers
   );
 
   // Day's universe: catalog-sourced agents get a slate narrowed from the full
-  // philosophy-screened NYSE/NASDAQ catalog (LOOP-DESIGN funnel); watchlist
-  // agents (and any agent whose catalog is unavailable) keep the seed-list path.
+  // mandate-screened NYSE/NASDAQ catalog (LOOP-DESIGN funnel); explicit rollback
+  // or unavailable catalog data uses the visibly degraded seed-list path.
   let universeTickers;
   let explorationTickers = new Set();
-  if (universeCfg.source === "catalog") {
-    const catalog = await getUniverseCatalog();
-    const screenerCandidates = catalog ? toScreenerCandidates(catalog) : [];
-    const { passed: screened } = screenUniverse(screenerCandidates, riskLimits);
-    if (screened.length) {
+  if (catalogMode.effectiveSource === "catalog") {
+    const agentBus = candidateBus?.agents?.[agent.id] ?? null;
+    const screened = agentBus?.eligible ?? [];
+    if (agentBus && screened.length) {
       const { slate, counts } = buildSlate({
         screened,
         holdings: holdingTickers,
         scanTickers,
         ledger: researchLedger,
-        config: universeCfg,
+        config: { ...universeCfg, agentId: agent.id },
       });
       universeTickers = slate.map((s) => s.ticker);
       explorationTickers = new Set(slate.filter((s) => s.bucket === "exploration").map((s) => s.ticker));
+      summary.discovery = {
+        status: "complete",
+        source: "catalog",
+        degraded: false,
+        reasonCode: null,
+        candidateBusVersion: candidateBus.contractVersion,
+        catalogSnapshotId: candidateBus.catalogSnapshotId,
+        screenPolicyVersion: agentBus.screenPolicyVersion,
+        attentionPolicyVersion: agentBus.attentionPolicyVersion,
+        visible: agentBus.visibleCount,
+        eligible: agentBus.eligibleCount,
+        screenedOut: agentBus.rejectedCount,
+        counts,
+      };
       console.log(
-        `[Research] ${agent.id}: slate = ${formatSlateCounts(counts)}; catalog ${screened.length} screened / ${screenerCandidates.length} sector-enriched / ${catalog ? Object.keys(catalog).length : 0} cataloged.`
+        `[Research] ${agent.id}: slate = ${formatSlateCounts(counts)}; catalog ${agentBus.eligibleCount} eligible / ${agentBus.visibleCount} visible / ${candidateBus.census.listed} listed (${candidateBus.catalogSnapshotId}).`
       );
       // Phase 1 funnel observability (AUTONOMY-ROADMAP): persist the day's slate
       // composition + research-ledger coverage so /health can show the funnel
@@ -1018,36 +1066,95 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
       // the snapshot surfaces on the unauthenticated /health route.
       await setSlateSnapshot(agent.id, {
         date: new Date().toISOString().slice(0, 10),
+        status: "complete",
+        degraded: false,
+        reasonCode: null,
         source: "catalog",
+        candidateBusVersion: candidateBus.contractVersion,
+        catalogSnapshotId: candidateBus.catalogSnapshotId,
+        screenPolicyVersion: agentBus.screenPolicyVersion,
+        attentionPolicyVersion: agentBus.attentionPolicyVersion,
         counts,
-        screened: screened.length,
-        sectorEnriched: screenerCandidates.length,
-        cataloged: catalog ? Object.keys(catalog).length : 0,
+        screened: agentBus.eligibleCount,
+        screenedOut: agentBus.rejectedCount,
+        sectorEnriched: candidateBus.census.classified,
+        cataloged: candidateBus.census.listed,
+        census: candidateBus.census,
         aiReviewBudget: universeCfg.aiReviewBudget ?? 12,
         ledger: summarizeResearchLedger(researchLedger),
       });
     } else {
-      // The scan must never starve to zero, but a missing catalog is a broken
-      // discovery funnel — scream so it can't quietly regress to the static list.
+      const reasonCode = agentBus ? "catalog_screen_empty" : "catalog_unavailable";
+      // A missing/torn catalog may use the seed list, but it must remain
+      // explicitly degraded. An intact catalog whose mandate screen produces no
+      // eligible names fails closed instead of bypassing that screen.
       console.error(
-        `[Research] ${agent.id}: universe catalog empty or unavailable — FALLING BACK to seed watchlist (${watchlist.tickers.length} names). Check jobs/universe-refresh.js.`
+        `[Research] ${agent.id}: ${reasonCode}${agentBus ? " — no non-holding candidate is eligible; failing closed." : ` — FALLING BACK to seed watchlist (${watchlist.tickers.length} names). Check jobs/universe-refresh.js.`}`
       );
-      universeTickers = [...new Set([...watchlist.tickers, ...scanTickers])];
+      universeTickers = agentBus
+        ? [...new Set(holdingTickers)]
+        : [...new Set([...holdingTickers, ...watchlist.tickers, ...scanTickers])];
+      summary.discovery = {
+        status: "degraded",
+        source: agentBus ? "catalog" : "watchlist-fallback",
+        degraded: true,
+        reasonCode,
+        candidateBusVersion: candidateBus?.contractVersion ?? null,
+        catalogSnapshotId: candidateBus?.catalogSnapshotId ?? null,
+        screenPolicyVersion: agentBus?.screenPolicyVersion ?? null,
+        attentionPolicyVersion: agentBus?.attentionPolicyVersion ?? ATTENTION_POLICY_VERSIONS[agent.id],
+        visible: agentBus?.visibleCount ?? 0,
+        eligible: agentBus?.eligibleCount ?? 0,
+        screenedOut: agentBus?.rejectedCount ?? 0,
+        counts: { holdings: holdingTickers.length, movers: 0, ranked: 0, exploration: 0 },
+      };
       await setSlateSnapshot(agent.id, {
         date: new Date().toISOString().slice(0, 10),
-        source: "watchlist-fallback", // catalog unavailable — the funnel is broken, make that visible
-        counts: null,
-        screened: 0,
-        sectorEnriched: 0,
-        cataloged: 0,
+        status: "degraded",
+        degraded: true,
+        reasonCode,
+        source: agentBus ? "catalog" : "watchlist-fallback",
+        candidateBusVersion: candidateBus?.contractVersion ?? null,
+        catalogSnapshotId: candidateBus?.catalogSnapshotId ?? null,
+        screenPolicyVersion: agentBus?.screenPolicyVersion ?? null,
+        attentionPolicyVersion: agentBus?.attentionPolicyVersion ?? ATTENTION_POLICY_VERSIONS[agent.id],
+        counts: summary.discovery.counts,
+        screened: agentBus?.eligibleCount ?? 0,
+        screenedOut: agentBus?.rejectedCount ?? 0,
+        sectorEnriched: candidateBus?.census?.classified ?? 0,
+        cataloged: candidateBus?.census?.listed ?? 0,
+        census: candidateBus?.census ?? null,
         aiReviewBudget: universeCfg.aiReviewBudget ?? 12,
         ledger: summarizeResearchLedger(researchLedger),
       });
     }
   } else {
-    universeTickers = [...new Set([...watchlist.tickers, ...scanTickers])];
+    // A rollback changes discovery input, never holding-monitor obligations.
+    universeTickers = [...new Set([...holdingTickers, ...watchlist.tickers, ...scanTickers])];
+    summary.discovery = {
+      status: catalogMode.degraded ? "degraded" : "legacy",
+      source: catalogMode.degraded ? "watchlist-rollback" : "watchlist",
+      degraded: catalogMode.degraded,
+      reasonCode: catalogMode.reasonCode,
+      candidateBusVersion: candidateBus?.contractVersion ?? null,
+      catalogSnapshotId: candidateBus?.catalogSnapshotId ?? null,
+      screenPolicyVersion: candidateBus?.agents?.[agent.id]?.screenPolicyVersion ?? null,
+      attentionPolicyVersion: ATTENTION_POLICY_VERSIONS[agent.id],
+      visible: candidateBus?.agents?.[agent.id]?.visibleCount ?? 0,
+      eligible: 0,
+      screenedOut: 0,
+      counts: null,
+    };
+    await setSlateSnapshot(agent.id, {
+      date: new Date().toISOString().slice(0, 10),
+      ...summary.discovery,
+      cataloged: candidateBus?.census?.listed ?? 0,
+      census: candidateBus?.census ?? null,
+      aiReviewBudget: universeCfg.aiReviewBudget ?? 12,
+      ledger: summarizeResearchLedger(researchLedger),
+    });
     console.log(
-      `[Research] ${agent.id}: scanning ${universeTickers.length} tickers (${watchlist.tickers.length} watchlist + ${scanTickers.length} Robinhood scan).`
+      `[Research] ${agent.id}: explicit ${summary.discovery.source} mode — scanning ${universeTickers.length} tickers (${watchlist.tickers.length} seed + ${scanTickers.length} Robinhood scan).`
     );
   }
 
@@ -1064,17 +1171,24 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
     candidates.push(await buildCandidate(f, riskLimits, dateWindow));
   }
 
-  // Universe screen (agent-1's memo-specific mandate): drop names outside the SaaS/Semis
-  // sub-verticals + market-cap band + micro-cap liquidity floor before scoring, so quant
-  // normalization only ranks eligible names. Other agents keep their own universes for now.
-  let eligible = candidates;
-  if (agent.id === "agent-1") {
-    const { passed, rejected } = screenUniverse(candidates, riskLimits);
-    for (const r of rejected) console.log(`[Research] ${agent.id}: screened out ${r.ticker} — ${r.reason}`);
-    eligible = passed;
-    if (candidates.length > 0 && passed.length === 0) {
-      console.error(`[Research] ${agent.id}: universe screen rejected every candidate — failing closed with zero eligible names.`);
-    }
+  // Re-apply the same mandate screen to fresh fundamentals/price candidates.
+  // Held names are mandatory monitoring overrides, never entry eligibility.
+  const { passed, rejected } = screenCatalogForAgent(agent.id, candidates, riskLimits);
+  for (const rejection of rejected) {
+    console.log(`[Research] ${agent.id}: screened out ${rejection.ticker} — ${rejection.reason}`);
+  }
+  const passedTickers = new Set(passed.map((candidate) => candidate.ticker));
+  const mandatoryHoldings = candidates.filter(
+    (candidate) => holdingTickers.includes(candidate.ticker) && !passedTickers.has(candidate.ticker)
+  );
+  const eligible = [...passed, ...mandatoryHoldings];
+  if (mandatoryHoldings.length) {
+    console.warn(
+      `[Research] ${agent.id}: ${mandatoryHoldings.length} attributed holding(s) bypassed discovery eligibility for mandatory monitoring only.`
+    );
+  }
+  if (candidates.length > 0 && eligible.length === 0) {
+    console.error(`[Research] ${agent.id}: mandate screen rejected every candidate — failing closed with zero eligible names.`);
   }
 
   const scored = scoreCandidates(eligible, weightsConfig.quant_weights);
@@ -1111,6 +1225,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
     candidates,
     riskLimits,
     benchmark: watchlist.benchmark,
+    heldAllocation: accountHoldings,
   });
 
   const ctx = {
@@ -1121,6 +1236,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
     persistentMemory,
     marketScans,
     holdingTickers,
+    ownedPositionValueByTicker: ownedHoldings.positionValueByTicker,
     heldReturnPct,
     researchLedger,
     breaker,
@@ -1208,7 +1324,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
   // Capture the actual completed live-review selection, not the wider candidate
   // slate built before fundamentals, screening, scoring, and the AI budget. This
   // occurs only after both recommendation and research-ledger persistence pass.
-  if (universeCfg.source === "catalog") {
+  if (catalogMode.requestedSource === "catalog") {
     await setPrivateResearchSlate(agent.id, [...toReview.keys()].map((ticker) => ({
       ticker,
       bucket: reviewBuckets.get(ticker),
@@ -1227,6 +1343,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
   } else if (evidenceFlags.length) {
     console.warn(`[Evidence] ${agent.id}: ${evidenceFlags.length} low-severity evidence flag(s) logged without Telegram: ${summarizeEvidenceFlags(evidenceFlags)}`);
   }
+  summary.capacity.ending = budget?.snapshot?.() ?? null;
   summary.completedAt = new Date().toISOString();
   return summary;
 }
@@ -1291,18 +1408,21 @@ async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = 
   try {
     // Refresh the shared Market Scans tab from Robinhood before any agent reads it, so
     // scanTickers (see selectMarketScanTickers above) can include names outside each
-    // agent's static watchlist. Never blocks the scan — a failure here just leaves
-    // agents scanning their watchlists only, same as before this existed.
+    // agent's seed watchlist. Never blocks the scan — a failure here just removes
+    // supplemental broker-scan movers from that day's research.
     try {
       const count = await syncMarketScansFromRobinhood();
       console.log(`[Research] Market scan refresh: ${count} row(s) from Robinhood.`);
     } catch (err) {
-      console.warn("[Research] Market scan refresh failed — continuing with watchlists only:", err.message);
+      console.warn("[Research] Market scan refresh failed — continuing without supplemental movers:", err.message);
     }
 
     const { sheets, drive } = getServiceAccountClients();
     const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
     const sheetIds = await getSheetIds(sheets, spreadsheetId);
+    // Verified operational-ledger read. A signature failure stops the scan
+    // before any agent can infer ownership or size a SELL from untrusted lots.
+    const verifiedLots = await readAllLots(sheets, spreadsheetId);
 
     // System-wide gates computed ONCE per run, before any agent: the drawdown
     // circuit breaker (restricts what any agent may queue) and the per-run
@@ -1310,15 +1430,60 @@ async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = 
     const breaker = await resolveCircuitBreaker(sheets, spreadsheetId);
     const boundaryToken = makeBoundaryToken();
     const monthlyBudget = createAnthropicMonthlyBudget();
-    const budget = createResearchRunBudget({
-      monthlyBudget,
-      onWarning: ({ reservedUsd, maxUsd }) => sendTelegram(`⚠️ Research API budget is ${Math.round((reservedUsd / maxUsd) * 100)}% reserved ($${reservedUsd.toFixed(2)} of $${maxUsd.toFixed(2)}).`).catch((err) => console.error("[Research] Budget warning Telegram failed:", err.message)),
-    });
-
     const activeAgents = AGENTS.filter((a) => agentIds.includes(a.id));
+    const catalog = await getUniverseCatalog();
+    let candidateBus = null;
+    if (catalog && Object.keys(catalog).length) {
+      try {
+        candidateBus = buildLiveResearchCandidateBus({
+          catalog,
+          agentConfigs: Object.fromEntries(
+            activeAgents.map((agent) => {
+              const config = loadAgentConfig(agent.id);
+              return [agent.id, { riskLimits: config.riskLimits, universe: config.universe }];
+            })
+          ),
+        });
+      } catch (error) {
+        console.error(`[Research] shared candidate bus failed closed: ${error.message}`);
+      }
+    } else {
+      console.error("[Research] shared candidate bus unavailable: universe catalog is empty or unreadable.");
+    }
+
+    const totalRunMaxUsd = Number(process.env.RESEARCH_RUN_MAX_USD);
+    const fairCaps = allocateFairAgentRunCaps(
+      activeAgents.map((agent) => agent.id),
+      Number.isFinite(totalRunMaxUsd) && totalRunMaxUsd > 0 ? totalRunMaxUsd : 3
+    );
+    const agentBudgets = new Map(
+      activeAgents.map((agent) => {
+        const cap = fairCaps[agent.id];
+        return [
+          agent.id,
+          createResearchRunBudget({
+            env: { ...process.env, RESEARCH_RUN_MAX_USD: String(cap) },
+            monthlyBudget,
+            onWarning: ({ reservedUsd, maxUsd }) =>
+              sendTelegram(
+                `⚠️ Research API budget for ${agent.id} is ${Math.round((reservedUsd / maxUsd) * 100)}% reserved ($${reservedUsd.toFixed(2)} of $${maxUsd.toFixed(2)}).`
+              ).catch((err) => console.error("[Research] Budget warning Telegram failed:", err.message)),
+          }),
+        ];
+      })
+    );
+
     for (const agent of activeAgents) {
       try {
-        const summary = await runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, { breaker, boundaryToken, budget, runId });
+        const summary = await runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
+          breaker,
+          boundaryToken,
+          budget: agentBudgets.get(agent.id),
+          runId,
+          candidateBus,
+          runBudgetCapUsd: fairCaps[agent.id],
+          verifiedLots,
+        });
         agentSummaries.push(summary);
       } catch (err) {
         console.error(`[Research] ${agent.id} failed:`, err.message);
@@ -1382,11 +1547,14 @@ async function researchTickerForAgentUnlocked(agentId, ticker) {
     console.warn(`[Research] ${agent.id}: market scan context unavailable:`, err.message);
     return [];
   });
-  const [holdingTickers, strategyNotes, heldReturnPct] = await Promise.all([
-    readHoldingsTickers(sheets, spreadsheetId),
+  const [accountHoldings, verifiedLots, strategyNotes] = await Promise.all([
+    readHoldingsAllocation(sheets, spreadsheetId),
+    readAllLots(sheets, spreadsheetId),
     readAgentStrategyNotes(sheets, spreadsheetId, agent.id),
-    readHoldingsReturnPct(sheets, spreadsheetId),
   ]);
+  const ownedHoldings = projectAgentOwnedHoldings({ agentId: agent.id, lots: verifiedLots, holdings: accountHoldings });
+  const holdingTickers = ownedHoldings.tickers;
+  const heldReturnPct = ownedHoldings.returnPctByTicker;
   const researchLedger = await readResearchLedger(agent.id);
 
   const [fundamentals] = await fetchFundamentalsBatch([symbol]);
@@ -1395,12 +1563,11 @@ async function researchTickerForAgentUnlocked(agentId, ticker) {
   }
   const candidateRaw = await buildCandidate(fundamentals, riskLimits, makeDateWindow());
 
-  // Lab is an alternate entry point, not an escape hatch from Agent One's
-  // mandate. Out-of-universe names can still use the general research tools,
-  // but this agent-specific path must stop before proposal generation.
-  if (agent.id === "agent-1") {
-    const { rejected } = screenUniverse([candidateRaw], riskLimits);
-    if (rejected.length) {
+  // Lab is an alternate entry point, not an escape hatch from any mandate.
+  // This agent-specific path stops before proposal generation on screen failure.
+  {
+    const { rejected } = screenCatalogForAgent(agent.id, [candidateRaw], riskLimits);
+    if (rejected.length && !holdingTickers.includes(symbol)) {
       const reason = rejected.map((r) => r.reason).join("; ");
       console.log(`[Research] ${agent.id}: NO_TRADE ${symbol} — ${reason}`);
       return {
@@ -1442,6 +1609,7 @@ async function researchTickerForAgentUnlocked(agentId, ticker) {
     candidates: [candidate],
     riskLimits,
     benchmark: watchlist.benchmark,
+    heldAllocation: accountHoldings,
   });
 
   const ctx = {
@@ -1452,6 +1620,7 @@ async function researchTickerForAgentUnlocked(agentId, ticker) {
     persistentMemory,
     marketScans,
     holdingTickers,
+    ownedPositionValueByTicker: ownedHoldings.positionValueByTicker,
     heldReturnPct,
     researchLedger,
     breaker,

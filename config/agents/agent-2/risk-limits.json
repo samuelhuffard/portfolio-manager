@@ -2,6 +2,7 @@
   "description": "Deterministic limits for the Agent Two v3 medium-term momentum mandate. The prompt may recommend less risk, never more; the engine enforces these caps before a human approval queue is created.",
   "maxPositionPct": 12,
   "maxSectorPct": 60,
+  "minCashReservePct": 5,
   "minMarketCap": 300000000,
   "minAvgDollarVolume": 10000000,
   "ordinarySellCooldownDays": 7,

@@ -29,19 +29,21 @@
    Do instead: persist aggregate `held = monitored + explicitly degraded` evidence with zero silent skips; make malformed, failed, or missing coverage block the TRUST day.
 
 ## Domain Behavior Guardrails
-1. **[2026-07-11] Unattributed lots are quarantined until explicitly resolved**
+1. **[2026-07-20] Research holdings must come from verified strategy ownership**
+   Do instead: reconcile aggregate Holdings shares to the signed open-lot book, quarantine unattributed lots, and size or review a SELL only from the proposing agent's owned lot value; allow only documented Sheet-rounding residue.
+2. **[2026-07-11] Unattributed lots are quarantined until explicitly resolved**
    Do instead: require a signed, auditable assignment or manual/reconciled exit policy before a strategy may consume a legacy `unattributed` lot; never silently use it as ownership top-up.
-2. **[2026-07-11] Strategy ownership governs exits**
+3. **[2026-07-11] Strategy ownership governs exits**
    Do instead: record the originating agent on every BUY lot; permit a SELL proposal only from that agent, while Agent 4 may accept/reject the exact proposal but cannot create or force an exit.
-3. **[2026-07-11] Agent 4 is a bounded portfolio manager**
+4. **[2026-07-11] Agent 4 is a bounded portfolio manager**
    Do instead: use versioned, explainable performance/holding/macro inputs with hard allocation limits; keep Agent 4 unable to originate or mutate trades until its shadow evidence earns promotion.
-4. **[2026-06-18] Backend is read-only with Robinhood**
+5. **[2026-06-18] Backend is read-only with Robinhood**
    Do instead: keep `robinhood-sync.py` limited to holdings/cash reads and search for `rh.order_` before Robinhood-related changes.
-5. **[2026-06-18] Contributions record confirmed transfers only**
+6. **[2026-06-18] Contributions record confirmed transfers only**
    Do instead: keep `record-contribution.js` as accounting for money already received/sent, never as a money-movement command.
-6. **[2026-06-29] Pending proposals are competing alternatives**
+7. **[2026-06-29] Pending proposals are competing alternatives**
    Do instead: let all agents create pending proposals against the shared cash pool; only accepted, unfilled BUY proposals reserve cash.
-7. **[2026-06-29] Backend reads durable agent memories**
+8. **[2026-06-29] Backend reads durable agent memories**
    Do instead: pull global `pm:agent-memory:<agentId>:global` memories into `research-scan.js` so proposal generation reflects Sam's durable feedback.
 8. **[2026-07-20] Canonical specialist policy is the sector-agnostic v3 family**
    Do instead: treat `agent_mandates/Agent_{One,Two,Three}_Mandate_v3.md` as binding; do not restore Agent One's stale technology-only v5 prompt, plan, cash posture, or sub-vertical limits.

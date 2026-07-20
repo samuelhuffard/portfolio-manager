@@ -143,7 +143,7 @@ test("Agent 1 adapter emits a schema-valid partial observation with canonical id
   assert.equal(observation.mandateId, "agent_one");
   assert.equal(observation.mandateVersion, "3.0");
   assert.equal(observation.mandateUniverseVersion, "eligible-us-operating-common-equities-v3");
-  assert.equal(observation.productionUniversePolicyVersion, "catalog-technology-subverticals-v1");
+  assert.equal(observation.productionUniversePolicyVersion, "agent-1-sector-agnostic-velocity-catalog-v1");
   assert.equal(observation.scoringConfigVersion, agentOneScoringConfigVersion());
   assert.equal(observation.peerSetId, peerSetId({ level: "none", key: "absolute", tickers: ["BBB"], asOf: EARLIER }));
   assert.match(observation.id, /^[0-9a-f]{64}$/);

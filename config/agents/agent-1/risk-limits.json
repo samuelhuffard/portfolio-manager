@@ -1,8 +1,9 @@
 {
-  "description": "Deterministic limits for the authoritative Agent One v3 sector-agnostic short-term mandate. The shared mandate-policy interface enforces its conditional liquidity, macro, technical, score, holding-lifecycle, and no-average-down rules before the common supervised proposal path.",
+  "description": "Deterministic live risk limits for the canonical Agent One v3 sector-agnostic mandate. The research scan enforces these position, sector, liquidity, cash-reserve, evidence, and no-average-down constraints; the shared mandate-policy module separately defines additional macro, scoring, and holding-lifecycle rules for explicit live binding.",
   "maxPositionPct": 15,
   "minPositionPct": 2,
   "maxSectorPct": 75,
+  "rebalanceFlagPct": 18,
   "minCashReservePct": 5,
   "percentageSizingMinPortfolioValue": 500,
   "starterPortfolioMaxPositions": 2,

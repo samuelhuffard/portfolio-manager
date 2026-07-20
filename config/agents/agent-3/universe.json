@@ -1,8 +1,9 @@
 {
-  "description": "Universe discovery settings. source=watchlist keeps this agent on its static watchlist.json until it has a real mandate/philosophy to screen the full catalog with — flip source to catalog then.",
-  "source": "watchlist",
+  "description": "Agent Three consumes the shared live NYSE/NASDAQ catalog through its own deterministic liquidity screen and long-horizon attention policy. watchlist.json is seed/fallback only. Set AGENT_3_CATALOG_ROLLBACK=true for an explicit per-agent rollback receipt.",
+  "source": "catalog",
+  "catalogRollbackEnv": "AGENT_3_CATALOG_ROLLBACK",
   "slateSize": 20,
   "aiReviewBudget": 12,
   "researchCooldownDays": 14,
-  "explorationSlots": 0
+  "explorationSlots": 3
 }

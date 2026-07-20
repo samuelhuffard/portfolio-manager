@@ -16,6 +16,8 @@ const NASDAQ_FIXTURE = [
   "ZTEST|Test Issue Co|Q|Y|N|100|N|N",
   "QQQ|Invesco QQQ Trust|G|N|N|100|Y|N",
   "ACMEW|Acme Corp - Warrant|Q|N|N|100|N|N",
+  "SPAC|Future Acquisition Corp - Common Stock|Q|N|N|100|N|N",
+  "BDC|Capital Business Development Company - Common Stock|Q|N|N|100|N|N",
   "DLNQ|Delinquent Corp - Common Stock|Q|N|D|100|N|N",
   "GOOD|Good Software Inc. - Common Stock|Q|N|N|100|N|N",
   "File Creation Time: 0705202519:30|||||||",
@@ -28,19 +30,21 @@ const OTHER_FIXTURE = [
   "ABC$B|Some Preferred Series B|N|ABC$B|N|100|N|ABC-B",
   "TSM|Taiwan Semiconductor Manufacturing Company Ltd. American Depositary Shares|N|TSM|N|100|N|TSM",
   "SMLL|Small Cap Industries Common Stock|A|SMLL|N|100|N|SMLL",
+  "MLP|Pipeline Partners L.P. Common Units|N|MLP|N|100|N|MLP",
+  "REIT|Durable Realty Trust Common Stock|N|REIT|N|100|N|REIT",
   "BATS|Bats Listed Co|Z|BATS|N|100|N|BATS",
   "File Creation Time: 0705202519:30|||||||",
 ].join("\n");
 
-test("parseNasdaqListed keeps common stock, drops test issues, ETFs, warrants, delinquent", () => {
+test("parseNasdaqListed keeps operating common stock, drops test issues, ETFs, warrants, SPACs, BDCs, delinquent", () => {
   const rows = parseNasdaqListed(NASDAQ_FIXTURE);
   assert.deepEqual(rows.map((r) => r.ticker).sort(), ["AAPL", "GOOD"]);
   assert.equal(rows[0].exchange, "NASDAQ");
 });
 
-test("parseOtherListed keeps NYSE/NYSE-American common stock, drops ETFs, preferreds, ADRs, other venues", () => {
+test("parseOtherListed keeps NYSE/NYSE-American operating common stock and REITs, drops ETFs, preferreds, ADRs, MLPs, other venues", () => {
   const rows = parseOtherListed(OTHER_FIXTURE);
-  assert.deepEqual(rows.map((r) => r.ticker).sort(), ["IBM", "SMLL"]);
+  assert.deepEqual(rows.map((r) => r.ticker).sort(), ["IBM", "REIT", "SMLL"]);
   assert.equal(rows.every((r) => r.exchange === "NYSE"), true);
 });
 
@@ -92,15 +96,17 @@ test("selectEnrichmentBatch prioritizes never-enriched (largest first), then sta
   assert.deepEqual(selectEnrichmentBatch(catalog, { perRun: 3, now }), ["BIGN", "SMLN", "STAL"]);
 });
 
-test("toScreenerCandidates only exposes sector-enriched entries, in screener shape", () => {
+test("toScreenerCandidates exposes one shared fact row per listing without requiring sector enrichment", () => {
   const catalog = {
     GOOD: { t: "GOOD", n: "Good", s: "Technology", i: "Software - Application", v: "Software/SaaS", mc: 2e9, advd: 5e6, p: 10, c52: 42, ea: "2026-07-01" },
     UNKW: { t: "UNKW", n: "Unknown" },
   };
   const candidates = toScreenerCandidates(catalog);
-  assert.equal(candidates.length, 1);
+  assert.equal(candidates.length, 2);
   assert.equal(candidates[0].ticker, "GOOD");
   assert.equal(candidates[0].subVertical, "Software/SaaS");
   assert.equal(candidates[0].avgDollarVolume, 5e6);
   assert.equal(candidates[0].fiftyTwoWeekChangePct, 42);
+  assert.equal(candidates[1].ticker, "UNKW");
+  assert.equal(candidates[1].marketCap, null);
 });

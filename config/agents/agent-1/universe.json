@@ -1,6 +1,7 @@
 {
-  "description": "Universe discovery settings for the research scan's candidate slate (lib/candidate-slate.js). source=catalog draws from the full NYSE/NASDAQ tech catalog maintained by jobs/universe-refresh.js, philosophy-screened by lib/screener.js; watchlist.json becomes the seed/fallback used only when the catalog is unavailable. aiReviewBudget is the hard daily cap on expensive AI overlay reviews (cost guardrail).",
+  "description": "Agent One consumes the shared live NYSE/NASDAQ operating-common-equity catalog through its sector-agnostic v3 liquidity screen and short-clock attention policy. watchlist.json is seed/fallback only. Set AGENT_1_CATALOG_ROLLBACK=true for an explicit per-agent rollback receipt.",
   "source": "catalog",
+  "catalogRollbackEnv": "AGENT_1_CATALOG_ROLLBACK",
   "slateSize": 20,
   "aiReviewBudget": 12,
   "researchCooldownDays": 14,

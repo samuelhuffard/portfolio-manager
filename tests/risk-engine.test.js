@@ -51,7 +51,7 @@ test("downgrades a BUY missing its bear case", () => {
   assert.equal(r.ruleChecks.has_bear_case, false);
 });
 
-test("downgrades when sub-vertical exposure would breach 75%", () => {
+test("downgrades when broad-sector exposure would breach 75%", () => {
   const r = applyRiskChecks(goodBuy, { sector: "Technology", currentSectorWeightPct: 70, currentPositionWeightPct: 0 }, LIMITS);
   assert.equal(r.action, "HOLD");
   assert.equal(r.ruleChecks.sector_ok, false);

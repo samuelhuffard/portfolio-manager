@@ -76,6 +76,30 @@ test("caps a BUY by currently available idle cash", () => {
   assert.deepEqual(result, { amountDollars: 750, clamped: false, cashClamped: true });
 });
 
+test("ordinary BUY sizing preserves the mandate's minimum cash reserve", () => {
+  const result = sizeProposalAmount({
+    action: "BUY",
+    targetWeightPct: 10,
+    totalPortfolioValue: 10000,
+    cashAvailable: 900,
+    limits: { minCashReservePct: 5 },
+  });
+  assert.deepEqual(result, { amountDollars: 400, clamped: false, cashClamped: true });
+});
+
+test("BUY sizing fails closed when available cash is already at the required reserve", () => {
+  assert.equal(
+    sizeProposalAmount({
+      action: "BUY",
+      targetWeightPct: 10,
+      totalPortfolioValue: 10000,
+      cashAvailable: 500,
+      limits: { minCashReservePct: 5 },
+    }),
+    null
+  );
+});
+
 test("returns null for a BUY when open proposals reserve all idle cash", () => {
   assert.equal(sizeProposalAmount({ action: "BUY", targetWeightPct: 5, totalPortfolioValue: 10000, cashAvailable: 0 }), null);
 });
