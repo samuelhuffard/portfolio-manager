@@ -43,3 +43,5 @@
    Do instead: let all agents create pending proposals against the shared cash pool; only accepted, unfilled BUY proposals reserve cash.
 7. **[2026-06-29] Backend reads durable agent memories**
    Do instead: pull global `pm:agent-memory:<agentId>:global` memories into `research-scan.js` so proposal generation reflects Sam's durable feedback.
+8. **[2026-07-20] Canonical specialist policy is the sector-agnostic v3 family**
+   Do instead: treat `agent_mandates/Agent_{One,Two,Three}_Mandate_v3.md` as binding; do not restore Agent One's stale technology-only v5 prompt, plan, cash posture, or sub-vertical limits.

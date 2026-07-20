@@ -1,27 +1,19 @@
 {
-  "description": "Deterministic risk-engine limits enforced on every AI recommendation before it's written to the Sheet — the AI proposes, this engine decides admissibility. Agent One values follow Agent One Strategy Memorandum v5 (see AGENT-ONE-PLAN.md). Edit here to change risk posture; see weights.json for quant scoring weights.",
-  "allowedSubVerticals": [
-    "Software/SaaS",
-    "Semiconductors",
-    "Tech Infrastructure",
-    "Tech Hardware",
-    "Tech-Adjacent High-Growth"
-  ],
+  "description": "Deterministic limits for the authoritative Agent One v3 sector-agnostic short-term mandate. The shared mandate-policy interface enforces its conditional liquidity, macro, technical, score, holding-lifecycle, and no-average-down rules before the common supervised proposal path.",
   "maxPositionPct": 15,
   "minPositionPct": 2,
-  "maxSubVerticalPct": 75,
   "maxSectorPct": 75,
-  "rebalanceFlagPct": 18,
-  "minCashReservePct": 0,
-  "maxCashReservePct": 0,
+  "minCashReservePct": 5,
   "percentageSizingMinPortfolioValue": 500,
   "starterPortfolioMaxPositions": 2,
-  "starterPortfolioCashReservePct": 0,
+  "starterPortfolioCashReservePct": 5,
   "ordinarySellCooldownDays": 7,
+  "microCapCeiling": 300000000,
   "microCapMinAvgDollarVolume": 3000000,
+  "nonMicroCapMinAvgDollarVolume": 10000000,
+  "minEntryRelativeVolume": 1.2,
   "minConfidence": 0.4,
   "requireBearCase": true,
   "prohibitAveragingDown": true,
-  "prohibitLossToHold": true,
   "blockOnStaleData": true
 }

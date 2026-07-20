@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { assembleMandateInputs, BOUND_METRICS, UNBOUND_METRICS } from "../lib/mandate-evidence.js";
+import {
+  assembleMandateInputs,
+  BOUND_METRICS,
+  BOUND_METRICS_BY_AGENT,
+  UNBOUND_METRICS,
+} from "../lib/mandate-evidence.js";
 import { scoreCohortForAgent } from "../jobs/mandate-scoring.js";
 
 // A representative EDGAR `_derived` bundle (fractions, as lib/edgar-metrics.js emits).
@@ -44,9 +49,19 @@ test("missing acceleration (too few quarters) leaves the field null, not zero", 
   assert.equal(out.absoluteEvidence.revGrowth.accelerationPoints, null);
 });
 
-test("special sectors and non-agent-1 mandates fail closed (supported:false)", () => {
+test("special sectors and unknown mandates fail closed while Agent 2/3 adapters stay honest and partial", () => {
   assert.equal(assembleMandateInputs({ agentId: "agent-1", metrics, derived, sector: "banks" }).supported, false);
-  assert.equal(assembleMandateInputs({ agentId: "agent-2", metrics, derived, sector: null }).supported, false);
+  const medium = assembleMandateInputs({ agentId: "agent-2", metrics, derived, sector: null });
+  assert.equal(medium.supported, true);
+  assert.equal(medium.absoluteEvidence.revGrowth.currentGrowthPct, 22);
+  assert.equal(medium.absoluteEvidence.revGrowth.positiveQuartersInLatestFour, null);
+  assert.deepEqual(medium.boundMetrics.sort(), [...BOUND_METRICS_BY_AGENT["agent-2"]].sort());
+  const long = assembleMandateInputs({ agentId: "agent-3", metrics, derived, sector: null });
+  assert.equal(long.supported, true);
+  assert.equal(long.metricVector.revGrowth, null);
+  assert.equal(long.metricVector.peerValuation, 14);
+  assert.deepEqual(long.boundMetrics, ["peerValuation"]);
+  assert.equal(assembleMandateInputs({ agentId: "agent-9", metrics, derived, sector: null }).supported, false);
   assert.equal(assembleMandateInputs({ agentId: "agent-1", metrics, derived: null, sector: null }).supported, false);
 });
 

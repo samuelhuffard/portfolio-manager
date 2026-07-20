@@ -34,3 +34,26 @@ test("Agents Two and Three retain supervised v3 mandate configuration", async ()
     assert.equal(riskLimits.minAvgDollarVolume, requirements.minAvgDollarVolume);
   }
 });
+
+test("Agent One runtime artifacts follow the authoritative sector-agnostic v3 mandate", async () => {
+  const [personality, plan, riskLimitsText] = await Promise.all([
+    readAgentFile("agent-1", "personality.md"),
+    readAgentFile("agent-1", "AGENT-ONE-PLAN.md"),
+    readAgentFile("agent-1", "risk-limits.json"),
+  ]);
+  const riskLimits = JSON.parse(riskLimitsText);
+
+  assert.match(personality, /Mandate v3/i);
+  assert.match(personality, /across every sector/i);
+  assert.doesNotMatch(personality, /technology-growth sleeve/i);
+  assert.match(plan, /Agent One Strategy Specification v3/);
+  assert.match(plan, /sector-agnostic/i);
+  assert.equal(riskLimits.allowedSubVerticals, undefined);
+  assert.equal(riskLimits.microCapMinAvgDollarVolume, 3_000_000);
+  assert.equal(riskLimits.nonMicroCapMinAvgDollarVolume, 10_000_000);
+  assert.equal(riskLimits.minCashReservePct, 5);
+  assert.equal(riskLimits.percentageSizingMinPortfolioValue, 500);
+  assert.equal(riskLimits.starterPortfolioMaxPositions, 2);
+  assert.equal(riskLimits.starterPortfolioCashReservePct, 5);
+  assert.equal(riskLimits.prohibitAveragingDown, true);
+});
