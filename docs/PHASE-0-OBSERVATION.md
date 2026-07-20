@@ -300,11 +300,38 @@ behavior is also a new R1 cohort. Therefore July 20 cannot count, and the first
 eligible day is the next clean trading day after the exact reviewed revision is
 loaded through a signed restart.
 
-Production completion remains evidence-based: record the exact commit, full
-test result, secret scan, Jetson branch/SHA, restart edge, health, fresh catalog,
-logs, sentinel, ledgers, parity, per-agent funnel/holding coverage, and scheduled
-observer result here after deployment. Until then this section is a declaration,
-not a claim that the release is live.
+### Production proof recorded 2026-07-20 ET
+
+- Backend behavior release `1aa13396f723e64aea02d3d376d119df1a9693ff`
+  was pushed without force to both `mandate-v3` and `main`. The Jetson
+  fast-forwarded `mandate-v3` to that exact revision, passed 850/850 tests, and
+  recorded signed restart edge `56→57`.
+- Dashboard/companion release `7263ec2` was pushed without force to `main`.
+  Dashboard tests passed 136/136, TypeScript and the production build passed,
+  and Vercel production deployment `dpl_4MjAuisWQuwLoBsig3KJCgRRLt64` reached
+  `READY`.
+- The post-restart Jetson process was `online` with zero unstable restarts.
+  `/health` returned 200 with Redis, Sheets, Anthropic, webhook, and Telegram
+  dependencies true.
+- A post-deploy catalog refresh retained 4,533 common stocks and 1,956
+  sector-enriched names. Yahoo rejected a bounded subset of enrichment rows;
+  those failures remained degraded source evidence rather than invented facts.
+- Signed-ledger verification was clean: Investors 7/7, Performance 65/65,
+  Trade Ledger 1/1, Lots 1/1, and 3,906 recent Audit rows.
+- The first parity check exposed a stale non-authoritative accounting snapshot.
+  The shadow-only refresh rebuilt positions/accounting from signed Sheets and
+  the rerun returned transactional `MATCH` across proposals, lots, capital,
+  positions, and accounting. Valuation remained honestly `NON_COMPARABLE`
+  because versioned shared quote provenance is unavailable.
+- The immediate sentinel recorded no P0/P1 findings (two P2 and ten P3 only).
+  Agent 2/3 slate summaries and the aggregate parity runtime summary remain
+  `null` until the first post-release scheduled scan; that absence is explicit
+  and is not synthetic proof.
+
+The Mac executor was restarted with the companion release and reported a fresh
+execution heartbeat (20 seconds old at verification). The scheduled scan and
+signed observer must still supply organic per-agent and daily evidence; this
+deployment record does not manufacture those future receipts.
 
 ## Daily evidence checklist
 
@@ -346,7 +373,7 @@ consecutive safety-day decision.
 | Jul 15 | Pending — cannot count while `F-2026-095` is active | — | — | — | — | — | Credential rotation and verification are a Trust prerequisite |
 | Jul 16 | Pending | — | — | — | — | — | |
 | Jul 17 | Pending | — | — | — | — | — | |
-| Jul 20 | Pending | — | — | — | — | — | |
+| Jul 20 | **Invalid — deployment day does not count** | Pending post-release scheduled evidence | Post-deploy verification clean | Transactional `MATCH`; valuation `NON_COMPARABLE` | Backend `1aa1339` live via signed `56→57` restart; sentinel has no P0/P1 | First post-release scheduled scan pending | R1 + S2 release opens a new research cohort and TRUST window; earliest candidate Day 1 is Jul 21 |
 | Jul 21 | Pending | — | — | — | — | — | |
 | Jul 22 | Pending | — | — | — | — | — | |
 | Jul 23 | Pending | — | — | — | — | — | |
