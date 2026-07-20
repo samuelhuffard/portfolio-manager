@@ -22,6 +22,7 @@ export const PROPOSAL_SIDES = ["BUY", "SELL"];
 export const MAX_PROPOSALS = 250;
 export const MAX_AMOUNT_DOLLARS = 10000;
 export const PROPOSAL_EXPIRY_MS = 48 * 60 * 60 * 1000;
+export const CURRENT_PROPOSAL_CONTRACT_VERSION = 2;
 
 /** Default risk summary applied when the author leaves it blank. */
 export const DEFAULT_RISK_SUMMARY = "Manager reviewed standard sizing and liquidity constraints.";
@@ -51,6 +52,11 @@ export const ProposalSchema = z.object({
   side: ProposalSideSchema,
   amountDollars: z.number().finite().positive(),
   maxPrice: z.number().finite().positive().nullable(),
+  // Version 2 binds SELL execution to the proposing strategy's verified
+  // open-lot shares. Both fields stay optional so already-approved legacy
+  // proposals retain their original signature payload and remain readable.
+  proposalContractVersion: z.literal(CURRENT_PROPOSAL_CONTRACT_VERSION).optional(),
+  sellOwnerShareLimit: z.number().finite().positive().nullable().optional(),
   rationale: z.string(),
   riskSummary: z.string(),
   status: ProposalStatusSchema,
@@ -89,6 +95,44 @@ export const PROPOSAL_AUTHOR_FIELDS = [
   "rationale",
   "riskSummary",
 ];
+
+/**
+ * Execution-time compatibility gate for the signed owner-share ceiling.
+ *
+ * Legacy non-SELL proposals retain their historical behavior. Every SELL must
+ * carry the v2 ceiling; already-approved legacy SELLs fail closed rather than
+ * falling back to the dangerous account-wide ticker position.
+ *
+ * @param {{ side?: unknown, proposalContractVersion?: unknown, sellOwnerShareLimit?: unknown }} proposal
+ * @returns {{ ok: true, legacy: boolean } | { ok: false, legacy: false, reason: string }}
+ */
+export function checkSellOwnerShareLimitForExecution(proposal) {
+  if (String(proposal?.side ?? "").toUpperCase() !== "SELL") {
+    return { ok: true, legacy: proposal?.proposalContractVersion == null };
+  }
+  if (proposal?.proposalContractVersion == null) {
+    return {
+      ok: false,
+      legacy: false,
+      reason: "SELL has no signed strategy-owner share ceiling",
+    };
+  }
+  if (proposal.proposalContractVersion !== CURRENT_PROPOSAL_CONTRACT_VERSION) {
+    return {
+      ok: false,
+      legacy: false,
+      reason: `unsupported proposal contract version ${proposal.proposalContractVersion}`,
+    };
+  }
+  if (!Number.isFinite(proposal.sellOwnerShareLimit) || proposal.sellOwnerShareLimit <= 0) {
+    return {
+      ok: false,
+      legacy: false,
+      reason: "v2 SELL has no valid signed strategy-owner share ceiling",
+    };
+  }
+  return { ok: true, legacy: false };
+}
 
 // ---------------------------------------------------------------------------
 // Input validation

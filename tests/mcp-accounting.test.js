@@ -100,7 +100,13 @@ test("BUY MCP fills open a new attributed lot", () => {
 });
 
 test("SELL MCP fills consume FIFO lots and compute realized gain", () => {
-  const sellProposal = proposal({ side: "SELL", amountDollars: 750, maxPrice: null });
+  const sellProposal = proposal({
+    side: "SELL",
+    amountDollars: 750,
+    maxPrice: null,
+    proposalContractVersion: 2,
+    sellOwnerShareLimit: 3,
+  });
   const trade = validateMcpFillInput({
     proposal: sellProposal,
     existingTrades: [],
@@ -148,7 +154,13 @@ test("refuses unsigned or forged approval signatures", () => {
 });
 
 test("SELL fills may undershoot the proposal amount but not overshoot", () => {
-  const sellProposal = proposal({ side: "SELL", amountDollars: 1000, maxPrice: null });
+  const sellProposal = proposal({
+    side: "SELL",
+    amountDollars: 1000,
+    maxPrice: null,
+    proposalContractVersion: 2,
+    sellOwnerShareLimit: 10,
+  });
   // Whole remaining position was worth less than the proposal — allowed.
   const under = validateMcpFillInput({
     proposal: sellProposal,

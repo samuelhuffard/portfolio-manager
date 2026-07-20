@@ -10,7 +10,8 @@ test("/health exposes aggregate slate evidence for every agent and retains Agent
     assert.match(server, new RegExp(`\"${agentId}\"`));
   }
   assert.match(server, /slate = slates\["agent-1"\]/);
-  assert.match(server, /JSON\.stringify\(\{ ok, scanRunning, deps, universe, slate, slates,/);
+  assert.match(server, /getAgentParityRuntimeSummary\(\)/);
+  assert.match(server, /JSON\.stringify\(\{ ok, scanRunning, deps, universe, slate, slates, agentParity,/);
   assert.match(server, /toPublicSlateSnapshot\(await getSlateSnapshot\(agentId\)\)/);
   assert.doesNotMatch(server, /getPrivateResearchSlate|pm:research-slate:private/);
 });

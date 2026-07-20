@@ -5,7 +5,11 @@ import {
   recordIntradayProposalQueueFailure,
   recordIntradayQuoteBatchFailure,
 } from "../jobs/intraday-monitor.js";
-import { exitProposalAmount, requireQueuedExitProposal } from "../jobs/monitor-positions.js";
+import {
+  exitProposalAmount,
+  holdingBenchmarkTicker,
+  requireQueuedExitProposal,
+} from "../jobs/monitor-positions.js";
 import { buildHoldingMonitorCoverage, holdingMonitorCoveragePasses } from "../lib/holding-monitor-coverage.js";
 import { readCashBalance, readHoldingsAllocation, readHoldingsDetail, readHoldingsReturnPct } from "../lib/sheets.js";
 
@@ -81,4 +85,11 @@ test("exit sizing rejects missing/nonpositive values and durable queue failure",
   assert.equal(exitProposalAmount({ action: "TRIM", reducePct: 25 }, 100), 25);
   assert.throws(() => requireQueuedExitProposal(null), /durably queued/);
   assert.deepEqual(requireQueuedExitProposal({ id: "proposal-1" }), { id: "proposal-1" });
+});
+
+test("holding benchmarks follow each live mandate rather than Agent One's retired tech taxonomy", () => {
+  assert.equal(holdingBenchmarkTicker("agent-1", "Energy"), "XLE");
+  assert.equal(holdingBenchmarkTicker("agent-1", "Unknown"), "SPY");
+  assert.equal(holdingBenchmarkTicker("agent-2", "Technology"), "SPY");
+  assert.equal(holdingBenchmarkTicker("agent-3", "Technology"), null);
 });

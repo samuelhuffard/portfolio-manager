@@ -136,6 +136,37 @@ The primary reviewer classifies a change before work begins. When uncertain, use
 the more conservative class. A backend deploy is not automatically a reset; its
 behavioral class is. Undocumented production drift invalidates the affected day.
 
+### Declared 2026-07-20 specialist-parity release
+
+- **Phase / label / class:** Phase 0 supervised baseline; BOTH; R1 + S2.
+- **Purpose:** make Agents 1–3 use one live catalog, one rotation/slate mechanism,
+  fair per-run model capacity, verified owner-attributed holdings, the same
+  downgrade/evaluator/human-approval/signature/ledger boundaries, and the same
+  observable holding-monitor contract. Mandate screens, horizons, evidence
+  requirements, and exit rules remain intentionally different.
+- **Authority:** unchanged. No agent gains approval, signature, broker, execution,
+  or ledger authority. Every proposed BUY or SELL still requires Sam's review and
+  signed approval. Every new SELL also carries the proposing strategy's verified
+  owner-share ceiling; approval recomputes and signs that ceiling, and execution
+  and accounting reject an absent or exceeded ceiling.
+- **Revision / production proof:** record the exact reviewed commit and Jetson
+  loaded identity in the Phase 0 observation ledger after deployment; do not treat
+  a local commit or synthetic test as organic runtime proof.
+- **Clock effect:** deployment day never counts. Candidate selection and mandate
+  behavior open a new R1 research cohort. The ownership-aware holding-monitor
+  coverage change is S2, so the consecutive TRUST window begins again on the
+  first clean trading day after the release.
+- **Rollback:** the three `AGENT_*_CATALOG_ROLLBACK` switches independently return
+  discovery to seed watchlists while retaining attributed holdings and emitting
+  degraded status. A full code rollback must use the prior reviewed release and a
+  signed restart; it may not bypass ownership, approval, or ledger controls.
+- **Required evidence:** full tests and secret scan; exact branch/SHA; signed PM2
+  restart; health and fresh logs; fresh broad catalog; owner-correct monitor
+  coverage; aggregate per-agent slate/funnel evidence; sentinel, ledger
+  verification, transactional parity, execution-companion proof, and the next
+  scheduled signed observer. An all-degraded holding-monitor run cannot count as
+  a TRUST pass.
+
 ## 6. Immediate gate-closing release — Phase G0
 
 **Phase label: BOTH · Status: complete · Owner: systems owner + independent reviewer**

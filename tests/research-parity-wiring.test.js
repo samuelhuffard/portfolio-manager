@@ -13,6 +13,15 @@ test("live scan wires one shared bus, fair agent caps, and verified owned holdin
   assert.match(scan, /rec\.action === "SELL"[\s\S]*ownedPositionValueByTicker/);
 });
 
+test("scheduled generator and evaluator usage is attributed and runtime telemetry stays unverified", () => {
+  assert.match(scan, /getAIRecommendation\(\{\s*\.\.\.input,\s*agentId,\s*budget: ctx\.budget/s);
+  assert.match(scan, /evaluateProposal\(\{\s*\.\.\.input,\s*agentId,\s*budget: ctx\.budget/s);
+  assert.match(scan, /modelCalls: summary\.modelCalls/);
+  assert.match(scan, /source === "scheduled"/);
+  assert.match(scan, /setAgentParityRuntimeSummary\(buildAgentParityRuntimeSummary\(terminalStatus\)\)/);
+  assert.doesNotMatch(scan, /terminalJobReceiptHash\s*:/);
+});
+
 test("catalog rollback preserves attributed holding reviews and emits degraded discovery state", () => {
   assert.match(scan, /\[\.\.\.holdingTickers, \.\.\.watchlist\.tickers, \.\.\.scanTickers\]/);
   assert.match(scan, /source: catalogMode\.degraded \? "watchlist-rollback" : "watchlist"/);

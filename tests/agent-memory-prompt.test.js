@@ -36,3 +36,13 @@ test("genuine investment lessons remain in the research prompt", () => {
     "- Prefer companies with improving free-cash-flow margins.",
   ].join("\n"));
 });
+
+test("legacy proposal decisions stay out of cross-ticker prompt memory", () => {
+  const legacyDecision = {
+    source: "proposal_decision",
+    category: "investment",
+    text: "NVDA BUY rationale accepted in an earlier proposal.",
+  };
+  assert.equal(isResearchPromptMemory(legacyDecision), false);
+  assert.equal(formatAgentMemoriesForPrompt([legacyDecision]), "");
+});

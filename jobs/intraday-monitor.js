@@ -7,10 +7,10 @@
  * 1. Price alerts — checks Redis for stored target-price alerts (e.g. "buy NVDA if it
  *    drops below $185"). When triggered it queues a BUY/SELL proposal and removes the alert.
  *
- * 2. ATR stop check — for each held position, computes a simplified intraday ATR stop
- *    (last known ATR * 1.5 from the 20-day high). If the current price has breached the stop,
- *    queues a SELL proposal. This is a lightweight intraday version of the full exit monitor
- *    which runs at EOD with complete daily bar data.
+ * 2. Holding surveillance — checks every verified strategy-owned position.
+ *    Agent One lots run its simplified intraday ATR stop and may queue a SELL
+ *    proposal. Agents Two and Three receive the same live quote/momentum
+ *    surveillance but never inherit Agent One's mandate-specific ATR rule.
  *
  * 3. Momentum break — flags positions where intraday price is down >3% from open, logged
  *    for awareness but not auto-proposed (that needs context the AI overlay provides).
@@ -25,25 +25,22 @@ import { listAllProposals, createProposal, wasProposalNudged, markProposalNudged
 import { hasOpenProposal } from "../lib/proposal-sizing.js";
 import { selectExpiringProposals, formatExpiryNudge } from "../lib/proposal-nudge.js";
 import { buildHoldingMonitorCoverage } from "../lib/holding-monitor-coverage.js";
+import { holdingMarketSeriesIsFresh } from "../lib/holding-mandate-evidence.js";
+import {
+  initializeSpecialistHoldingCoverage,
+  projectSpecialistMonitorHoldings,
+  specialistExitPolicyMode,
+} from "../lib/holding-monitor-ownership.js";
 import { sendMessage as sendTelegram } from "../lib/telegram.js";
 import { researchTickerForAgent } from "./research-scan.js";
 import {
   getServiceAccountClients,
   resolveSharedSpreadsheetId,
+  readAllLots,
   readHoldingsAllocation,
-  readHoldingsReturnPct,
 } from "../lib/sheets.js";
 
-const EXIT_AGENT_ID = "agent-1";
-// Price alerts carry their own agentId; ATR stop exits are still attributed to Agent One.
-// Tickers to watch for price alerts even when not held
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath as ftpu } from "node:url";
-
-const __dirname = path.dirname(ftpu(import.meta.url));
-const watchlistPath = path.join(__dirname, "..", "config", "agents", "agent-1", "watchlist.json");
-const WATCHLIST_TICKERS = JSON.parse(fs.readFileSync(watchlistPath, "utf8")).tickers;
+// Price alerts carry their own agentId. Holding exits always use verified lot ownership.
 
 export function initializeIntradayHoldingCoverage(allocation) {
   const validHeld = allocation.filter((holding) => Number.isFinite(holding.shares) && holding.shares > 0);
@@ -57,7 +54,10 @@ export function initializeIntradayHoldingCoverage(allocation) {
 export function recordIntradayQuoteBatchFailure(validHeld, coverage) {
   coverage.degraded += validHeld.length;
   if (validHeld.length) coverage.reasons.quote_batch_unavailable = validHeld.length;
-  return buildHoldingMonitorCoverage({ expected: validHeld.length + coverage.failed, ...coverage });
+  return buildHoldingMonitorCoverage({
+    expected: coverage.monitored + coverage.degraded + coverage.failed,
+    ...coverage,
+  });
 }
 
 export function recordIntradayProposalQueueFailure(coverage) {
@@ -71,20 +71,23 @@ export async function runIntradayMonitor({ context = "intraday" } = {}) {
   const { sheets, drive } = getServiceAccountClients();
   const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
 
-  const [allocation, returnPct, openProposals, priceAlerts] = await Promise.all([
+  const [allocation, verifiedLots, openProposals, priceAlerts] = await Promise.all([
     readHoldingsAllocation(sheets, spreadsheetId),
-    readHoldingsReturnPct(sheets, spreadsheetId),
+    readAllLots(sheets, spreadsheetId),
     listAllProposals(),
     listPriceAlerts(),
   ]);
 
-  const { validHeld, invalidHeld, coverage } = initializeIntradayHoldingCoverage(allocation);
+  const ownership = projectSpecialistMonitorHoldings({ holdings: allocation, lots: verifiedLots });
+  const validHeld = ownership.positions;
+  const expectedHeldCount = validHeld.length + ownership.quarantined.length;
+  const coverage = initializeSpecialistHoldingCoverage(ownership);
   const heldTickers = validHeld.map((h) => h.ticker);
   const note = (reason) => { coverage.reasons[reason] = (coverage.reasons[reason] ?? 0) + 1; };
   const result = () => ({
-    holdingMonitoring: buildHoldingMonitorCoverage({ expected: validHeld.length + invalidHeld.length, ...coverage }),
+    holdingMonitoring: buildHoldingMonitorCoverage({ expected: expectedHeldCount, ...coverage }),
   });
-  const allTickers = [...new Set([...heldTickers, ...WATCHLIST_TICKERS, ...priceAlerts.map((a) => a.ticker)])];
+  const allTickers = [...new Set([...heldTickers, ...priceAlerts.map((a) => a.ticker)])];
 
   // Fetch current prices for everything we care about
   let quotes = {};
@@ -153,6 +156,15 @@ export async function runIntradayMonitor({ context = "intraday" } = {}) {
       continue;
     }
 
+    if (specialistExitPolicyMode(pos.agentId) !== "agent_one_atr_intraday") {
+      console.log(
+        `[Intraday] ${pos.agentId} ${pos.ticker}: live quote surveillance complete; ` +
+        "Agent One ATR exit rule not applicable."
+      );
+      coverage.monitored += 1;
+      continue;
+    }
+
     try {
       const bars = await fetchDailyBars(pos.ticker, { period1: threeMonthsAgo, period2: now });
       if (bars.length < 20) {
@@ -160,12 +172,23 @@ export async function runIntradayMonitor({ context = "intraday" } = {}) {
         note("insufficient_price_history");
         continue;
       }
+      if (!holdingMarketSeriesIsFresh(bars, now.toISOString())) {
+        coverage.degraded += 1;
+        note("stale_price_history");
+        continue;
+      }
 
       const recentBars = bars.slice(-20);
       const high20 = Math.max(...recentBars.map((b) => b.high));
       const atrVal = atr(bars, 14);
       const stopLevel = Math.round((high20 - atrVal * 1.5) * 100) / 100;
-      const returnP = returnPct[pos.ticker] ?? 0;
+      if (!Number.isFinite(pos.costBasis) || pos.costBasis <= 0) {
+        coverage.degraded += 1;
+        note("owned_cost_basis_unavailable");
+        continue;
+      }
+      const ownerMarketValue = pos.shares * price;
+      const returnP = ((ownerMarketValue - pos.costBasis) / pos.costBasis) * 100;
 
       console.log(
         `[Intraday] ${pos.ticker}: price $${price} | 20-day high $${high20.toFixed(2)} | ATR stop $${stopLevel} | return ${returnP.toFixed(1)}%`
@@ -175,15 +198,17 @@ export async function runIntradayMonitor({ context = "intraday" } = {}) {
         // Only flag ATR stop breach on a losing position (memo: no averaging down, quick exit)
         console.log(`[Intraday] ${pos.ticker}: ATR stop breached at $${price} (stop $${stopLevel}) — flagging for exit.`);
 
-        if (!hasOpenProposal(openProposals, { agentId: EXIT_AGENT_ID, ticker: pos.ticker, side: "SELL" })) {
+        if (!hasOpenProposal(openProposals, { agentId: pos.agentId, ticker: pos.ticker, side: "SELL" })) {
+          const ownerNotional = Math.round(ownerMarketValue * 100) / 100;
           let created = null;
           try {
             created = await createProposal({
-              agentId: EXIT_AGENT_ID,
+              agentId: pos.agentId,
               ticker: pos.ticker,
               side: "SELL",
-              amountDollars: Math.round((pos.marketValue ?? 0) * 100) / 100,
+              amountDollars: ownerNotional,
               maxPrice: null,
+              sellOwnerShareLimit: pos.shares,
               rationale: `Intraday ATR stop breach: ${pos.ticker} at $${price} is below ATR stop $${stopLevel} (20-day high $${high20.toFixed(2)} − 1.5×ATR $${atrVal.toFixed(2)}). Position is at a loss (${returnP.toFixed(1)}%). Agent One memo requires fast exit.`,
               riskSummary: `ATR stop triggered intraday. Full exit signal analysis will run at 4:45 PM ET exit monitor.`,
             });
@@ -195,7 +220,7 @@ export async function runIntradayMonitor({ context = "intraday" } = {}) {
             continue;
           }
           openProposals.push(created);
-          console.log(`[Intraday] Queued SELL ${pos.ticker} $${pos.marketValue} from ATR stop breach.`);
+          console.log(`[Intraday] Queued SELL ${pos.ticker} $${ownerNotional} from ATR stop breach.`);
         }
       }
       coverage.monitored += 1;

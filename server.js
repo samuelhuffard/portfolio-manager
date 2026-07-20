@@ -5,7 +5,7 @@ import { runResearchScan, researchTickerForAgent } from "./jobs/research-scan.js
 import { runIntradayMonitor } from "./jobs/intraday-monitor.js";
 import { listPriceAlerts, addPriceAlert, removePriceAlert } from "./lib/price-alerts.js";
 import { syncHoldings } from "./jobs/holdings-sync.js";
-import { getProposalById, markProposalFulfilled, getRedis, getUniverseStatus, getResearchDataStatus, getShadowSelectionStatus, setLabResearchStatus, getLabResearchStatus, getSlateSnapshot, getLastSystemActivity } from "./lib/redis.js";
+import { getProposalById, markProposalFulfilled, getRedis, getUniverseStatus, getResearchDataStatus, getShadowSelectionStatus, setLabResearchStatus, getLabResearchStatus, getSlateSnapshot, getLastSystemActivity, getAgentParityRuntimeSummary } from "./lib/redis.js";
 import { toPublicSlateSnapshot } from "./lib/public-slate-snapshot.js";
 import { recordMcpFill } from "./lib/mcp-accounting.js";
 import { getServiceAccountClients, getSheetIds, resolveSharedSpreadsheetId } from "./lib/sheets.js";
@@ -139,6 +139,16 @@ const server = http.createServer(async (req, res) => {
       slate = null;
       slates = {};
     }
+    // Aggregate-only observation of the latest real scheduled three-agent run.
+    // This is explicitly unverified runtime telemetry, not cryptographic parity
+    // proof: the terminal scheduler receipt is retained only after the scan
+    // function returns.
+    let agentParity = null;
+    try {
+      agentParity = await getAgentParityRuntimeSummary();
+    } catch {
+      agentParity = null;
+    }
     // Advisory research-data progress. The Redis helper persists an allow-listed
     // aggregate payload only, so this public endpoint never leaks tickers,
     // research rationale, proposals, or investor data.
@@ -164,7 +174,7 @@ const server = http.createServer(async (req, res) => {
     // since Athena being down must never take our own health down with it.
     const athena = await fetchAthenaStatus({ timeoutMs: 3000 });
     res.writeHead(ok ? 200 : 503);
-    res.end(JSON.stringify({ ok, scanRunning, deps, universe, slate, slates, researchData, shadowSelection, researchDataEnabled, athena }));
+    res.end(JSON.stringify({ ok, scanRunning, deps, universe, slate, slates, agentParity, researchData, shadowSelection, researchDataEnabled, athena }));
     return;
   }
 

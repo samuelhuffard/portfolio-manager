@@ -1,7 +1,8 @@
 # Agent Parity Proof and Cohort Telemetry
 
-Status: versioned contract foundation; production wiring is owned by the parity
-release integrator.
+Status: aggregate runtime telemetry is implemented in the parity release
+candidate; cryptographic organic proof remains deferred until an independently
+retained terminal job receipt can be read back and verified.
 
 ## Purpose
 
@@ -11,8 +12,8 @@ confusing them:
 1. **Mechanical workflow parity:** Agents 1, 2, and 3 are wired through the same
    candidate bus, selection machinery, research packet, proposal queue,
    independent evaluator, downgrade-only risk engine, human approval boundary,
-   ownership attribution, signed approval, ledger path, and holding-coverage
-   contract.
+   ownership attribution, signed approval, owner-capped SELL execution, ledger
+   path, and holding-coverage contract.
 2. **Mandate-data completeness:** each agent's different mandate has complete,
    sourced inputs for its catalog screen, evidence adapter, scoring, entry
    policy, holding monitoring, re-underwriting, and add accounting.
@@ -25,9 +26,38 @@ Neither result determines whether a Phase 0 day counts. Only the signed Phase 0
 observer owns that decision. These artifacts contain no observation-eligibility
 field and do not promote authority.
 
-## Runtime integration
+## Runtime integration in this release candidate
 
-For each scheduled run, the live research scan should:
+Each scheduled research scan now writes one allow-listed
+`agent-parity-runtime-summary-v1` record to bounded Redis latest/history keys:
+
+- `pm:agent-parity-runtime:latest`
+- `pm:agent-parity-runtime:history` (maximum 50 records, 14-day TTL)
+- one deduplication marker per run ID with the same TTL
+
+The summary contains aggregate counts and versions only: each agent's discovery
+source and slate buckets, attempted/written funnel, action/proposal/outcome
+counts, equal-cap allocation, and generator/evaluator attempted/succeeded/failed
+call counts. Generator, revision, and evaluator usage records now receive the
+actual scheduled `agentId`; token and priced-cost detail remains in the existing
+private Anthropic usage ledger.
+
+`/health` exposes only the re-projected aggregate latest summary. It cannot
+expose tickers, company names, rationale, thesis, prompts, evidence, account
+data, investor data, errors, or secrets. Retained records are always labeled:
+
+- `evidenceClass: organic_runtime_unverified`
+- `proofStatus: terminal_job_receipt_not_yet_verified`
+- `organicProofEligible: false`
+- `terminalJobReceiptHash: null`
+
+This is observation telemetry, not an approval, safety verdict, or parity
+certificate. Missing or stale telemetry remains visible but does not rewrite the
+already-retained terminal research status.
+
+## Cryptographic organic proof deferred
+
+For a future independently verified proof, the post-run evidence process must:
 
 1. Build one `agent-parity-workflow-receipt-v1` per required stage and agent from
    the implementation/config identities actually loaded by that run. Organic
@@ -48,7 +78,7 @@ For each scheduled run, the live research scan should:
    persistence, then create one aggregate-safe daily report. Organic and
    synthetic/test evidence are always separate sections.
 
-The integration must use actual run IDs, code revisions, content-derived config
+That future integration must use actual run IDs, code revisions, content-derived config
 identities, cohort versions, usage records, and holding receipts. The assessor
 must receive `verifiedRuntimeRunReceiptHashes` from an independent read-back of
 the retained terminal job evidence. Merely supplying a plausible hash in a
@@ -67,6 +97,8 @@ Per-agent packets include:
   latency;
 - explicit generator/infrastructure degradation reason counts;
 - holding monitoring coverage with silent-skip and reason conservation;
+- a versioned owner-share ceiling on every new SELL, recomputed at approval and
+  bound into the HMAC so same-ticker agents cannot spend one another's lots;
 - aggregate near-miss counts by deterministic blocker, stage, and strength
   band;
 - hashes of the workflow, mandate-data, and rollback receipts used.
@@ -101,8 +133,13 @@ investor, email, cookie, or secret fields.
 - `lib/agent-parity-proof.js` — receipts, assessor, and rollback contract.
 - `lib/agent-parity-telemetry.js` — funnel/capacity/near-miss/holding packets,
   deterministic events, and daily aggregate report.
+- `lib/agent-parity-runtime-summary.js` — live allow-listed scheduled-run
+  observation summary and public re-projection.
+- `lib/redis.js` — bounded atomic runtime-summary latest/history persistence.
 - `tests/agent-parity-proof.test.js` — receipt adversaries, runtime-link
   enforcement, and a supplemental source/functional common-path test across all
   three agent IDs. Source matching is not live-wiring proof.
 - `tests/agent-parity-telemetry.test.js` — conservation, privacy, cost/latency,
   organic-vs-synthetic, and deterministic event/report coverage.
+- `tests/agent-parity-runtime-summary.test.js` — live-summary privacy,
+  conservation, bounded retention, missing-agent, and forged-proof-state tests.

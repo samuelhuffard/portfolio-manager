@@ -16,6 +16,11 @@ import { getAIRecommendation } from "../lib/ai-overlay.js";
 import { applyRiskChecks } from "../lib/risk-engine.js";
 import { evaluateProposal, resolveFinalVerdict } from "../lib/evaluator.js";
 import { makeBoundaryToken, sanitizeEvidenceItems } from "../lib/evidence.js";
+import {
+  formatEvidenceFlagSummary,
+  shouldTelegramEvidenceFlags,
+  summarizeEvidenceFlags,
+} from "../lib/evidence-alerts.js";
 import { assessCircuitBreaker, applyBreakerToProposal, deriveDailyNavBreakerBasis, reconcileNavHighWaterMark } from "../lib/circuit-breaker.js";
 import { sendMessage as sendTelegram } from "../lib/telegram.js";
 import { formatAgentMemoriesForPrompt, listAgentMemories } from "../lib/agent-memory.js";
@@ -35,6 +40,7 @@ import {
   setSlateSnapshot,
   setPrivateResearchSlate,
   setResearchScanStatus,
+  setAgentParityRuntimeSummary,
 } from "../lib/redis.js";
 import { sizeProposalAmount, hasOpenProposal, hasRecentProposal } from "../lib/proposal-sizing.js";
 import { syncMarketScansFromRobinhood } from "../lib/market-scan-sync.js";
@@ -74,10 +80,17 @@ import {
 import { withWorkflowLock } from "../lib/workflow-lock.js";
 import { BudgetExhaustedError, createResearchRunBudget } from "../lib/ai-budget.js";
 import { createAnthropicMonthlyBudget } from "../lib/anthropic-monthly-budget.js";
+import { buildAgentParityRuntimeSummary } from "../lib/agent-parity-runtime-summary.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_AGENT_IDS = AGENTS.map((agent) => agent.id);
-const EVIDENCE_TELEGRAM_THRESHOLD = 3;
+
+function blankModelCallCounts() {
+  return {
+    generator: { attempted: 0, succeeded: 0, failed: 0 },
+    evaluator: { attempted: 0, succeeded: 0, failed: 0 },
+  };
+}
 
 function blankAgentScanSummary(agentId) {
   return {
@@ -95,10 +108,45 @@ function blankAgentScanSummary(agentId) {
     outcomeCounts: blankOutcomeCounts(),
     discovery: null,
     capacity: null,
+    modelCalls: blankModelCallCounts(),
     startedAt: new Date().toISOString(),
     completedAt: null,
     error: null,
   };
+}
+
+async function callGeneratorForAgent(agentId, input, ctx) {
+  const counts = ctx.modelCalls?.generator;
+  if (counts) counts.attempted += 1;
+  try {
+    const result = await getAIRecommendation({
+      ...input,
+      agentId,
+      budget: ctx.budget,
+    });
+    if (counts) counts.succeeded += 1;
+    return result;
+  } catch (error) {
+    if (counts) counts.failed += 1;
+    throw error;
+  }
+}
+
+async function callEvaluatorForAgent(agentId, input, ctx) {
+  const counts = ctx.modelCalls?.evaluator;
+  if (counts) counts.attempted += 1;
+  try {
+    const result = await evaluateProposal({
+      ...input,
+      agentId,
+      budget: ctx.budget,
+    });
+    if (counts) counts.succeeded += 1;
+    return result;
+  } catch (error) {
+    if (counts) counts.failed += 1;
+    throw error;
+  }
 }
 
 function summarizeRecommendation(summary, recommendation) {
@@ -243,21 +291,6 @@ async function resolveCircuitBreaker(sheets, spreadsheetId) {
   return assessment;
 }
 
-function shouldTelegramEvidenceFlags(flags) {
-  if (!flags.length) return false;
-  // Deterministic news/model flags are common background telemetry. Escalate when
-  // the independent evaluator sees suspect evidence, or when the scan has enough
-  // separate flags to suggest a broader poisoned-data problem.
-  return flags.some((flag) => flag.kind?.startsWith("evaluator:")) || flags.length >= EVIDENCE_TELEGRAM_THRESHOLD;
-}
-
-function summarizeEvidenceFlags(flags) {
-  return flags
-    .map((f) => f.kind)
-    .filter(Boolean)
-    .join(", ");
-}
-
 function selectMarketScanTickers(agentId, marketScans, watchlistTickers, limit = 5) {
   const watchlist = new Set(watchlistTickers.map((t) => t.toUpperCase()));
   const picked = [];
@@ -388,8 +421,8 @@ async function buildCandidate(f, riskLimits, { now, threeMonthsAgo, oneMonthAgo,
  * before the run started.
  */
 async function buildAgentReviewContext(sheets, spreadsheetId, { candidates, riskLimits, benchmark, heldAllocation = null }) {
-  const spyQuote = await fetchQuotes([benchmark]);
-  const spyEntryPrice = spyQuote[benchmark]?.regularMarketPrice ?? null;
+  const benchmarkQuotes = await fetchQuotes([benchmark]);
+  const spyEntryPrice = benchmarkQuotes[benchmark]?.regularMarketPrice ?? null;
 
   const [resolvedHeldAllocation, cashBalance] = await Promise.all([
     heldAllocation ? Promise.resolve(heldAllocation) : readHoldingsAllocation(sheets, spreadsheetId),
@@ -603,7 +636,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     researchHistory: formatResearchHistoryForPrompt(ctx.researchLedger[c.ticker]),
     boundaryToken: ctx.boundaryToken,
   };
-  const proposal = await getAIRecommendation({ ...overlayInput, budget: ctx.budget });
+  const proposal = await callGeneratorForAgent(agent.id, overlayInput, ctx);
   const generatorAction = proposal.action;
   if (proposal.suspectEvidence?.length) {
     ctx.evidenceFlags.push({ kind: `model:${c.ticker}`, reasons: proposal.suspectEvidence });
@@ -688,17 +721,21 @@ async function reviewCandidateForAgent(agent, c, ctx) {
       };
 
       let finalEval;
-      const first = await evaluateProposal({ ...evalContext, proposal: rec, budget: ctx.budget });
+      const first = await callEvaluatorForAgent(agent.id, { ...evalContext, proposal: rec }, ctx);
       if (first.verdict === "REVISE") {
         console.log(`[Evaluator] ${agent.id}: ${c.ticker} sent back for revision — ${first.critique.join("; ")}`);
-        const revisedRaw = await getAIRecommendation({ ...overlayInput, evaluatorCritique: first.critique, previousProposal: rec, budget: ctx.budget });
+        const revisedRaw = await callGeneratorForAgent(agent.id, {
+          ...overlayInput,
+          evaluatorCritique: first.critique,
+          previousProposal: rec,
+        }, ctx);
         const revised = applyConvictionClamp(applyRiskChecks(revisedRaw, riskContext, riskLimits), agent, c, riskLimits);
         if (revised.action === "HOLD") {
           // Generator conceded (or the risk engine downgraded the revision) — final HOLD.
           finalEval = { ...first, verdict: "REJECT", revisions: 1, critique: [...first.critique, "generator conceded on revision"] };
           rec = revised;
         } else {
-          const second = await evaluateProposal({ ...evalContext, proposal: revised, budget: ctx.budget });
+          const second = await callEvaluatorForAgent(agent.id, { ...evalContext, proposal: revised }, ctx);
           finalEval = resolveFinalVerdict(first, second);
           if (finalEval.verdict === "APPROVE") rec = revised;
         }
@@ -888,6 +925,9 @@ async function reviewCandidateForAgent(agent, c, ctx) {
             side: rec.action,
             amountDollars: sized.amountDollars,
             maxPrice,
+            sellOwnerShareLimit: rec.action === "SELL"
+              ? ctx.ownedPositionSharesByTicker[c.ticker]
+              : null,
             rationale,
             riskSummary,
           });
@@ -1236,12 +1276,14 @@ async function runResearchScanForAgent(
     persistentMemory,
     marketScans,
     holdingTickers,
+    ownedPositionSharesByTicker: ownedHoldings.positionSharesByTicker,
     ownedPositionValueByTicker: ownedHoldings.positionValueByTicker,
     heldReturnPct,
     researchLedger,
     breaker,
     boundaryToken,
     budget,
+    modelCalls: summary.modelCalls,
     evidenceFlags,
     athenaCircuit: createAthenaCircuit(),
     alertedResearchFailures: new Set(),
@@ -1333,15 +1375,16 @@ async function runResearchScanForAgent(
 
   // Injection-suspect evidence is logged every time, but Telegram only escalates
   // higher-signal cases so routine single-source redactions don't look like bot replies.
+  const evidenceSummary = summarizeEvidenceFlags(evidenceFlags);
   if (shouldTelegramEvidenceFlags(evidenceFlags)) {
-    const summary = `⚠️ Scheduled research scan safety alert: ${agent.id} flagged ${evidenceFlags.length} evidence item(s): ${summarizeEvidenceFlags(evidenceFlags)}`;
+    const summary = `⚠️ Scheduled research scan safety alert: ${agent.id} flagged ${evidenceSummary.rawCount} evidence item(s) across ${evidenceSummary.uniqueCount} root cause(s): ${formatEvidenceFlagSummary(evidenceSummary)}`;
     try {
       await sendTelegram(summary);
     } catch (err) {
       console.error("[Evidence] Telegram alert failed:", err.message, "—", summary);
     }
   } else if (evidenceFlags.length) {
-    console.warn(`[Evidence] ${agent.id}: ${evidenceFlags.length} low-severity evidence flag(s) logged without Telegram: ${summarizeEvidenceFlags(evidenceFlags)}`);
+    console.warn(`[Evidence] ${agent.id}: ${evidenceSummary.rawCount} evidence flag(s) across ${evidenceSummary.uniqueCount} root cause(s) logged without Telegram: ${formatEvidenceFlagSummary(evidenceSummary)}`);
   }
   summary.capacity.ending = budget?.snapshot?.() ?? null;
   summary.completedAt = new Date().toISOString();
@@ -1359,7 +1402,7 @@ async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = 
   const agentSummaries = [];
   const persistFinalStatus = async (status, error = null) => {
     const completedAt = new Date().toISOString();
-    await setResearchScanStatus({
+    const terminalStatus = {
       runId,
       source,
       status,
@@ -1391,7 +1434,19 @@ async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = 
       ),
       classificationVersion: RESEARCH_OUTCOME_VERSION,
       error,
-    });
+    };
+    await setResearchScanStatus(terminalStatus);
+    if (source === "scheduled") {
+      try {
+        await setAgentParityRuntimeSummary(buildAgentParityRuntimeSummary(terminalStatus));
+      } catch (telemetryError) {
+        // The independently retained scheduler terminal receipt is written only
+        // after this function returns. Missing runtime telemetry stays visible
+        // as absent/stale health evidence but cannot rewrite an already-retained
+        // terminal scan outcome into a conflicting status.
+        console.error("[Research] Agent parity runtime telemetry failed:", telemetryError.message);
+      }
+    }
   };
 
   await setResearchScanStatus({
@@ -1620,6 +1675,7 @@ async function researchTickerForAgentUnlocked(agentId, ticker) {
     persistentMemory,
     marketScans,
     holdingTickers,
+    ownedPositionSharesByTicker: ownedHoldings.positionSharesByTicker,
     ownedPositionValueByTicker: ownedHoldings.positionValueByTicker,
     heldReturnPct,
     researchLedger,
@@ -1650,15 +1706,16 @@ async function researchTickerForAgentUnlocked(agentId, ticker) {
     }
   }
 
+  const evidenceSummary = summarizeEvidenceFlags(evidenceFlags);
   if (shouldTelegramEvidenceFlags(evidenceFlags)) {
-    const summary = `⚠️ Lab research safety alert: ${agent.id} flagged ${evidenceFlags.length} evidence item(s) on ${symbol}: ${summarizeEvidenceFlags(evidenceFlags)}`;
+    const summary = `⚠️ Lab research safety alert: ${agent.id} flagged ${evidenceSummary.rawCount} evidence item(s) across ${evidenceSummary.uniqueCount} root cause(s) on ${symbol}: ${formatEvidenceFlagSummary(evidenceSummary)}`;
     try {
       await sendTelegram(summary);
     } catch (err) {
       console.error("[Evidence] Telegram alert failed:", err.message, "—", summary);
     }
   } else if (evidenceFlags.length) {
-    console.warn(`[Evidence] ${agent.id}: ${evidenceFlags.length} low-severity evidence flag(s) logged without Telegram: ${summarizeEvidenceFlags(evidenceFlags)}`);
+    console.warn(`[Evidence] ${agent.id}: ${evidenceSummary.rawCount} evidence flag(s) across ${evidenceSummary.uniqueCount} root cause(s) logged without Telegram: ${formatEvidenceFlagSummary(evidenceSummary)}`);
   }
 
   return {

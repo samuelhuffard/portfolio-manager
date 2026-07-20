@@ -199,6 +199,23 @@ test("holding coverage passes explicit degradation but fails silent skips and ab
   const passing = buildPhase0Observation(passingInput());
   assert.equal(passing.checks.find((row) => row.name === "holding_monitoring").status, "pass");
 
+  const allDegraded = passingInput();
+  allDegraded.holdingMonitoring = [
+    {
+      name: "intraday-monitor",
+      coverage: buildHoldingMonitorCoverage({
+        expected: 3,
+        monitored: 0,
+        degraded: 3,
+        reasons: { market_evidence_unavailable: 3 },
+      }),
+    },
+  ];
+  const insufficient = buildPhase0Observation(allDegraded);
+  assert.equal(insufficient.trustVerdict, "FAIL");
+  assert.equal(insufficient.countsTowardSafetyWindow, false);
+  assert.equal(insufficient.checks.find((row) => row.name === "holding_monitoring").status, "insufficient");
+
   const skipped = passingInput();
   skipped.holdingMonitoring[0].coverage = buildHoldingMonitorCoverage({ expected: 3, monitored: 1, degraded: 1 });
   const failed = buildPhase0Observation(skipped);

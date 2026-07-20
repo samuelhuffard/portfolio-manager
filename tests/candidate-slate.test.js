@@ -101,6 +101,19 @@ test("slate size caps total picks and duplicate tickers collapse", () => {
   assert.deepEqual(slate.map((s) => s.ticker), ["HELD", "A"]);
 });
 
+test("attributed holdings remain protected beyond the nominal discovery slate size", () => {
+  const holdings = Array.from({ length: 22 }, (_, index) => `H${index}`);
+  const { slate, counts } = buildSlate({
+    screened: [],
+    holdings,
+    config: { slateSize: 20, explorationSlots: 3 },
+    now: NOW,
+  });
+  assert.equal(slate.length, 22);
+  assert.equal(counts.holdings, 22);
+  assert.equal(slate.every((item) => item.bucket === "holdings"), true);
+});
+
 test("formatSlateCounts renders the log summary", () => {
   assert.equal(
     formatSlateCounts({ holdings: 4, movers: 3, ranked: 10, exploration: 3 }),

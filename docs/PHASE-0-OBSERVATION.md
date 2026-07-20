@@ -279,6 +279,33 @@ client responses; they do not expand trading authority.
   evidence. They must be visible in the daily record and must not silently create
   actionable proposals.
 
+## 2026-07-20 ET: declared three-agent parity release (R1 + S2)
+
+This release replaces Agent 2/3's fixed-watchlist discovery with the same live
+NYSE/Nasdaq common-equity catalog and rotating slate machinery used by Agent 1.
+All three receive fair model-call capacity, verified owner-specific holdings,
+the same supervised proposal/evaluator/risk/approval/signature/ledger path, and
+aggregate-safe per-agent observation evidence. Mandate screens and holding rules
+remain mandate-specific; they do not grant different authority.
+
+The holding monitors now reconcile signed Lots to aggregate Holdings before
+attribution, including same-ticker multi-agent ownership. A monitor may never
+size or queue an Agent 1 exit against another agent's lot, and unattributed
+inventory remains quarantined and visible. New SELL proposals carry a
+contract-versioned owner-share ceiling that is recomputed at human approval,
+bound into the approval HMAC, checked by the execution companion, and checked
+again before a fill can enter accounting. Legacy approved SELLs without that
+signed ceiling fail closed. This changes safety coverage (S2); the live research
+behavior is also a new R1 cohort. Therefore July 20 cannot count, and the first
+eligible day is the next clean trading day after the exact reviewed revision is
+loaded through a signed restart.
+
+Production completion remains evidence-based: record the exact commit, full
+test result, secret scan, Jetson branch/SHA, restart edge, health, fresh catalog,
+logs, sentinel, ledgers, parity, per-agent funnel/holding coverage, and scheduled
+observer result here after deployment. Until then this section is a declaration,
+not a claim that the release is live.
+
 ## Daily evidence checklist
 
 After the market close, record the evidence rather than a subjective status.
@@ -302,9 +329,11 @@ consecutive safety-day decision.
 5. All critical market jobs ran or have a documented market-calendar skip. No hidden
    failure, unresolved fill, invalid signature, or unsafe client exposure occurred.
 6. Every due holding-monitor record conserves `held = monitored + explicitly degraded`
-   with zero failed, overflow, or silent skips. Log aggregate Athena/Yahoo/FRED
-   degradation and prove it blocked or downgraded action; do not put private
-   tickers in the automated ops record.
+   with zero failed, overflow, or silent skips, and at least one held-name check
+   uses monitorable evidence whenever `held > 0`. An all-degraded run is
+   insufficient and cannot count as a TRUST day. Log aggregate
+   Athena/Yahoo/FRED degradation and prove it blocked or downgraded action; do
+   not put private tickers in the automated ops record.
 7. Update proposal throughput: cumulative genuine actionable proposals, evaluator
    approvals, filled trades, and any owner/lot reconciliation requirement.
 
@@ -329,4 +358,6 @@ consecutive safety-day decision.
 - Genuine actionable proposals: **0 / 3 required during the window**
 - Evaluator approvals: **0 / 1 required during the window**
 - Filled trades during this observation window: **0**
-- Autonomy level: **human-supervised; Agents 2/3 supervised and static-watchlist-bound; Agent 4 shadow-only**
+- Autonomy level: **human-supervised; Agents 1–3 share the supervised specialist
+  workflow after the declared parity release is production-verified; Agent 4
+  remains shadow-only**

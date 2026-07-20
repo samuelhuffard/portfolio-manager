@@ -37,6 +37,7 @@ Google Sheet: create a blank Sheet in a personal Drive, share it Editor with the
 | SYSLOOP_DEPLOY_HMAC_SECRET | ✅ (**dedicated, no fallback** — signs PM2 deploy markers) | ✗ | ✗ |
 | ANTHROPIC_MONTHLY_MAX_USD / ANTHROPIC_MONTHLY_PROTECTED_RESERVE_USD | ✅ ($40 ceiling / $10 protected pool) | ✗ | ✗ |
 | ANTHROPIC_BUDGET_REQUIRED | ✅ (**set `true` in production** — a missing ceiling then refuses calls instead of silently removing the cap) | ✗ | ✗ |
+| AGENT_1_CATALOG_ROLLBACK / AGENT_2_CATALOG_ROLLBACK / AGENT_3_CATALOG_ROLLBACK | opt ✅ (emergency per-agent fallback only; leave `false` for the live shared catalog) | ✗ | ✗ |
 | AUDIT_HMAC_SECRET | ✅ (must match Vercel) | ✅ | ✅ (signs/verifies approvals) |
 | PORTFOLIO_SERVER_PORT / PORTFOLIO_WEBHOOK_SECRET | ✅ (**required** — fail-closed) | ✅ (URL + same secret) | ✗ |
 | PORTFOLIO_BACKEND_URL | ✗ | ✅ | ✗ |

@@ -30,6 +30,8 @@ export const DECISION_SIGNATURE_FIELDS = [
   "side",
   "amountDollars",
   "maxPrice",
+  "proposalContractVersion",
+  "sellOwnerShareLimit",
   "decidedAt",
   "decidedByUserId",
 ];
@@ -37,11 +39,11 @@ export const DECISION_SIGNATURE_FIELDS = [
 /**
  * Deterministic `|`-joined payload string. Every consumer must build the exact
  * same string, so this is the one place that composition lives.
- * @param {{ id: string, status: string, agentId: string, ticker: string, side: string, amountDollars: number, maxPrice: number | null, decidedAt: string | null, decidedByUserId: string | null }} p
+ * @param {{ id: string, status: string, agentId: string, ticker: string, side: string, amountDollars: number, maxPrice: number | null, proposalContractVersion?: number, sellOwnerShareLimit?: number | null, decidedAt: string | null, decidedByUserId: string | null }} p
  * @returns {string}
  */
 export function buildDecisionSignaturePayload(p) {
-  return [
+  const legacyPayload = [
     p.id,
     p.status,
     p.agentId,
@@ -51,6 +53,15 @@ export function buildDecisionSignaturePayload(p) {
     p.maxPrice == null ? "" : String(p.maxPrice),
     p.decidedAt ?? "",
     p.decidedByUserId ?? "",
+  ].join("|");
+  // Preserve every existing v1 signature byte-for-byte. Versioned proposals
+  // append their contract version and strategy-owned SELL ceiling, so removing
+  // or enlarging either field after approval invalidates the HMAC.
+  if (p.proposalContractVersion == null) return legacyPayload;
+  return [
+    legacyPayload,
+    String(p.proposalContractVersion),
+    p.sellOwnerShareLimit == null ? "" : String(p.sellOwnerShareLimit),
   ].join("|");
 }
 
