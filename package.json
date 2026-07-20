@@ -17,6 +17,7 @@
     "anthropic:spend": "node scripts/report-anthropic-spend.js",
     "investors:weekly-update": "node jobs/investor-weekly-update.js",
     "research:outcome-report": "node jobs/research-outcome-biweekly-report.js",
+    "proposal-quality:shadow": "node scripts/proposal-quality-shadow.mjs",
     "tavily:check": "node scripts/check-tavily.js",
     "proposals:approved": "node scripts/list-approved-proposals.js",
     "proposals:fulfill": "node scripts/mark-fulfilled.js",

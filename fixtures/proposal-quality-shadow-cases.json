@@ -1,0 +1,53 @@
+{
+  "cases": [
+    {
+      "agentId": "agent-1",
+      "candidate": { "ticker": "DAVE", "sector": "Financial Services", "industry": "Banks - Regional" },
+      "proposal": {
+        "action": "BUY",
+        "thesis": "DAVE is a technology company trading at a 94.6 P/E.",
+        "claimedBusinessFamily": "technology",
+        "evidenceCitations": [{ "claim": "DAVE is a technology company trading at a 94.6 P/E.", "evidence_ids": ["rank_trailingPE"] }]
+      },
+      "baseline": { "quantScore": 81, "breakdown": { "trailingPE": 94.6 } },
+      "enriched": {
+        "quantScore": 81,
+        "breakdown": { "trailingPE": 94.6 },
+        "primaryFacts": [{ "id": "raw_trailing_pe", "label": "Trailing P/E", "value": 28.25, "unit": "multiple", "source": "company filing" }]
+      }
+    },
+    {
+      "agentId": "agent-2",
+      "candidate": { "ticker": "SNDK", "sector": "Technology", "industry": "Semiconductors" },
+      "proposal": {
+        "action": "BUY",
+        "thesis": "SNDK has exceptional momentum because its momentum rank is 91.",
+        "claimedBusinessFamily": "technology",
+        "evidenceCitations": [{ "claim": "SNDK has exceptional momentum because its momentum rank is 91.", "evidence_ids": ["rank_momentum"] }]
+      },
+      "baseline": { "quantScore": 78, "breakdown": { "momentum": 91 } },
+      "enriched": {
+        "quantScore": 78,
+        "breakdown": { "momentum": 91 },
+        "primaryFacts": [{ "id": "raw_momentum_3m", "label": "Three-month price return", "value": -0.04, "unit": "decimal", "source": "exchange price history" }]
+      }
+    },
+    {
+      "agentId": "agent-3",
+      "candidate": { "ticker": "MU", "sector": "Technology", "industry": "Semiconductors" },
+      "proposal": {
+        "action": "BUY",
+        "thesis": "MU has a documented revenue catalyst from its latest filing.",
+        "claimedBusinessFamily": "technology",
+        "evidenceCitations": [{ "claim": "MU has a documented revenue catalyst from its latest filing.", "evidence_ids": ["filing_1"] }]
+      },
+      "baseline": { "quantScore": 80, "breakdown": { "revenueGrowth": 88 } },
+      "enriched": {
+        "quantScore": 80,
+        "breakdown": { "revenueGrowth": 88 },
+        "recentFilings": [{ "form": "10-Q", "filed": "2026-07-01", "description": "Quarterly report" }],
+        "primaryFacts": [{ "id": "raw_revenue_growth", "label": "Revenue growth", "value": 0.18, "unit": "decimal", "source": "company filing" }]
+      }
+    }
+  ]
+}
