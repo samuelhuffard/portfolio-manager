@@ -7,7 +7,8 @@ import { fetchFundamentals, fetchFundamentalsBatch, fetchDailyBars, fetchQuotes,
 import { scoreCandidates } from "../lib/quant-scorer.js";
 import { rsi, atr, avgDailyDollarVolume, weeklyVolatility, classifySubVertical } from "../lib/indicators.js";
 import { evaluateDataGates } from "../lib/data-gates.js";
-import { screenCatalogForAgent } from "../lib/mandate-catalog-screen.js";
+import { evaluateMandateBusinessEligibility, screenCatalogForAgent } from "../lib/mandate-catalog-screen.js";
+import { assessEvidenceQuality, buildTechnicalFactPacket } from "../lib/evidence-quality-policy.js";
 import { assembleEntrySignals, assessConviction } from "../lib/conviction.js";
 import { tavilySearch } from "../lib/tavily.js";
 import { fetchRecentFilings } from "../lib/edgar.js";
@@ -362,6 +363,51 @@ function makeDateWindow(now = new Date()) {
   return { now, threeMonthsAgo, oneMonthAgo, eightMonthsAgo };
 }
 
+function toIsoTimestamp(value) {
+  if (value == null || value === "") return null;
+  const numeric = typeof value === "number" ? value : Number(value);
+  const parsed = Number.isFinite(numeric)
+    ? new Date(numeric < 10_000_000_000 ? numeric * 1000 : numeric)
+    : new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
+}
+
+function sourcedFact(id, label, value, unit, source) {
+  if (value == null || value === "" || (typeof value === "number" && !Number.isFinite(value))) return null;
+  return { id, kind: "raw_fact", label, value, unit, source };
+}
+
+function buildCandidateFactEvidence(candidate) {
+  const raw = candidate.raw ?? {};
+  const facts = [
+    sourcedFact("raw_current_price", "Current price", raw.price?.regularMarketPrice, "USD", "Yahoo quote"),
+    sourcedFact("raw_trailing_pe", "Trailing P/E", raw.summaryDetail?.trailingPE, "multiple", "Yahoo fundamentals"),
+    sourcedFact("raw_forward_pe", "Forward P/E", raw.summaryDetail?.forwardPE, "multiple", "Yahoo fundamentals"),
+    sourcedFact("raw_trailing_eps", "Trailing EPS", raw.defaultKeyStatistics?.trailingEps, "USD per share", "Yahoo fundamentals"),
+    sourcedFact("raw_forward_eps", "Forward EPS", raw.defaultKeyStatistics?.forwardEps, "USD per share", "Yahoo fundamentals"),
+    sourcedFact("raw_revenue_growth", "Revenue growth", raw.financialData?.revenueGrowth, "decimal", "Yahoo fundamentals"),
+    sourcedFact("raw_earnings_growth", "Earnings growth", raw.financialData?.earningsGrowth, "decimal", "Yahoo fundamentals"),
+    sourcedFact("raw_gross_margin", "Gross margin", raw.financialData?.grossMargins, "decimal", "Yahoo fundamentals"),
+    sourcedFact("raw_profit_margin", "Profit margin", raw.financialData?.profitMargins, "decimal", "Yahoo fundamentals"),
+    sourcedFact("raw_free_cash_flow", "Free cash flow", raw.financialData?.freeCashflow, "USD", "Yahoo fundamentals"),
+    sourcedFact("raw_momentum_3m", "Three-month price return", candidate.momentum3m, "decimal", "Yahoo daily bars"),
+    sourcedFact("raw_momentum_1m", "One-month price return", candidate.momentum1m, "decimal", "Yahoo daily bars"),
+    sourcedFact("raw_rsi_14", "14-session RSI", candidate.rsi, "index_0_to_100", "Yahoo daily bars"),
+    sourcedFact("raw_average_daily_dollar_volume", "Average daily dollar volume", candidate.avgDollarVolume, "USD", "Yahoo daily bars"),
+  ];
+  const technical = candidate.technicalFacts ?? {};
+  if (technical.currentPrice?.status === "available") {
+    facts.push(sourcedFact("technical_current_price", "Timestamped current price", technical.currentPrice.value, "USD", "Yahoo quote"));
+  }
+  if (technical.sma200?.status === "available") {
+    facts.push(sourcedFact("technical_sma_200", "200-session simple moving average", technical.sma200.value, "USD", "Yahoo daily bars"));
+  }
+  if (technical.high52Week?.status === "available") {
+    facts.push(sourcedFact("technical_high_52_week", "52-week high", technical.high52Week.value, "USD", "Yahoo daily bars"));
+  }
+  return facts.filter(Boolean);
+}
+
 /**
  * Builds one research candidate from a fetched fundamentals record: one daily-bar
  * fetch covers momentum, RSI, ATR, weekly vol, and ADDV (replaces the prior two
@@ -376,6 +422,13 @@ async function buildCandidate(f, riskLimits, { now, threeMonthsAgo, oneMonthAgo,
   const lastBarDate = bars.length ? bars[bars.length - 1].date : null;
   const addv = avgDailyDollarVolume(bars, 30);
   const marketCap = f.raw?.price?.marketCap ?? f.raw?.summaryDetail?.marketCap ?? null;
+  const quoteTimestamp = toIsoTimestamp(f.raw?.price?.regularMarketTime);
+  const technicalFacts = buildTechnicalFactPacket({
+    bars,
+    price: f.raw?.price?.regularMarketPrice ?? null,
+    priceTimestamp: quoteTimestamp,
+    asOf: lastBarDate,
+  });
 
   const dataGate = evaluateDataGates(
     {
@@ -396,6 +449,7 @@ async function buildCandidate(f, riskLimits, { now, threeMonthsAgo, oneMonthAgo,
   return {
     ...f,
     sector: f.sector ?? f.raw?.assetProfile?.sector ?? null,
+    industry: f.industry ?? f.raw?.assetProfile?.industry ?? null,
     subVertical: classifySubVertical(f),
     momentum3m: percentChange(closesSince(threeMonthsAgo)),
     momentum1m: percentChange(closesSince(oneMonthAgo)),
@@ -405,6 +459,7 @@ async function buildCandidate(f, riskLimits, { now, threeMonthsAgo, oneMonthAgo,
     avgDollarVolume: addv,
     marketCap,
     lastBarDate,
+    technicalFacts,
     dataGate,
   };
 }
@@ -577,6 +632,14 @@ async function reviewCandidateForAgent(agent, c, ctx) {
   }
   const safeNews = newsScan.items;
   const safeScanSignals = scanSignalScan.items;
+  const newsQuality = assessEvidenceQuality(safeNews);
+  const newsForProposal = safeNews.map((item, index) => ({
+    ...item,
+    // Keep context-only reporting visible to the model as fenced context, but
+    // prohibit it from entering the typed evidence ledger as thesis support.
+    thesisSupport: newsQuality[index]?.support === true,
+    sourceQualityReasons: newsQuality[index]?.reasons ?? [],
+  }));
 
   // Optional Athena dossier (lib/athena.js): a second, locally-run research
   // system's read on this ticker. Config-gated off by default; fetched fresh
@@ -618,7 +681,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     name: c.name,
     quantScore: c.quantScore,
     breakdown: c.breakdown,
-    news: safeNews,
+    news: newsForProposal,
     strategyNotes: ctx.strategyNotes,
     isHeld: ctx.holdingTickers.includes(c.ticker),
     nextEarningsDate: c.nextEarningsDate,
@@ -635,9 +698,25 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     // so it belongs in the user message, never the cached system block.
     researchHistory: formatResearchHistoryForPrompt(ctx.researchLedger[c.ticker]),
     boundaryToken: ctx.boundaryToken,
+    factEvidence: buildCandidateFactEvidence(c),
   };
-  const proposal = await callGeneratorForAgent(agent.id, overlayInput, ctx);
+  let proposal = await callGeneratorForAgent(agent.id, overlayInput, ctx);
   const generatorAction = proposal.action;
+  const preflightNotes = [];
+  if (proposal.evidenceValidation && !proposal.evidenceValidation.valid) {
+    preflightNotes.push(`evidence_preflight: ${proposal.evidenceValidation.issues.join("; ")}`);
+  }
+  if (proposal.action !== "HOLD") {
+    const businessEligibility = evaluateMandateBusinessEligibility({
+      agentId: agent.id,
+      candidate: c,
+      claimedBusinessFamily: proposal.claimedBusinessFamily,
+    });
+    if (!businessEligibility.eligible) {
+      preflightNotes.push(`${businessEligibility.reasonCode}: ${businessEligibility.reason}`);
+      proposal = { ...proposal, action: "HOLD", targetWeight: 0 };
+    }
+  }
   if (proposal.suspectEvidence?.length) {
     ctx.evidenceFlags.push({ kind: `model:${c.ticker}`, reasons: proposal.suspectEvidence });
     console.error(`[Evidence] ${agent.id}: model flagged suspect evidence for ${c.ticker}: ${proposal.suspectEvidence.join("; ")}`);
@@ -658,6 +737,9 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     insiderActivity: c.insiderActivity ?? null,
   };
   let rec = applyConvictionClamp(applyRiskChecks(proposal, riskContext, riskLimits), agent, c, riskLimits);
+  if (preflightNotes.length) {
+    rec = { ...rec, overrideNotes: [...preflightNotes, ...(rec.overrideNotes ?? [])] };
+  }
   let riskOverridden = generatorAction !== "HOLD" && rec.action === "HOLD";
 
   // Circuit-breaker pre-gate: don't spend evaluator tokens on an action the

@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { screenCatalogForAgent } from "../lib/mandate-catalog-screen.js";
+import {
+  evaluateMandateBusinessEligibility,
+  observedBusinessFamily,
+  screenCatalogForAgent,
+} from "../lib/mandate-catalog-screen.js";
 
 function candidate(overrides = {}) {
   return {
@@ -64,4 +68,56 @@ test("missing critical catalog facts fail closed with stable reason codes", () =
     screenCatalogForAgent("agent-3", [candidate({ avgDollarVolume: null })]).rejected[0].reasonCode,
     "avg_dollar_volume_unavailable"
   );
+});
+
+test("a financial-services company cannot be described as Agent One technology because of a sub-vertical label", () => {
+  const dave = candidate({
+    ticker: "DAVE",
+    sector: "Financial Services",
+    industry: "Banks - Regional",
+    // This is an old convenience label, not admissible classification evidence.
+    subVertical: "Tech-Adjacent High-Growth",
+  });
+
+  assert.deepEqual(observedBusinessFamily(dave), {
+    family: "financial_services",
+    sourceFields: ["sector", "industry"],
+  });
+  const result = evaluateMandateBusinessEligibility({
+    agentId: "agent-1",
+    candidate: dave,
+    claimedBusinessFamily: "technology",
+  });
+  assert.equal(result.eligible, false);
+  assert.equal(result.reasonCode, "business_family_claim_mismatch");
+  assert.equal(result.classification.family, "financial_services");
+});
+
+test("the sector-agnostic mandates retain eligible discovery for every observed business family", () => {
+  const bank = candidate({ ticker: "BANK", sector: "Financial Services", industry: "Banks - Regional" });
+  const software = candidate({ ticker: "SOFT", sector: "Technology", industry: "Software - Application" });
+
+  for (const agentId of ["agent-1", "agent-2", "agent-3"]) {
+    const bankResult = evaluateMandateBusinessEligibility({ agentId, candidate: bank });
+    assert.equal(bankResult.eligible, true, `${agentId} bank discovery`);
+    assert.equal(bankResult.reasonCode, "business_family_observed");
+
+    const softwareResult = evaluateMandateBusinessEligibility({
+      agentId,
+      candidate: software,
+      claimedBusinessFamily: "technology",
+    });
+    assert.equal(softwareResult.eligible, true, `${agentId} technology claim`);
+    assert.equal(softwareResult.classification.family, "technology");
+  }
+});
+
+test("a business-family claim fails closed when classification evidence is absent", () => {
+  const result = evaluateMandateBusinessEligibility({
+    agentId: "agent-2",
+    candidate: candidate({ sector: null, industry: null }),
+    claimedBusinessFamily: "technology",
+  });
+  assert.equal(result.eligible, false);
+  assert.equal(result.reasonCode, "business_family_unverifiable");
 });

@@ -388,7 +388,7 @@ consecutive safety-day decision.
 
 ## Exit evidence summary
 
-- Consecutive clean trading days: **0 / 10**
+- Consecutive clean trading days: **0 / 5**
 - Genuine actionable proposals: **0 / 3 required during the window**
 - Evaluator approvals: **0 / 1 required during the window**
 - Filled trades during this observation window: **0**

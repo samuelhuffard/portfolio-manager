@@ -4,7 +4,7 @@ import { parseEvaluatorResponse, resolveFinalVerdict } from "../lib/evaluator.js
 
 test("parses a valid APPROVE response", () => {
   const result = parseEvaluatorResponse(
-    JSON.stringify({ verdict: "APPROVE", critique: ["thesis matches the data"], numericSpotCheck: "pass", suspectEvidence: [] })
+    JSON.stringify({ verdict: "APPROVE", critique: ["thesis matches the data"], evidenceSupportCheck: "pass", numericSpotCheck: "pass", suspectEvidence: [] })
   );
   assert.equal(result.verdict, "APPROVE");
   assert.equal(result.parseError, false);
@@ -12,7 +12,7 @@ test("parses a valid APPROVE response", () => {
 
 test("extracts JSON even when wrapped in commentary", () => {
   const result = parseEvaluatorResponse(
-    'Here is my review:\n{"verdict":"REVISE","critique":["kill criteria are vague"],"numericSpotCheck":"pass","suspectEvidence":[]}\nThanks!'
+    'Here is my review:\n{"verdict":"REVISE","critique":["kill criteria are vague"],"evidenceSupportCheck":"pass","numericSpotCheck":"pass","suspectEvidence":[]}\nThanks!'
   );
   assert.equal(result.verdict, "REVISE");
   assert.deepEqual(result.critique, ["kill criteria are vague"]);
@@ -36,8 +36,21 @@ test("fails CLOSED on null/empty input (max_tokens truncation path)", () => {
 });
 
 test("invalid numericSpotCheck value degrades to fail, not pass", () => {
-  const result = parseEvaluatorResponse(JSON.stringify({ verdict: "APPROVE", critique: [], numericSpotCheck: "looks ok" }));
+  const result = parseEvaluatorResponse(JSON.stringify({ verdict: "APPROVE", critique: [], evidenceSupportCheck: "pass", numericSpotCheck: "looks ok" }));
   assert.equal(result.numericSpotCheck, "fail");
+  assert.equal(result.verdict, "REJECT");
+});
+
+test("contradictory evaluator APPROVE with failed evidence support fails closed", () => {
+  const result = parseEvaluatorResponse(JSON.stringify({ verdict: "APPROVE", critique: ["unsupported P/E"], evidenceSupportCheck: "fail", numericSpotCheck: "pass" }));
+  assert.equal(result.verdict, "REJECT");
+  assert.equal(result.evidenceSupportCheck, "fail");
+});
+
+test("missing evidenceSupportCheck cannot approve an unsupported proposal", () => {
+  const result = parseEvaluatorResponse(JSON.stringify({ verdict: "APPROVE", critique: [], numericSpotCheck: "pass" }));
+  assert.equal(result.verdict, "REJECT");
+  assert.equal(result.evidenceSupportCheck, "fail");
 });
 
 test("non-string critique/suspectEvidence entries are dropped and capped at 5", () => {

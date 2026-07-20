@@ -167,6 +167,33 @@ behavioral class is. Undocumented production drift invalidates the affected day.
   scheduled signed observer. An all-degraded holding-monitor run cannot count as
   a TRUST pass.
 
+### Declared 2026-07-20: Evidence-bound proposal quality release
+
+**Phase label: SKILL · Change class: R1 · Status: released for supervised observation**
+
+This release addresses concrete proposal-quality failures observed in retained
+research: unsupported numeric claims, rank scores described as raw financial
+metrics, promotional material treated as thesis evidence, and a stale business
+classification that described a financial company as a technology company.
+
+- Every actionable thesis sentence must cite a typed, supplied fact. Normalized
+  ranks are explicitly distinct from raw facts; missing or invented citations
+  downgrade the recommendation to HOLD.
+- Promotional, sponsored, social, and opinion material remains visible as
+  context but cannot support an actionable thesis. Technical claims now carry
+  a timestamped price/SMA/52-week fact packet or are explicitly unavailable.
+- A deterministic sector/industry business-family check blocks a non-HOLD call
+  whose claimed business is inconsistent with observed classification. It does
+  not shrink any mandate's discovery universe.
+- The evaluator cannot approve an actionable recommendation unless the evidence
+  support and numeric spot checks pass.
+
+This is an R1 research-and-evaluator quality change. It does not alter approval,
+signature, execution, position limits, ledger authority, or the observer's
+TRUST semantics. It starts a fresh SKILL evidence cohort; because the already
+planned July 20 release day cannot count, July 21 remains the earliest possible
+Phase 0 Day 1.
+
 ## 6. Immediate gate-closing release — Phase G0
 
 **Phase label: BOTH · Status: complete · Owner: systems owner + independent reviewer**
