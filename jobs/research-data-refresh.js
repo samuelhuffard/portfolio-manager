@@ -196,6 +196,38 @@ export async function runResearchDataRefresh({
   }
 }
 
+/**
+ * Scheduled owner for the nightly catalog refresh.
+ *
+ * The enriched research-data workflow is optional, but the broad universe
+ * catalog is not: research scans depend on it even when peer metrics are
+ * disabled or not yet fully configured. When every prerequisite is present,
+ * runResearchDataRefresh owns the universe stage so it is performed exactly
+ * once. Otherwise publish the bounded disabled/not-configured state and refresh
+ * only the universe catalog.
+ */
+export async function runScheduledResearchDataRefresh({
+  env = process.env,
+  redis = getRedis(),
+  pool,
+  codeRevision,
+  durableStoreConfigured = researchStoreConfigured,
+  refreshUniverse = runUniverseRefresh,
+  runFullRefresh = runResearchDataRefresh,
+  writeStatus = (status) => setResearchDataStatus(status, { redis }),
+} = {}) {
+  const prerequisite = researchDataPrerequisite({ env, redis, pool, codeRevision, durableStoreConfigured });
+  if (prerequisite.enabled) {
+    return runFullRefresh({ env, redis, pool, codeRevision, durableStoreConfigured });
+  }
+
+  const status = { state: prerequisite.state, reason: prerequisite.reason };
+  if (redis) await writeStatus(status);
+  console.log(`[ResearchData] ${prerequisite.state} — ${prerequisite.reason}; refreshing universe catalog only.`);
+  const universe = await refreshUniverse({ strictPeerMetrics: false });
+  return { ...status, universe };
+}
+
 if (fileURLToPath(import.meta.url) === process.argv[1]) {
   runResearchDataRefresh().catch((error) => {
     console.error("[ResearchData] Failed:", error.message);

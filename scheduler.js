@@ -9,7 +9,7 @@ import { runLedgerVerification } from "./scripts/verify-ledgers.js";
 import { runWeeklyReview } from "./jobs/weekly-review.js";
 import { runInvestorWeeklyUpdate } from "./jobs/investor-weekly-update.js";
 import { runSystemSentinel } from "./jobs/system-sentinel.js";
-import { runResearchDataRefresh } from "./jobs/research-data-refresh.js";
+import { runScheduledResearchDataRefresh } from "./jobs/research-data-refresh.js";
 import { requestMcpHoldingsSync, requestMcpOrderReconciliation } from "./jobs/mcp-read-requests.js";
 import { runDailyDbParityCheck } from "./jobs/db-parity-check.js";
 import { refreshShadowPositions } from "./scripts/refresh-shadow-positions.js";
@@ -216,12 +216,14 @@ cron.schedule("0 18 * * 1-5", wrapJob("verify-ledgers", "Verify", async () => {
 // Runs last so it can see whether today's whole pipeline actually ran.
 cron.schedule("15 18 * * 1-5", wrapJob("system-sentinel", "Sysloop", runSystemSentinel, sentinelAt("18:15")), TZ);
 
-// ── Advisory research-data refresh (7:30 PM ET weeknights) ───────────────────
-// One locked, ordered workflow: universe refresh → peer distributions →
-// deterministic mandate scoring. It is entirely off the proposal/ledger/broker
-// path and self-disables until both peer-metric flags and Redis are configured.
-// The individual scripts remain available as diagnostics only.
-cron.schedule("30 19 * * 1-5", wrapJob("research-data-refresh", "ResearchData", runResearchDataRefresh), TZ);
+// ── Universe + advisory research-data refresh (7:30 PM ET weeknights) ────────
+// The broad universe catalog always refreshes. When the optional research-data
+// prerequisites are enabled, its one locked workflow owns that universe stage
+// before peer distributions and deterministic mandate scoring. Otherwise the
+// scheduler runs only the catalog refresh. Both paths stay off the
+// proposal/ledger/broker path, and either path fails the scheduled receipt
+// loudly when its owned refresh fails.
+cron.schedule("30 19 * * 1-5", wrapJob("research-data-refresh", "ResearchData", runScheduledResearchDataRefresh), TZ);
 
 // ── Postgres shadow parity (8:00 PM ET, daily) ──────────────────────────────
 // Sheets/Redis remain authoritative. Missing sources and mismatches fail this
@@ -266,7 +268,7 @@ console.log(
   "pre-market 8:30 AM | opening 9:35 AM | reconciliation 4:40 PM | " +
   "intraday every 30 min 10 AM–3:30 PM | pre-close 3:50 PM | exit monitor 4:45 PM | " +
   "research scan 5:15 PM | perf review 5:45 PM | ledger verify 6:00 PM | " +
-  "system sentinel 6:15 PM | advisory research-data refresh 7:30 PM (Mon-Fri, ET; gated) | " +
+  "system sentinel 6:15 PM | universe refresh 7:30 PM (Mon-Fri, ET; enriched workflow gated) | " +
   "holdings sync 9:30 AM/11 AM/1 PM/3 PM/4:30 PM | exit/research Sun-Thu | " +
   "weekly review Fri 6:30 PM ET | investor update Fri 6:45 PM ET | " +
   "shadow parity 8:00 PM daily | final sentinel 8:10 PM weekdays | Phase 0 observer 8:20 PM weekdays"

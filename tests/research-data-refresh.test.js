@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { runResearchDataRefresh } from "../jobs/research-data-refresh.js";
+import { runResearchDataRefresh, runScheduledResearchDataRefresh } from "../jobs/research-data-refresh.js";
 
 const enabledEnv = {
   PEER_METRICS_ENABLED: "1",
@@ -191,6 +191,91 @@ test("research-data refresh stays disabled without prerequisites and treats over
   assert.deepEqual(skipped, { state: "skipped", reason: "locked" });
   assert.notEqual(skipped.state, "completed");
   assert.equal(lockedStatuses.length, 0);
+});
+
+test("scheduled research-data job refreshes the universe when peer metrics are disabled", async () => {
+  const statuses = [];
+  const calls = [];
+  const result = await runScheduledResearchDataRefresh({
+    env: {},
+    redis: fakeRedis(),
+    writeStatus: async (status) => statuses.push({ ...status }),
+    runFullRefresh: async () => { calls.push("full"); },
+    refreshUniverse: async (options) => {
+      calls.push(["universe", options]);
+      return { state: "ok", cataloged: 4_321 };
+    },
+  });
+
+  assert.deepEqual(calls, [["universe", { strictPeerMetrics: false }]]);
+  assert.deepEqual(statuses, [{ state: "disabled", reason: "peer_metrics_disabled" }]);
+  assert.equal(result.state, "disabled");
+  assert.equal(result.reason, "peer_metrics_disabled");
+  assert.equal(result.universe.cataloged, 4_321);
+});
+
+test("scheduled research-data job refreshes the universe when the optional workflow is not configured", async () => {
+  const statuses = [];
+  let fullCalls = 0;
+  let universeCalls = 0;
+  const result = await runScheduledResearchDataRefresh({
+    env: enabledEnv,
+    redis: fakeRedis(),
+    durableStoreConfigured: () => false,
+    writeStatus: async (status) => statuses.push({ ...status }),
+    runFullRefresh: async () => { fullCalls++; },
+    refreshUniverse: async () => {
+      universeCalls++;
+      return { state: "ok", cataloged: 4_567 };
+    },
+  });
+
+  assert.equal(fullCalls, 0);
+  assert.equal(universeCalls, 1);
+  assert.deepEqual(statuses, [{
+    state: "not_configured",
+    reason: "durable_research_store_not_configured",
+  }]);
+  assert.equal(result.state, "not_configured");
+  assert.equal(result.universe.cataloged, 4_567);
+});
+
+test("enabled scheduled research-data workflow owns the universe refresh exactly once", async () => {
+  const calls = [];
+  const result = await runScheduledResearchDataRefresh({
+    env: enabledEnv,
+    redis: fakeRedis(),
+    pool: {},
+    durableStoreConfigured: () => true,
+    runFullRefresh: async (options) => {
+      calls.push(["full", options]);
+      return { state: "completed", cataloged: 4_789 };
+    },
+    refreshUniverse: async () => { calls.push(["fallback-universe"]); },
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], "full");
+  assert.equal(calls[0][1].env, enabledEnv);
+  assert.ok(calls[0][1].redis);
+  assert.deepEqual(calls[0][1].pool, {});
+  assert.equal(result.state, "completed");
+  assert.equal(result.cataloged, 4_789);
+});
+
+test("scheduled catalog-only refresh failures remain observable to the scheduler wrapper", async () => {
+  const statuses = [];
+  await assert.rejects(
+    runScheduledResearchDataRefresh({
+      env: {},
+      redis: fakeRedis(),
+      writeStatus: async (status) => statuses.push({ ...status }),
+      refreshUniverse: async () => { throw new Error("listing source unavailable"); },
+      runFullRefresh: async () => { throw new Error("full workflow must remain disabled"); },
+    }),
+    /listing source unavailable/,
+  );
+  assert.deepEqual(statuses, [{ state: "disabled", reason: "peer_metrics_disabled" }]);
 });
 
 test("research-data refresh preserves a missing shadow baseline as not configured", async () => {
