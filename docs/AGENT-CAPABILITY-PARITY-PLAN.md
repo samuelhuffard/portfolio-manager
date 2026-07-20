@@ -184,6 +184,42 @@ The release should contain these items together:
 12. **Per-agent rollback switches.** Candidate-bus activation must be reversible
     independently for Agent 2 and Agent 3 without weakening the human approval,
     risk, ledger, or observer boundaries.
+13. **Catalog-readiness census.** Before calling discovery “broad,” record the
+    total listed catalog, valid operating common equities, quoted names,
+    sector/industry-classified names, market-cap/liquidity-covered names, stale
+    names, and unsupported names. If the usable catalog is narrow or materially
+    stale, the new selector remains shadow-only and the observation says why.
+14. **Fair research-capacity allocation.** The scheduled scan currently shares
+    one run budget and processes Agent 1 before Agents 2 and 3. The release must
+    either reserve a tested minimum opportunity for each agent or interleave
+    expensive reviews so an evaluator-heavy Agent 1 cannot starve later agents.
+    Record starting capacity, actual cost, protected-capacity use, and every
+    denial by agent. Do not solve this by simply raising the budget.
+15. **Preregistered release comparison.** Before seeing post-release results,
+    freeze a short addendum to `proposal-quality-measurement-v1` naming the old
+    and new candidate-policy versions, affected agent cohorts, primary process
+    measurement, diagnostic measurements, degradation guardrails, minimum
+    sample, two-week observation period, and keep/revise/rollback rule.
+16. **Frozen old-policy control slate.** For every new-policy run, compute the
+    prior fixed-watchlist/rotation slate in shadow without additional model
+    calls. Store selected and displaced lineage so the system can later compare
+    breadth, novelty, evidence quality, and opportunity cost instead of relying
+    on impressions.
+17. **Per-agent cost and latency telemetry.** Report generator/evaluator calls,
+    cache hit state, tokens, actual cost, median/p90 latency, and budget denials
+    separately for each agent. The broader system is not equal if one mandate
+    routinely receives slower, degraded, or cheaper analysis.
+18. **Shadow evaluator-quality diagnostics.** Record failed numeric spot checks,
+    internal contradictions, suspect-evidence flags, revision conversions, and
+    evaluator errors. Keep the future stricter admission policy disabled for
+    this release; observe what it would have blocked before granting it live
+    authority.
+19. **One daily cohort report.** Produce an aggregate-safe report after the
+    observer closes showing each agent separately: discovery coverage, funnel
+    conservation, capacity/cost, near misses, proposals, evaluator outcomes,
+    Sam disposition when applicable, holding coverage, degradation, and cohort
+    version. Unknown and zero denominators remain explicit rather than rendering
+    as healthy zeroes.
 
 ### Stretch items only if complete before the release cutoff
 
@@ -196,6 +232,12 @@ The release should contain these items together:
 - Add a shadow-only Agent 1/2/3 comparison over the same catalog snapshot,
   measuring selection overlap, sector concentration, evidence age, novelty, and
   displaced candidates without affecting the live slate.
+- Add an append-only lineage sidecar from any created proposal ID to its
+  research-run, candidate, evidence-snapshot, and policy-version identities,
+  provided it does not alter the signed proposal payload or execution contract.
+- Persist a deterministic audit sample of screen rejections—with source fields
+  and reason codes, but no model call—to detect a screen that accidentally
+  excludes an entire valid sector or market-cap band.
 
 Do not squeeze these into the release if they require guessed thresholds,
 unversioned data, or prompt-only substitutes.
@@ -223,6 +265,12 @@ The release is **go** only if:
 - a secret scan is clean;
 - shadow/canary runs show all three agents consume the intended catalog and
   produce conserved funnel counts;
+- catalog census proves the usable cohort is broad enough to justify live
+  activation rather than merely large in raw listing count;
+- the old-policy control slate and preregistered comparison addendum are frozen
+  before post-release results are inspected;
+- a budget-pressure fixture proves Agent 1 cannot consume the opportunity
+  reserved for Agents 2 and 3;
 - no proposal is created during canary unless it is a genuine organic proposal,
   in which case Sam's personal review and signature remain mandatory;
 - budget readiness, protected evaluator/holding capacity, health, logs, Redis,
