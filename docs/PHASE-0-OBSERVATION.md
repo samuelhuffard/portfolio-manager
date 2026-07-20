@@ -340,6 +340,23 @@ execution heartbeat (20 seconds old at verification). The scheduled scan and
 signed observer must still supply organic per-agent and daily evidence; this
 deployment record does not manufacture those future receipts.
 
+### Evidence-bound proposal quality production proof — 2026-07-20 ET (R1)
+
+- Backend behavior release `51c78cad22c935875a6275a4b9d82c4a5dfc7b26` was
+  pushed without force to both `mandate-v3` and `main`; the Jetson fast-forwarded
+  to that exact behavior revision and independently passed **866/866** tests.
+- The signed deployment wrapper recorded one contiguous restart edge, `59→60`.
+  Local health returned 200 with Redis, Sheets authentication, Anthropic key,
+  webhook secret, and Telegram all true.
+- The immediate sentinel reported no P0/P1 anomalies. Its one P2 is the known
+  expired legacy/test proposal inventory; its ten P3 findings are stale
+  documentation references. Neither represents a newly introduced runtime or
+  investment-control failure.
+- This is the R1 evidence-quality cohort declared in the master plan: it does
+  not change approval, signing, execution, money movement, holding limits, or
+  observer TRUST semantics. The scheduled workflow must still generate the
+  organic evidence; this deployment record is not a proposal or a counted day.
+
 ## Daily evidence checklist
 
 After the market close, record the evidence rather than a subjective status.
