@@ -24,4 +24,4 @@ Do not restore a TOTP secret or use cached Robinhood sessions: this account uses
 
 ## Next Step
 
-Begin the 10-trading-day Phase 0 observation window on the next clean trading day. Review MCP receipts, companion/Jetson logs, and daily parity evidence; do not grant Agent 4 authority or cut canonical reads to Postgres.
+Begin the five-trading-day Phase 0 supervised-workflow observation window on the next clean trading day. Review MCP receipts, companion/Jetson logs, and daily parity evidence; retain the separate requirement for three genuine actionable proposals and one evaluator approval, and do not grant Agent 4 authority or cut canonical reads to Postgres.
