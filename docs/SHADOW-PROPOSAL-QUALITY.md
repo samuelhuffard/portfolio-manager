@@ -29,3 +29,11 @@ momentum confusion (SNDK), and an adequately sourced filing claim (MU).
 Use the report during observation to distinguish a genuine investment HOLD from
 an evidence-limited candidate. Any future packet change remains local until its
 separate review and deployment decision; it must not be slipped into Phase 0.
+
+## One-off fresh-data MU test
+
+`npm run proposal:shadow:mu` fetches current MU market data and recent SEC
+filing metadata, then makes at most one generator and one independent evaluator
+model call. It prints the result locally and has no Redis, Sheets, proposal
+queue, approval, signature, or execution import. It is not a scheduled job and
+does not count as Phase 0 evidence.

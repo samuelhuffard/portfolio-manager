@@ -52,3 +52,18 @@ test("shadow replay marks a fully cited, correctly classified proposal review-re
     audited: 1, actionable: 1, reviewReady: 1, blocked: 0, notActionable: 0, addedEvidence: 1, contextOnlyNews: 0,
   });
 });
+
+test("a HOLD is not reported as rank misuse because no actionable claim can proceed", () => {
+  const audit = auditProposalQualityShadow({
+    agentId: "agent-2",
+    candidate: { ticker: "SNDK", sector: "Technology", industry: "Semiconductors" },
+    proposal: {
+      action: "HOLD",
+      thesis: "Momentum rank is 91 but the raw return is unavailable.",
+      evidenceCitations: [{ claim: "Momentum rank is 91 but the raw return is unavailable.", evidence_ids: ["rank_momentum"] }],
+    },
+    enriched: { breakdown: { momentum: 91 } },
+  });
+  assert.equal(audit.disposition, "not_actionable");
+  assert.deepEqual(audit.rankMisuse, []);
+});
