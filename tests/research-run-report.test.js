@@ -13,6 +13,7 @@ import {
   summarizeResearchRunQuality,
 } from "../lib/research-run-report.js";
 import { readFileSync } from "node:fs";
+import { blankResearchFunnel, recordCandidateBuild, recordResearchReview } from "../lib/research-funnel.js";
 
 function facts(overrides = {}) {
   return {
@@ -100,6 +101,21 @@ test("versioned status reports aggregate counts without private text", () => {
   assert.equal(report.totals.outcomeCounts.proposal_created, 1);
   assert.equal("rationale" in report, false);
   assert.match(formatResearchRunReport(report), /2 attempted/);
+});
+
+test("versioned funnel data is allow-listed and reconciles to deep reviews", () => {
+  let funnel = blankResearchFunnel({ cataloged: 4511, discovery: { visible: 2613, eligible: 900, screenedOut: 1713, counts: { ranked: 17, exploration: 3 } }, fundamentalsRequested: 20 });
+  funnel = recordCandidateBuild(funnel, { fundamentalsAvailable: 16, candidatesBuilt: 16, freshScreenPassed: 12, freshScreenRejected: 4, mandatoryHoldingOverrides: 0 });
+  funnel = recordResearchReview(funnel, { generatorAction: "HOLD" });
+  funnel = recordResearchReview(funnel, { generatorAction: "BUY", evaluatorState: "approved", proposalDisposition: "created" });
+  const report = buildResearchRunReport({
+    runId: "funnel-run",
+    status: "completed",
+    agents: [{ agentId: "agent-1", classificationVersion: RESEARCH_OUTCOME_VERSION, attemptedReviews: 2, outcomeCounts: { ...blankOutcomeCounts(), investment_hold: 1, proposal_created: 1 }, funnel: { ...funnel, privateTicker: "NVDA" } }],
+  });
+  assert.equal(report.agents[0].funnel.cataloged, 4511);
+  assert.equal(report.agents[0].funnel.proposalCreated, 1);
+  assert.equal("privateTicker" in report.agents[0].funnel, false);
 });
 
 test("quality summary separates investment judgments from data and system degradation", () => {
