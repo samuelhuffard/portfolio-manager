@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { normalizeLine, fingerprintLine, clusterLogLines } from "../lib/sysloop/fingerprint.js";
+import { normalizeLine, fingerprintLine, clusterLogLines, isKnownYahooValidationNoise } from "../lib/sysloop/fingerprint.js";
 import {
   checkPm2, checkHealthDeps, checkJobFreshness, checkDashboard, checkApprovalsFlow,
   checkCompanionHeartbeat, checkRedisQueue, checkProposalLifecycle, checkSheetsSchema,
@@ -100,6 +100,17 @@ test("clusterLogLines groups and counts", () => {
   ]);
   assert.equal(clusters.length, 2);
   assert.equal(clusters[0].count, 2);
+});
+
+test("Yahoo validation notice clusters are provider degradation, never P1 growth", () => {
+  const clusters = clusterLogLines(Array.from({ length: 12 }, () => "The following result did not validate with schema: #/definitions/QuoteSummaryResult"));
+  assert.equal(isKnownYahooValidationNoise(clusters[0].exemplar), true);
+  const out = checkLogClusters({
+    clusters: clusters.map((cluster) => ({ ...cluster, count: 12 })),
+    prevClusters: clusters.map((cluster) => ({ fingerprint: cluster.fingerprint, count: 2 })),
+  });
+  assert.equal(out[0].severity, "P2");
+  assert.match(out[0].title, /Yahoo provider-data degradation/);
 });
 
 // ── fail-closed on unavailable inputs ────────────────────────────────────────

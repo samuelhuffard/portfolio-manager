@@ -12,6 +12,11 @@ test("Yahoo text failures are whitespace-normalized and bounded", () => {
   assert.ok(summarizeYahooError("x".repeat(400)).length <= 240);
 });
 
+test("Yahoo schema notices collapse to one bounded provider error", () => {
+  const notice = new Error("The following result did not validate with schema: #/definitions/QuoteSummaryResult");
+  assert.equal(summarizeYahooError(notice), "Failed Yahoo Schema validation");
+});
+
 test("Yahoo non-Error objects retain useful fields instead of becoming object Object", () => {
   assert.equal(
     summarizeYahooError({ code: "ECONNRESET", status: 502, detail: "upstream closed" }),
