@@ -68,6 +68,17 @@ This register prevents executor models from inventing rules. Accepted decisions 
 
 ## Open decisions requiring Sam/investing-partner input
 
+### Q-008 — Agent 3 long-term selection policy
+
+- Rank the durable-business, valuation, balance-sheet, profitability/returns,
+  moat, capital-allocation, and momentum inputs; identify any hard
+  requirements.
+- Define the acceptable evidence for a weak-price-trend entry, valuation
+  premium, company profile, and review cadence. This must never become a
+  proposal quota.
+- **Blocks:** Agent 3's distinct shadow selection/scoring policy and any later
+  promotion beyond the current shared scoring configuration.
+
 ### Q-001 — Agent 1 balance-sheet definitions
 
 - Define `isProfitable`, `isPreProfit`, `netCash`, and `netDebtEbitda` from approved EDGAR concepts.

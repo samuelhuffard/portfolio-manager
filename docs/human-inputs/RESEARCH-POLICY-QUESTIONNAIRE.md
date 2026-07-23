@@ -186,3 +186,55 @@ evidence without pretending to know more than it does?**
 
 Your answer:
 
+
+## 7. Agent 3 long-term selection policy (Q-008)
+
+**Why this is being asked:** Agent 3 is intended to find durable compounders,
+not to repeat the short- and medium-term agents' momentum-led selection. These
+answers will define its offline shadow policy first; they will not create a
+proposal quota or relax evidence, risk, or human-approval safeguards.
+
+### 7.1 What should lead selection?
+
+**Rank these from most to least important for Agent 3: durable earnings growth,
+valuation, balance-sheet strength, profitability/returns on capital,
+competitive moat, management/capital allocation, and price momentum. Explain
+any factor that should be a hard requirement rather than a ranking input.**
+
+Your answer:
+
+
+### 7.2 Weak price trend versus a strong business
+
+**May Agent 3 recommend a company whose price trend is weak or falling when the
+business and valuation case are strong? If yes, what evidence distinguishes an
+acceptable long-term opportunity from catching a falling knife?**
+
+Your answer:
+
+
+### 7.3 Valuation discipline
+
+**Should Agent 3 consider only clearly cheap companies, or may it pay a
+reasonable premium for an exceptional compounder? Describe what would make a
+premium acceptable or unacceptable.**
+
+Your answer:
+
+
+### 7.4 Company profile and market-cap range
+
+**Should Agent 3 deliberately emphasize established large companies, mid-cap
+growers, overlooked smaller companies, or a mix? Are there sectors or company
+types it should exclude beyond the current common-equity and liquidity rules?**
+
+Your answer:
+
+
+### 7.5 What good work looks like
+
+**Over a month, what should demonstrate that Agent 3 is doing useful work: a
+few very selective proposals, regular candidate memos even when no proposal is
+warranted, or a mix? This is for review cadence only, never a proposal quota.**
+
+Your answer:
