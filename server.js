@@ -5,7 +5,7 @@ import { runResearchScan, researchTickerForAgent } from "./jobs/research-scan.js
 import { runIntradayMonitor } from "./jobs/intraday-monitor.js";
 import { listPriceAlerts, addPriceAlert, removePriceAlert } from "./lib/price-alerts.js";
 import { syncHoldings } from "./jobs/holdings-sync.js";
-import { getProposalById, markProposalFulfilled, getRedis, getUniverseStatus, getResearchDataStatus, getShadowSelectionStatus, setLabResearchStatus, getLabResearchStatus, getSlateSnapshot, getLastSystemActivity, getAgentParityRuntimeSummary } from "./lib/redis.js";
+import { getProposalById, markProposalFulfilled, getRedis, getUniverseStatus, getResearchDataStatus, getShadowSelectionStatus, setLabResearchStatus, getLabResearchStatus, getSlateSnapshot, getLastSystemActivity, getAgentParityRuntimeSummary, getResearchScanStatus } from "./lib/redis.js";
 import { toPublicSlateSnapshot } from "./lib/public-slate-snapshot.js";
 import { recordMcpFill } from "./lib/mcp-accounting.js";
 import { getServiceAccountClients, getSheetIds, resolveSharedSpreadsheetId } from "./lib/sheets.js";
@@ -18,6 +18,7 @@ import { shadowWriteCapitalEntry, shadowWriteProposal } from "./lib/pg/dual-writ
 import { getPortfolioManagerShadowState } from "./lib/portfolio-manager-shadow-store.js";
 import { researchStoreConfigured } from "./lib/pg/research-observations.js";
 import { resolveResearchCodeRevision } from "./lib/mandate-observation.js";
+import { buildResearchRunReport } from "./lib/research-run-report.js";
 
 const PORT = process.env.PORTFOLIO_SERVER_PORT ?? 3200;
 const SECRET = process.env.PORTFOLIO_WEBHOOK_SECRET?.trim();
@@ -181,6 +182,16 @@ const server = http.createServer(async (req, res) => {
   if (!auth(req)) {
     res.writeHead(401);
     res.end(JSON.stringify({ error: "Unauthorized" }));
+    return;
+  }
+
+  // GET /research-quality — authenticated, aggregate-only explanation of the
+  // latest scan. It is intentionally read-only and excludes tickers, prompts,
+  // rationale, evidence text, and proposal payloads.
+  if (req.method === "GET" && url.pathname === "/research-quality") {
+    const report = buildResearchRunReport(await getResearchScanStatus());
+    res.writeHead(200);
+    res.end(JSON.stringify(report));
     return;
   }
 

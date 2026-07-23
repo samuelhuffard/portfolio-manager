@@ -12,6 +12,7 @@ import {
   outcomeTotal,
   summarizeResearchRunQuality,
 } from "../lib/research-run-report.js";
+import { readFileSync } from "node:fs";
 
 function facts(overrides = {}) {
   return {
@@ -148,4 +149,11 @@ test("mismatched persisted counts fail closed", () => {
   });
   assert.equal(report.classificationAvailable, false);
   assert.equal(report.reason, "outcome_conservation_failed");
+});
+
+test("authenticated research-quality endpoint exposes only the aggregate report", () => {
+  const source = readFileSync(new URL("../server.js", import.meta.url), "utf8");
+  assert.match(source, /url\.pathname === "\/research-quality"/);
+  assert.match(source, /buildResearchRunReport\(await getResearchScanStatus\(\)\)/);
+  assert.match(source, /if \(!auth\(req\)\)/);
 });
