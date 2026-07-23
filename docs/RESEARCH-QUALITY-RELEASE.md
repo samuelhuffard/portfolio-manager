@@ -41,3 +41,14 @@ npm test
 This packet is suitable for review with other R1 research-quality work after the
 five-day safety observation. Any later API or dashboard presentation must consume
 only this aggregate-safe projection and retain the same conservation invariant.
+
+## Local proposal-quality harness
+
+The candidate also includes a fixture-only `proposal-quality:local` command. It
+audits synthetic proposal claims for evidence-citation validity, business-family
+consistency, and misuse of normalized ranks as raw facts. Its module deliberately
+has no imports; the regression test enforces that it cannot reach runtime research,
+models, Redis, the broker, proposals, signatures, or any external system.
+
+Its output is explicitly synthetic and non-promotional. A `review_ready` fixture is
+not a proposal, approval, investment recommendation, or observation sample.

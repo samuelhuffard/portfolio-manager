@@ -33,6 +33,7 @@
     "deploy:restart": "node scripts/restart-with-pm2-deploy-marker.js",
     "breaker:recompute": "node scripts/recompute-circuit-breaker.js",
     "test": "node --test tests/*.test.js",
+    "proposal-quality:local": "node scripts/proposal-quality-local.mjs",
     "contracts:sync": "node contracts/sync.mjs",
     "db:migrate": "node lib/pg/migrate.js",
     "db:parity": "node scripts/db-parity.mjs",
