@@ -82,6 +82,7 @@ import { withWorkflowLock } from "../lib/workflow-lock.js";
 import { BudgetExhaustedError, createResearchRunBudget } from "../lib/ai-budget.js";
 import { createAnthropicMonthlyBudget } from "../lib/anthropic-monthly-budget.js";
 import { buildAgentParityRuntimeSummary } from "../lib/agent-parity-runtime-summary.js";
+import { blankResearchFunnel, recordCandidateBuild, recordResearchReview } from "../lib/research-funnel.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_AGENT_IDS = AGENTS.map((agent) => agent.id);
@@ -108,6 +109,7 @@ function blankAgentScanSummary(agentId) {
     evaluatorRejects: 0,
     outcomeCounts: blankOutcomeCounts(),
     discovery: null,
+    funnel: null,
     capacity: null,
     modelCalls: blankModelCallCounts(),
     startedAt: new Date().toISOString(),
@@ -1281,6 +1283,11 @@ async function runResearchScanForAgent(
   }
 
   const fundamentals = await fetchFundamentalsBatch(universeTickers);
+  summary.funnel = blankResearchFunnel({
+    discovery: summary.discovery,
+    cataloged: candidateBus?.census?.listed ?? 0,
+    fundamentalsRequested: universeTickers.length,
+  });
   const persistentMemory = formatAgentMemoriesForPrompt(await listAgentMemories(agent.id));
 
   const dateWindow = makeDateWindow();
@@ -1304,6 +1311,13 @@ async function runResearchScanForAgent(
     (candidate) => holdingTickers.includes(candidate.ticker) && !passedTickers.has(candidate.ticker)
   );
   const eligible = [...passed, ...mandatoryHoldings];
+  summary.funnel = recordCandidateBuild(summary.funnel, {
+    fundamentalsAvailable: candidates.length,
+    candidatesBuilt: candidates.length,
+    freshScreenPassed: passed.length,
+    freshScreenRejected: rejected.length,
+    mandatoryHoldingOverrides: mandatoryHoldings.length,
+  });
   if (mandatoryHoldings.length) {
     console.warn(
       `[Research] ${agent.id}: ${mandatoryHoldings.length} attributed holding(s) bypassed discovery eligibility for mandatory monitoring only.`
@@ -1378,6 +1392,7 @@ async function runResearchScanForAgent(
       const { recommendation, researchRecord, createdProposal, outcomeFacts } = await reviewCandidateForAgent(agent, c, ctx);
       const outcomeKind = classifyRecommendationOutcome(outcomeFacts);
       summary.outcomeCounts = addOutcome(summary.outcomeCounts, outcomeKind);
+      summary.funnel = recordResearchReview(summary.funnel, outcomeFacts);
       if (researchRecord) researchRecords.push(researchRecord);
       if (createdProposal) {
         summary.proposalsCreated += 1;
@@ -1417,6 +1432,9 @@ async function runResearchScanForAgent(
         proposalDisposition: "not_applicable",
       });
       summary.outcomeCounts = addOutcome(summary.outcomeCounts, outcomeKind);
+      summary.funnel = recordResearchReview(summary.funnel, {
+        failureKind: ["budget_exhausted", "monthly_budget_exhausted"].includes(failure.kind) ? "budget_exhausted" : "review_error",
+      });
       const recommendation = {
         date: new Date().toISOString().slice(0, 10),
         ticker: c.ticker,
