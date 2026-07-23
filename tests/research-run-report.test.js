@@ -10,6 +10,7 @@ import {
   classifyRecommendationOutcome,
   formatResearchRunReport,
   outcomeTotal,
+  summarizeResearchRunQuality,
 } from "../lib/research-run-report.js";
 
 function facts(overrides = {}) {
@@ -98,6 +99,40 @@ test("versioned status reports aggregate counts without private text", () => {
   assert.equal(report.totals.outcomeCounts.proposal_created, 1);
   assert.equal("rationale" in report, false);
   assert.match(formatResearchRunReport(report), /2 attempted/);
+});
+
+test("quality summary separates investment judgments from data and system degradation", () => {
+  const report = buildResearchRunReport({
+    runId: "quality-run",
+    status: "completed",
+    agents: [{
+      agentId: "agent-1",
+      attemptedReviews: 8,
+      classificationVersion: RESEARCH_OUTCOME_VERSION,
+      outcomeCounts: {
+        ...blankOutcomeCounts(),
+        investment_hold: 2,
+        data_gate: 1,
+        stale_data: 1,
+        review_error: 1,
+        evaluator_reject: 1,
+        proposal_created: 1,
+        unknown: 1,
+      },
+    }],
+  });
+  assert.deepEqual(summarizeResearchRunQuality(report), {
+    attemptedReviews: 8,
+    investmentJudgments: 2,
+    dataUnavailable: 2,
+    operationalDegradation: 1,
+    decisionBlocked: 1,
+    proposalsCreated: 1,
+    unknown: 1,
+    conservationValid: true,
+  });
+  assert.match(formatResearchRunReport(report), /2 data unavailable/);
+  assert.match(formatResearchRunReport(report), /1 operational degradation/);
 });
 
 test("mismatched persisted counts fail closed", () => {
