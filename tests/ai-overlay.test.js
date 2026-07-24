@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { FRACTIONAL_SHARE_POLICY, buildProposalEvidence, getAIRecommendation, parseRecommendation, promptBreakdown, promptNumber, validateActionableEvidence } from "../lib/ai-overlay.js";
+import { FRACTIONAL_SHARE_POLICY, buildProposalEvidence, enforceFractionalShareHoldPolicy, findFractionalShareHoldViolations, getAIRecommendation, parseRecommendation, promptBreakdown, promptNumber, validateActionableEvidence } from "../lib/ai-overlay.js";
 
 test("promptNumber never emits NaN or Infinity into prompts", () => {
   assert.equal(promptNumber(72.345), 72.34);
@@ -25,15 +25,77 @@ test("promptBreakdown serializes non-finite metric values as null", () => {
   assert.doesNotMatch(JSON.stringify(breakdown), /NaN|Infinity/);
 });
 
-test("actual research request includes the fractional-share policy", async () => {
+test("actual research request includes the fractional-share policy without a cash anchor", async () => {
   let request;
   const anthropicClient = { messages: { create: async (input) => {
     request = input;
     return { stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }, content: [{ type: "text", text: JSON.stringify({ action: "HOLD", target_weight_pct: 0, thesis: "No action.", risks: [], kill_criteria: [], confidence: 0.5, suspect_evidence: [] }) }] };
   } } };
-  await getAIRecommendation({ ticker: "TEST", name: "Test Company", quantScore: 70, breakdown: {}, news: [], strategyNotes: "", isHeld: false, nextEarningsDate: null, analystTrend: null, insiderActivity: null, recentFilings: [], marketScanSignals: [], athenaEvidence: [], macro: null, personality: null, persistentMemory: null, proposalPolicy: "Available cash: $85.00", researchHistory: null, boundaryToken: null, evaluatorCritique: null, previousProposal: null, agentId: "agent-1", anthropicClient, recordUsage: async () => ({ persisted: false }) });
+  await getAIRecommendation({ ticker: "TEST", name: "Test Company", quantScore: 70, breakdown: {}, news: [], strategyNotes: "", isHeld: false, nextEarningsDate: null, analystTrend: null, insiderActivity: null, recentFilings: [], marketScanSignals: [], athenaEvidence: [], macro: null, personality: null, persistentMemory: null, proposalPolicy: "Capital availability is handled downstream.", researchHistory: null, boundaryToken: null, evaluatorCritique: null, previousProposal: null, agentId: "agent-1", anthropicClient, recordUsage: async () => ({ persisted: false }) });
   assert.match(FRACTIONAL_SHARE_POLICY, /fractional-share market orders/i);
   assert.match(request.system[0].text, /not whole-share-based/i);
+  assert.doesNotMatch(request.messages[0].content, /\$85|available cash/i);
+  assert.equal(request.max_tokens, 1000);
+});
+
+test("fractional-share HOLD detector catches position-size rationales but not free-cash-flow fundamentals", () => {
+  const violations = findFractionalShareHoldViolations({
+    action: "HOLD",
+    thesis: "Only $85 of available cash is far below a meaningful position and cannot fund a 5-15% NAV entry.",
+    risks: [], killCriteria: [],
+  });
+  assert.deepEqual(violations, ["meaningful_position", "cash_as_decision", "cannot_fund_position", "nav_minimum_position"]);
+  assert.deepEqual(findFractionalShareHoldViolations({
+    action: "HOLD",
+    thesis: "Free cash flow is negative and the valuation does not clear the entry bar.", risks: [], killCriteria: [],
+  }), []);
+  assert.deepEqual(findFractionalShareHoldViolations({ action: "BUY", thesis: "Available cash is limited.", risks: [], killCriteria: [] }), []);
+});
+
+test("scan policy path retries one invalid HOLD and admits a corrected BUY without a live model call", async () => {
+  let calls = 0;
+  const result = await enforceFractionalShareHoldPolicy({
+    action: "HOLD", thesis: "Only $85 of available cash is not a meaningful position.", risks: [], killCriteria: [],
+  }, async (violations) => {
+    calls += 1;
+    assert.ok(violations.includes("meaningful_position"));
+    return { action: "BUY", thesis: "The evidence and risk gates support entry.", risks: [], killCriteria: [] };
+  });
+  assert.equal(calls, 1);
+  assert.equal(result.retried, true);
+  assert.equal(result.proposal.action, "BUY");
+  assert.deepEqual(result.repeatedViolations, []);
+});
+
+test("scan policy path never loops and exposes a repeated invalid HOLD", async () => {
+  let calls = 0;
+  const result = await enforceFractionalShareHoldPolicy({
+    action: "HOLD", thesis: "The minimum dollar allocation is too small to be meaningful.", risks: [], killCriteria: [],
+  }, async () => {
+    calls += 1;
+    return { action: "HOLD", thesis: "Available cash cannot fund a meaningful position.", risks: [], killCriteria: [] };
+  });
+  assert.equal(calls, 1);
+  assert.equal(result.retried, true);
+  assert.ok(result.repeatedViolations.length > 0);
+});
+
+test("policy correction is sent as a distinct generator retry", async () => {
+  let request;
+  const anthropicClient = { messages: { create: async (input) => {
+    request = input;
+    return { stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }, content: [{ type: "text", text: JSON.stringify({ action: "HOLD", target_weight_pct: 0, thesis: "The valuation gate fails.", risks: [], kill_criteria: [], confidence: 0.5, suspect_evidence: [] }) }] };
+  } } };
+  await getAIRecommendation({ ticker: "TEST", name: "Test Company", quantScore: 70, breakdown: {}, news: [], strategyNotes: "", isHeld: false, nextEarningsDate: null, analystTrend: null, insiderActivity: null, recentFilings: [], marketScanSignals: [], athenaEvidence: [], macro: null, personality: null, persistentMemory: null, proposalPolicy: "Capital availability is handled downstream.", researchHistory: null, boundaryToken: null, evaluatorCritique: null, previousProposal: null, decisionPolicyCorrection: "meaningful_position,cash_as_decision", agentId: "agent-1", anthropicClient, recordUsage: async () => ({ persisted: false }) });
+  assert.match(request.messages[0].content, /previous HOLD is invalid/i);
+  assert.match(request.messages[0].content, /Do not mention available cash/i);
+});
+
+test("invalid model JSON is marked as an output error instead of an investment HOLD", () => {
+  const rec = parseRecommendation('{"action":"BUY"', "TEST", new Set());
+  assert.equal(rec.action, "HOLD");
+  assert.equal(rec.outputInvalid, true);
+  assert.match(rec.outputError, /invalid JSON/i);
 });
 
 test("proposal evidence ledger labels scores as ranks and preserves typed raw facts", () => {

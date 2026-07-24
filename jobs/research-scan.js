@@ -13,7 +13,7 @@ import { assembleEntrySignals, assessConviction } from "../lib/conviction.js";
 import { tavilySearch } from "../lib/tavily.js";
 import { fetchRecentFilings } from "../lib/edgar.js";
 import { fetchMacroSnapshot, formatMacroSnapshot } from "../lib/fred.js";
-import { getAIRecommendation } from "../lib/ai-overlay.js";
+import { enforceFractionalShareHoldPolicy, getAIRecommendation } from "../lib/ai-overlay.js";
 import { applyRiskChecks } from "../lib/risk-engine.js";
 import { evaluateProposal, resolveFinalVerdict } from "../lib/evaluator.js";
 import { makeBoundaryToken, sanitizeEvidenceItems } from "../lib/evidence.js";
@@ -667,10 +667,8 @@ async function reviewCandidateForAgent(agent, c, ctx) {
 
   const recentFilings = await fetchRecentFilings(c.ticker, { limit: 3 });
   const proposalPolicy = [
-    `Available cash for new BUY proposals before this ticker: $${ctx.availableCashForBuys.toFixed(2)} after accepted, unfilled BUY reserves.`,
-    ctx.availableCashForBuys > 0
-      ? "When free cash exists, it is acceptable to propose BUYs every scan day for names that clear the evidence/risk bar."
-      : "When free cash is zero, do not treat hypothetical sale proceeds as available cash for a BUY proposal.",
+    "Capital availability and exact dollar sizing are enforced mechanically after this research decision. Do not use available cash, a minimum allocation, per-share price, or whole-share affordability to choose BUY, SELL, or HOLD.",
+    "Fractional-share market orders are supported. When the investment case clears the evidence and risk bar, return the appropriate target weight; downstream controls determine the executable dollar amount.",
     `Ordinary research-scan SELL/rotation proposals are cadence-capped to one SELL review per agent/ticker every ${ctx.ordinarySellCooldownDays} days.`,
     "A sell-funded replacement is a contingent rotation idea: first propose/review the SELL, then only propose the BUY after the sell is approved, filled, and cash is synced. Do not present a new BUY as funded until cash is real.",
     "Immediate risk exits from stop/kill-criteria monitors are handled by separate exit jobs and can bypass this ordinary rotation cadence.",
@@ -701,8 +699,48 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     factEvidence: buildCandidateFactEvidence(c),
   };
   let proposal = await callGeneratorForAgent(agent.id, overlayInput, ctx);
-  const generatorAction = proposal.action;
+  if (proposal.outputInvalid) {
+    const error = new Error(`model_output_invalid: ${proposal.outputError ?? "invalid structured response"}`);
+    error.code = "model_output_invalid";
+    throw error;
+  }
   const preflightNotes = [];
+  const fractionalPolicy = await enforceFractionalShareHoldPolicy(proposal, async (violations) => {
+    console.warn(`[Research] ${agent.id}: ${c.ticker} HOLD used prohibited fractional-share reasoning (${violations.join(", ")}); retrying once.`);
+    const corrected = await callGeneratorForAgent(agent.id, {
+      ...overlayInput,
+      decisionPolicyCorrection: violations.join(", "),
+    }, ctx);
+    if (corrected.outputInvalid) {
+      const error = new Error(`model_output_invalid: ${corrected.outputError ?? "invalid corrected structured response"}`);
+      error.code = "model_output_invalid";
+      throw error;
+    }
+    return corrected;
+  });
+  proposal = fractionalPolicy.proposal;
+  if (fractionalPolicy.retried) {
+    preflightNotes.push(`fractional_share_policy_retry: ${fractionalPolicy.initialViolations.join(",")}`);
+    if (fractionalPolicy.repeatedViolations.length) {
+      const reason = `model repeated prohibited fractional-share HOLD reasoning after correction (${fractionalPolicy.repeatedViolations.join(",")})`;
+      console.error(`[Research] ${agent.id}: NO_TRADE ${c.ticker} — ${reason}`);
+      return {
+        recommendation: {
+          date: new Date().toISOString().slice(0, 10), ticker: c.ticker, action: "NO_TRADE", quantScore: c.quantScore,
+          rationale: `NO_TRADE (policy invalid): ${reason}`, newsLinks: news.map((n) => n.url).join(", "), status: "policy_invalid",
+          entryPrice: c.raw?.price?.regularMarketPrice ?? null, spyEntryPrice: ctx.spyEntryPrice, targetWeight: 0, confidence: null,
+          ruleCheck: `fractional_share_policy_invalid: ${fractionalPolicy.repeatedViolations.join(",")}`,
+        },
+        researchRecord: { ticker: c.ticker, action: "NO_TRADE", quantScore: c.quantScore ?? null, confidence: null, thesis: `NO_TRADE (policy invalid): ${reason}`, entryPrice: c.raw?.price?.regularMarketPrice ?? null },
+        rec: null, createdProposal: null, evaluatorVerdict: "not run (policy invalid)", noProposalReason: reason,
+        outcomeFacts: {
+          attempted: true, dataGateBlocked: false, dataGateStale: false, failureKind: "review_error", generatorAction: "HOLD", finalAction: "HOLD",
+          riskOverridden: false, evaluatorState: "not_run", duplicateOpen: false, proposalDisposition: "not_applicable",
+        },
+      };
+    }
+  }
+  const generatorAction = proposal.action;
   if (proposal.evidenceValidation && !proposal.evidenceValidation.valid) {
     preflightNotes.push(`evidence_preflight: ${proposal.evidenceValidation.issues.join("; ")}`);
   }
