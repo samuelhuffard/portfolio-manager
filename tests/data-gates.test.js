@@ -35,13 +35,20 @@ test("flags stale price data", () => {
   assert.equal(r.stale, true);
 });
 
-test("missing required fields => not ok and stale", () => {
+test("missing required fields => not ok but not stale", () => {
   const r = evaluateDataGates({ ...complete, forwardEps: null, rsi: null }, LIMITS, { now: NOW });
   assert.equal(r.ok, false);
-  assert.equal(r.stale, true);
+  assert.equal(r.stale, false);
   assert.ok(r.missing.includes("forwardEps"));
   assert.ok(r.missing.includes("rsi"));
   assert.equal(r.availableDataScore, 71);
+});
+
+test("missing market cap is a fail-closed data gate, not stale price data", () => {
+  const r = evaluateDataGates({ ...complete, marketCap: null }, LIMITS, { now: NOW });
+  assert.equal(r.ok, false);
+  assert.equal(r.stale, false);
+  assert.ok(r.missing.includes("marketCap"));
 });
 
 test("micro-cap below the ADDV floor fails", () => {

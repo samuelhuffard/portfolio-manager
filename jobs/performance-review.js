@@ -30,7 +30,8 @@ function daysSince(dateStr) {
 async function runPerformanceReviewForAgent(agent, sheets, spreadsheetId, sheetIds) {
   const rows = await readAgentRecommendationsForReview(sheets, spreadsheetId, agent.id);
   const due = rows.filter(
-    (r) => r.entryPrice != null && HORIZONS.some((h) => !r.horizonsDone[h] && daysSince(r.date) >= h)
+    (r) => (r.action === "BUY" || r.action === "SELL" || r.action === "HOLD") &&
+      r.entryPrice != null && HORIZONS.some((h) => !r.horizonsDone[h] && daysSince(r.date) >= h)
   );
 
   if (!due.length) {

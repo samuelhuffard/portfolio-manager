@@ -36,8 +36,13 @@ for the proposal's ticker. If you can't get a live price, stop and ask Sam.
 
 **b. Calculate share count**
 ```
-shares = floor(proposal.amountDollars / currentPrice)
+shares = proposal.amountDollars / currentPrice
 ```
+Keep the decimal quantity for a market order; **do not round down to a whole
+share**. For example, an $85 proposal at a $188 price is approximately 0.452
+shares. Use the MCP order review's estimated cost as the final check before
+Sam approves the order.
+
 If the proposal has a `maxPrice` and `currentPrice > maxPrice`, **do not execute** — tell Sam
 the price has moved past the limit and ask if they want to revise.
 

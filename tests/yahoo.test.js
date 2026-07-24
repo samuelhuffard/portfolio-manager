@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { summarizeYahooError } from "../lib/yahoo.js";
+import { extractMarketCap, summarizeYahooError } from "../lib/yahoo.js";
+
+test("extractMarketCap handles Yahoo module drift and quote fallback", () => {
+  assert.equal(extractMarketCap({ price: { marketCap: 123 } }), 123);
+  assert.equal(extractMarketCap({ summaryDetail: { nonDilutedMarketCap: 456 } }), 456);
+  assert.equal(extractMarketCap({}, { marketCap: 789 }), 789);
+  assert.equal(extractMarketCap({}, {}), null);
+});
 
 test("Yahoo HTML failures become one concise observable message", () => {
   const error = new Error("HTTP 503 <!DOCTYPE html><html><body>" + "upstream failure ".repeat(100) + "</body></html>");

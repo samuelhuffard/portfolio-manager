@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { fetchFundamentals, fetchFundamentalsBatch, fetchDailyBars, fetchQuotes, percentChange } from "../lib/yahoo.js";
+import { extractMarketCap, fetchFundamentals, fetchFundamentalsBatch, fetchDailyBars, fetchQuotes, percentChange } from "../lib/yahoo.js";
 import { scoreCandidates } from "../lib/quant-scorer.js";
 import { rsi, atr, avgDailyDollarVolume, weeklyVolatility, classifySubVertical } from "../lib/indicators.js";
 import { evaluateDataGates } from "../lib/data-gates.js";
@@ -100,7 +100,7 @@ function blankAgentScanSummary(agentId) {
     status: "completed",
     recommendationsWritten: 0,
     attemptedReviews: 0,
-    actionCounts: { BUY: 0, SELL: 0, HOLD: 0 },
+    actionCounts: { BUY: 0, SELL: 0, HOLD: 0, NO_TRADE: 0, ERROR: 0 },
     proposalsCreated: 0,
     proposalCounts: { BUY: 0, SELL: 0 },
     scanErrors: 0,
@@ -154,7 +154,7 @@ function summarizeRecommendation(summary, recommendation) {
   if (!recommendation) return;
   summary.recommendationsWritten += 1;
   const action = recommendation.action;
-  if (action === "BUY" || action === "SELL" || action === "HOLD") {
+  if (action === "BUY" || action === "SELL" || action === "HOLD" || action === "NO_TRADE" || action === "ERROR") {
     summary.actionCounts[action] += 1;
   }
   const ruleCheck = recommendation.ruleCheck ?? "";
@@ -421,7 +421,7 @@ async function buildCandidate(f, riskLimits, { now, threeMonthsAgo, oneMonthAgo,
   const closesSince = (cutoff) => bars.filter((b) => new Date(b.date) >= cutoff).map((b) => ({ close: b.close }));
   const lastBarDate = bars.length ? bars[bars.length - 1].date : null;
   const addv = avgDailyDollarVolume(bars, 30);
-  const marketCap = f.raw?.price?.marketCap ?? f.raw?.summaryDetail?.marketCap ?? null;
+  const marketCap = f.marketCap ?? extractMarketCap(f.raw);
   const quoteTimestamp = toIsoTimestamp(f.raw?.price?.regularMarketTime);
   const technicalFacts = buildTechnicalFactPacket({
     bars,
@@ -567,11 +567,11 @@ async function reviewCandidateForAgent(agent, c, ctx) {
       recommendation: {
         date: new Date().toISOString().slice(0, 10),
         ticker: c.ticker,
-        action: "HOLD",
+        action: "NO_TRADE",
         quantScore: c.quantScore ?? null,
         rationale: `NO_TRADE (data gate): ${reason}`,
         newsLinks: "",
-        status: "pending",
+        status: "data_error",
         entryPrice: c.raw?.price?.regularMarketPrice ?? null,
         spyEntryPrice: ctx.spyEntryPrice,
         targetWeight: 0,

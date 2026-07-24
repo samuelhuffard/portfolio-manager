@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildProposalEvidence, parseRecommendation, promptBreakdown, promptNumber, validateActionableEvidence } from "../lib/ai-overlay.js";
+import { FRACTIONAL_SHARE_POLICY, buildProposalEvidence, getAIRecommendation, parseRecommendation, promptBreakdown, promptNumber, validateActionableEvidence } from "../lib/ai-overlay.js";
 
 test("promptNumber never emits NaN or Infinity into prompts", () => {
   assert.equal(promptNumber(72.345), 72.34);
@@ -23,6 +23,17 @@ test("promptBreakdown serializes non-finite metric values as null", () => {
     rsi: null,
   });
   assert.doesNotMatch(JSON.stringify(breakdown), /NaN|Infinity/);
+});
+
+test("actual research request includes the fractional-share policy", async () => {
+  let request;
+  const anthropicClient = { messages: { create: async (input) => {
+    request = input;
+    return { stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }, content: [{ type: "text", text: JSON.stringify({ action: "HOLD", target_weight_pct: 0, thesis: "No action.", risks: [], kill_criteria: [], confidence: 0.5, suspect_evidence: [] }) }] };
+  } } };
+  await getAIRecommendation({ ticker: "TEST", name: "Test Company", quantScore: 70, breakdown: {}, news: [], strategyNotes: "", isHeld: false, nextEarningsDate: null, analystTrend: null, insiderActivity: null, recentFilings: [], marketScanSignals: [], athenaEvidence: [], macro: null, personality: null, persistentMemory: null, proposalPolicy: "Available cash: $85.00", researchHistory: null, boundaryToken: null, evaluatorCritique: null, previousProposal: null, agentId: "agent-1", anthropicClient, recordUsage: async () => ({ persisted: false }) });
+  assert.match(FRACTIONAL_SHARE_POLICY, /fractional-share market orders/i);
+  assert.match(request.system[0].text, /not whole-share-based/i);
 });
 
 test("proposal evidence ledger labels scores as ranks and preserves typed raw facts", () => {
