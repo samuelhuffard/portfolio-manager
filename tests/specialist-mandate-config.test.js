@@ -36,11 +36,16 @@ test("Agents Two and Three retain supervised v3 mandate configuration", async ()
 });
 
 test("Agent One runtime artifacts follow the authoritative sector-agnostic v3 mandate", async () => {
-  const [personality, plan, riskLimitsText] = await Promise.all([
-    readAgentFile("agent-1", "personality.md"),
+  // Agent One is the split-mandate pilot: master.md + buy-playbook.md replace
+  // the old flat personality.md and get concatenated the same way
+  // jobs/research-scan.js's loadPersonality() does at runtime.
+  const [master, buyPlaybook, plan, riskLimitsText] = await Promise.all([
+    readAgentFile("agent-1", "master.md"),
+    readAgentFile("agent-1", "buy-playbook.md"),
     readAgentFile("agent-1", "AGENT-ONE-PLAN.md"),
     readAgentFile("agent-1", "risk-limits.json"),
   ]);
+  const personality = `${master.trim()}\n\n${buyPlaybook.trim()}`;
   const riskLimits = JSON.parse(riskLimitsText);
 
   assert.match(personality, /Mandate v3/i);

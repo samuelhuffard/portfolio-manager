@@ -178,6 +178,8 @@ Gotchas:
 
 Turning an incoming friend-authored personality into a live specialist. **Order matters — do not skip to activation.**
 
+Agent 1 has since moved off the flat `personality.md` described below onto a split `master.md` + `buy-playbook.md` layout — see `config/agents/MANDATE-SPLIT-PILOT.md` for why and exactly how, and to repeat it for agent-2/agent-3 later. This section still describes the flat pattern agent-2/agent-3 use today.
+
 Files: `config/agents/agent-N/personality.md` (the compact mandate the runtime loads every scan — `jobs/research-scan.js` reads it, `lib/ai-overlay.js` puts it in the cached system block, `lib/evaluator.js` grades "mandate fit" against it), `config/agents/agent-N/AGENT-<NAME>-PLAN.md` (full versioned spec — copy `config/agents/_TEMPLATE-STRATEGY-SPEC.md`), `config/agents/agent-N/universe.json` (`source`, `slateSize`, `aiReviewBudget`, `researchCooldownDays`, `explorationSlots`), `config/agents/agent-N/weights.json` (quant weights, must sum to 1.0), `config/agents/agent-N/risk-limits.json`, `config/agents.js` (registry: `name`, `executionEligibility`).
 
 Steps:

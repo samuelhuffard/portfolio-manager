@@ -98,6 +98,13 @@ export const MANDATE_POLICIES = Object.freeze({
       maximumSectorWeightPct: 75,
       minimumAttributedCashReservePct: 5,
     }),
+    // ATR is distance below the 20-session high, in ATR units (see
+    // sell-playbook.md and lib/mandate-policy.js evaluateHoldingTriggers).
+    exit: Object.freeze({
+      atrFullExitThreshold: 2.5,
+      atrPartialExitThreshold: 2.0,
+      atrReviewThreshold: 1.5,
+    }),
     cadence: Object.freeze({
       ...COMMON.cadence,
       deadTradeReviewTradingDays: 20,

@@ -167,6 +167,24 @@ function summarizeRecommendation(summary, recommendation) {
 // silent no-op on the whole discovery funnel — keep the fallback, but loudly.
 const DEFAULT_UNIVERSE_CONFIG = { source: "watchlist", slateSize: 20, aiReviewBudget: 12, researchCooldownDays: 14, explorationSlots: 0 };
 
+// Split-mandate agents keep master.md (identity/philosophy/guardrails, shared
+// across every task) and buy-playbook.md (entry search/sizing — the only half
+// a research scan needs) side by side; both get concatenated into the same
+// "personality" slot the AI overlay has always received, so the model sees an
+// equivalent mandate either way. Agents not yet migrated keep one flat
+// personality.md — CHANGE_MAP "Onboarding a specialist mandate" documents both
+// forms until every agent moves to the split layout.
+function loadPersonality(dir) {
+  const masterPath = path.join(dir, "master.md");
+  const buyPlaybookPath = path.join(dir, "buy-playbook.md");
+  if (fs.existsSync(masterPath) && fs.existsSync(buyPlaybookPath)) {
+    const master = fs.readFileSync(masterPath, "utf8").trim();
+    const buyPlaybook = fs.readFileSync(buyPlaybookPath, "utf8").trim();
+    return `${master}\n\n${buyPlaybook}`;
+  }
+  return fs.readFileSync(path.join(dir, "personality.md"), "utf8").trim();
+}
+
 function loadAgentConfig(agentId) {
   const dir = path.join(__dirname, "..", "config", "agents", agentId);
   let universe = DEFAULT_UNIVERSE_CONFIG;
@@ -179,7 +197,7 @@ function loadAgentConfig(agentId) {
     watchlist: JSON.parse(fs.readFileSync(path.join(dir, "watchlist.json"), "utf8")),
     weights: JSON.parse(fs.readFileSync(path.join(dir, "weights.json"), "utf8")),
     riskLimits: JSON.parse(fs.readFileSync(path.join(dir, "risk-limits.json"), "utf8")),
-    personality: fs.readFileSync(path.join(dir, "personality.md"), "utf8").trim(),
+    personality: loadPersonality(dir),
     universe,
   };
 }
