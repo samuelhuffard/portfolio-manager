@@ -184,10 +184,10 @@ test("parseRecommendation downgrades an actionable response with invented citati
 });
 
 test("parseRecommendation retains an actionable response only when every thesis sentence is cited", () => {
-  const thesis = "The normalized quant rank is strong.";
+  const thesis = "The normalized quant rank is strong. The normalized quality score is strong.";
   const rec = parseRecommendation(JSON.stringify({
-    action: "BUY", target_weight_pct: 5, thesis, risks: ["Risk."], kill_criteria: ["Kill."], confidence: 0.8, claimed_business_family: "technology",
-    evidence_citations: [{ claim: thesis, evidence_ids: ["quant_score_rank"] }], suspect_evidence: [],
+    action: "BUY", target_weight_pct: 5, thesis, risks: ["Risk one.", "Risk two."], kill_criteria: ["Kill."], confidence: 0.8, claimed_business_family: "technology",
+    evidence_citations: [{ claim: "The normalized quant rank is strong.", evidence_ids: ["quant_score_rank"] }, { claim: "The normalized quality score is strong.", evidence_ids: ["quant_score_rank"] }, { claim: "Risk one.", evidence_ids: ["quant_score_rank"] }, { claim: "Risk two.", evidence_ids: ["quant_score_rank"] }, { claim: "Kill.", evidence_ids: ["quant_score_rank"] }], suspect_evidence: [],
   }), "TEST", new Set(["quant_score_rank"]));
   assert.equal(rec.action, "BUY");
   assert.equal(rec.evidenceValidation.valid, true);
@@ -198,8 +198,72 @@ test("BUY/SELL fail closed without a valid claimed business family", () => {
   const thesis = "The normalized quant rank is strong.";
   const rec = parseRecommendation(JSON.stringify({
     action: "BUY", target_weight_pct: 5, thesis, risks: ["Risk."], kill_criteria: ["Kill."], confidence: 0.8,
-    evidence_citations: [{ claim: thesis, evidence_ids: ["quant_score_rank"] }], suspect_evidence: [],
+    evidence_citations: [{ claim: thesis, evidence_ids: ["quant_score_rank"] }, { claim: "Risk.", evidence_ids: ["quant_score_rank"] }, { claim: "Kill.", evidence_ids: ["quant_score_rank"] }], suspect_evidence: [],
   }), "TEST", new Set(["quant_score_rank"]));
   assert.equal(rec.action, "HOLD");
   assert.match(rec.evidenceValidation.issues.join(" "), /claimed_business_family/);
+});
+
+test("actionable claims cannot turn a normalized rank into a raw valuation fact", () => {
+  const evidence = buildProposalEvidence({
+    quantScore: 80,
+    breakdown: { trailingPE: 94 },
+  });
+  const check = validateActionableEvidence({
+    action: "BUY",
+    thesis: "The company trades at 12x earnings.",
+    risks: ["The P/E could compress."],
+    killCriteria: ["Exit if P/E exceeds 20x."],
+    claimedBusinessFamily: "technology",
+    evidenceCitations: [
+      { claim: "The company trades at 12x earnings.", evidence_ids: ["rank_trailingPE"] },
+      { claim: "The P/E could compress.", evidence_ids: ["rank_trailingPE"] },
+      { claim: "Exit if P/E exceeds 20x.", evidence_ids: ["rank_trailingPE"] },
+    ],
+    evidenceIds: evidence,
+  });
+  assert.equal(check.valid, false);
+  assert.match(check.issues.join(" "), /normalized rank|raw factual claim/i);
+});
+
+test("all actionable risks and kill criteria require exact grounded citations", () => {
+  const evidence = buildProposalEvidence({
+    quantScore: 80,
+    breakdown: {},
+    factEvidence: [{ id: "raw_trailing_pe", kind: "raw_fact", label: "Trailing P/E", value: 12, unit: "x", source: "market data" }],
+  });
+  const check = validateActionableEvidence({
+    action: "BUY",
+    thesis: "Trailing P/E is 12x.",
+    risks: ["The valuation could reset."],
+    killCriteria: ["Exit if trailing P/E exceeds 20x."],
+    claimedBusinessFamily: "technology",
+    evidenceCitations: [{ claim: "Trailing P/E is 12x.", evidence_ids: ["raw_trailing_pe"] }],
+    evidenceIds: evidence,
+  });
+  assert.equal(check.valid, false);
+  assert.match(check.issues.join(" "), /risk has no exact evidence citation/);
+  assert.match(check.issues.join(" "), /kill criterion has no exact evidence citation/);
+});
+
+test("an unsupported actionable proposal gets one evidence-grounding retry", async () => {
+  const requests = [];
+  const responses = [
+    { stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }, content: [{ type: "text", text: JSON.stringify({
+      action: "BUY", target_weight_pct: 5, thesis: "The company trades at 12x earnings.", risks: ["P/E could compress."], kill_criteria: ["Exit if P/E exceeds 20x."], confidence: 0.8, claimed_business_family: "technology",
+      evidence_citations: [{ claim: "The company trades at 12x earnings.", evidence_ids: ["rank_trailingPE"] }, { claim: "P/E could compress.", evidence_ids: ["rank_trailingPE"] }, { claim: "Exit if P/E exceeds 20x.", evidence_ids: ["rank_trailingPE"] }], suspect_evidence: [],
+    }) }] },
+    { stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }, content: [{ type: "text", text: JSON.stringify({ action: "HOLD", target_weight_pct: 0, thesis: "The supplied evidence does not support an actionable valuation call.", risks: [], kill_criteria: [], confidence: 0.5, suspect_evidence: [] }) }] },
+  ];
+  const anthropicClient = { messages: { create: async (input) => { requests.push(input); return responses.shift(); } } };
+  const rec = await getAIRecommendation({
+    ticker: "TEST", name: "Test Company", quantScore: 70, breakdown: { trailingPE: 94 }, news: [], strategyNotes: "", isHeld: false,
+    nextEarningsDate: null, analystTrend: null, insiderActivity: null, recentFilings: [], marketScanSignals: [], athenaEvidence: [], macro: null,
+    personality: null, persistentMemory: null, proposalPolicy: "Capital availability is handled downstream.", researchHistory: null,
+    boundaryToken: null, evaluatorCritique: null, previousProposal: null, agentId: "agent-3", anthropicClient, recordUsage: async () => ({ persisted: false }),
+  });
+  assert.equal(requests.length, 2);
+  assert.match(requests[1].messages[0].content, /EVIDENCE RECOVERY/i);
+  assert.equal(rec.evidenceRecoveryAttempted, true);
+  assert.equal(rec.action, "HOLD");
 });
