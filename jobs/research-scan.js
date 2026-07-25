@@ -12,7 +12,8 @@ import { assessEvidenceQuality, buildTechnicalFactPacket } from "../lib/evidence
 import { assembleEntrySignals, assessConviction } from "../lib/conviction.js";
 import { tavilySearch } from "../lib/tavily.js";
 import { fetchRecentFilings } from "../lib/edgar.js";
-import { fetchMacroSnapshot, formatMacroSnapshot } from "../lib/fred.js";
+import { fetchMacroSnapshot, formatMacroSnapshot, fetchTreasuryYieldObservations, computeTreasuryYieldChangeBps } from "../lib/fred.js";
+import { evaluateMacroRedFlags, formatMacroRedFlags } from "../lib/macro-regime.js";
 import { getAIRecommendation } from "../lib/ai-overlay.js";
 import { applyRiskChecks } from "../lib/risk-engine.js";
 import { evaluateProposal, resolveFinalVerdict } from "../lib/evaluator.js";
@@ -30,6 +31,8 @@ import {
   setCachedNews,
   getCachedMacro,
   setCachedMacro,
+  getCachedTreasuryYieldChangeBps,
+  setCachedTreasuryYieldChangeBps,
   getCachedPortfolioTotalValue,
   listAllProposals,
   createProposal,
@@ -402,7 +405,7 @@ function sourcedFact(id, label, value, unit, source) {
   return { id, kind: "raw_fact", label, value, unit, source };
 }
 
-function buildCandidateFactEvidence(candidate) {
+function buildCandidateFactEvidence(candidate, macroRedFlags = null) {
   const raw = candidate.raw ?? {};
   const facts = [
     sourcedFact("raw_current_price", "Current price", raw.price?.regularMarketPrice, "USD", "Yahoo quote"),
@@ -437,6 +440,16 @@ function buildCandidateFactEvidence(candidate) {
   }
   if (technical.high52Week?.status === "available") {
     facts.push(sourcedFact("technical_high_52_week", "52-week high", technical.high52Week.value, "USD", technicalSource(technical.high52Week)));
+  }
+  // Deterministic dual-red macro gate (lib/macro-regime.js) as typed facts, so the
+  // model cites a stated boolean instead of computing "is SPY below its 200-day
+  // average" itself from raw numbers — the enforcement backstop is separate
+  // (applyMacroRedGate in the proposal pipeline), this is only the evidence.
+  if (macroRedFlags?.spyRed !== null && macroRedFlags?.spyRed !== undefined) {
+    facts.push(sourcedFact("macro_spy_below_200day", "SPY below its 200-day average", macroRedFlags.spyRed, "boolean", "Yahoo quote (SPY)"));
+  }
+  if (macroRedFlags?.rateRed !== null && macroRedFlags?.rateRed !== undefined) {
+    facts.push(sourcedFact("macro_rate_pressure", "10-year Treasury yield moved >50bps over the trailing 30 trading days", macroRedFlags.rateRed, "boolean", "FRED (DGS10)"));
   }
   return facts.filter(Boolean);
 }
@@ -518,6 +531,9 @@ async function buildCandidate(f, riskLimits, { now, threeMonthsAgo, oneMonthAgo,
 async function buildAgentReviewContext(sheets, spreadsheetId, { candidates, riskLimits, benchmark, heldAllocation = null }) {
   const benchmarkQuotes = await fetchQuotes([benchmark]);
   const spyEntryPrice = benchmarkQuotes[benchmark]?.regularMarketPrice ?? null;
+  // Yahoo's lightweight quote() already reports this — same call as spyEntryPrice
+  // above, no extra request. Feeds the deterministic dual-red macro gate below.
+  const spySma200 = benchmarkQuotes[benchmark]?.twoHundredDayAverage ?? null;
 
   const [resolvedHeldAllocation, cashBalance] = await Promise.all([
     heldAllocation ? Promise.resolve(heldAllocation) : readHoldingsAllocation(sheets, spreadsheetId),
@@ -544,6 +560,16 @@ async function buildAgentReviewContext(sheets, spreadsheetId, { candidates, risk
   }
   const macroText = formatMacroSnapshot(macroSnapshot);
 
+  // Deterministic dual-red macro gate (lib/macro-regime.js): computed here, once
+  // per agent run, not left for the AI to derive from raw numbers in a prompt.
+  let treasuryYieldChangeBps = await getCachedTreasuryYieldChangeBps();
+  if (treasuryYieldChangeBps == null) {
+    const observations = await fetchTreasuryYieldObservations();
+    treasuryYieldChangeBps = computeTreasuryYieldChangeBps(observations);
+    if (treasuryYieldChangeBps != null) await setCachedTreasuryYieldChangeBps(treasuryYieldChangeBps);
+  }
+  const macroRedFlags = evaluateMacroRedFlags({ spyPrice: spyEntryPrice, spySma200, treasuryYieldChangeBps });
+
   const totalPortfolioValue = await getCachedPortfolioTotalValue();
   const openProposals = await listAllProposals();
   let availableCashForBuys =
@@ -556,6 +582,7 @@ async function buildAgentReviewContext(sheets, spreadsheetId, { candidates, risk
 
   return {
     spyEntryPrice,
+    macroRedFlags,
     heldAllocation,
     tickerWeightPct,
     sectorWeightPct,
@@ -730,7 +757,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     recentFilings,
     marketScanSignals: safeScanSignals,
     athenaEvidence: safeAthenaEvidence,
-    macro: ctx.macroText,
+    macro: [ctx.macroText, formatMacroRedFlags(ctx.macroRedFlags)].filter(Boolean).join("\n\n"),
     personality: ctx.personality,
     persistentMemory: ctx.persistentMemory,
     proposalPolicy,
@@ -738,7 +765,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     // so it belongs in the user message, never the cached system block.
     researchHistory: formatResearchHistoryForPrompt(ctx.researchLedger[c.ticker]),
     boundaryToken: ctx.boundaryToken,
-    factEvidence: buildCandidateFactEvidence(c),
+    factEvidence: buildCandidateFactEvidence(c, ctx.macroRedFlags),
   };
   let proposal = await callGeneratorForAgent(agent.id, overlayInput, ctx);
   const generatorAction = proposal.action;
@@ -781,6 +808,32 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     rec = { ...rec, overrideNotes: [...preflightNotes, ...(rec.overrideNotes ?? [])] };
   }
   let riskOverridden = generatorAction !== "HOLD" && rec.action === "HOLD";
+
+  // Deterministic dual-red macro gate (lib/macro-regime.js): per every agent's
+  // mandate, "both SPY-below-200-day and 10-year-rate-pressure red means
+  // NO_TRADE." This must not be left for the AI to self-certify from raw
+  // numbers in its prompt — it's enforced here, the same way a data gate or
+  // the risk engine enforces anything else. Agent 3's mandate explicitly
+  // treats macro as informational only at its horizon, so it's exempt.
+  const DUAL_RED_BLOCKS_AGENTS = new Set(["agent-1", "agent-2"]);
+  if (rec.action === "BUY" && DUAL_RED_BLOCKS_AGENTS.has(agent.id) && ctx.macroRedFlags?.dualRed) {
+    rec = {
+      ...rec,
+      action: "HOLD",
+      targetWeight: 0,
+      overrideNotes: [...(rec.overrideNotes ?? []), "macro_dual_red: SPY below 200-day average AND 10-year rate pressure — NO_TRADE per mandate"],
+    };
+    riskOverridden = true;
+  } else if (rec.action === "BUY" && DUAL_RED_BLOCKS_AGENTS.has(agent.id) && ctx.macroRedFlags?.redCount === 1) {
+    // Single red condition: mandate requires an explanation, not a block. A
+    // deterministic Tier-2 size cap isn't wired here yet — see
+    // config/agents/mandate-policy.js's macro.singleRedTierCap for the shadow
+    // system's intended value; this only guarantees the condition is flagged.
+    rec = {
+      ...rec,
+      overrideNotes: [...(rec.overrideNotes ?? []), "macro_single_red: one macro condition is red — mandate requires explicit explanation"],
+    };
+  }
 
   // Circuit-breaker pre-gate: don't spend evaluator tokens on an action the
   // breaker tier can't admit anyway (BUYs at ≥12% drawdown, everything at HALT).
