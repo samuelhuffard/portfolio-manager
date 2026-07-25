@@ -483,10 +483,10 @@ async function buildAgentReviewContext(sheets, spreadsheetId, { candidates, risk
   const [resolvedHeldAllocation, cashBalance, lots] = await Promise.all([
     heldAllocation ? Promise.resolve(heldAllocation) : readHoldingsAllocation(sheets, spreadsheetId),
     readCashBalance(sheets, spreadsheetId),
-    // Agent 4's shadow observer needs ownership data for SELL review. A read
+    // Kairos's shadow observer needs ownership data for SELL review. A read
     // failure must never disturb the existing specialist/approval path.
     readAllLots(sheets, spreadsheetId).catch((error) => {
-      console.error(`[Agent4] Shadow lot snapshot unavailable: ${error.message}`);
+      console.error(`[Kairos] Shadow lot snapshot unavailable: ${error.message}`);
       return null;
     }),
   ]);
@@ -1068,7 +1068,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
             console.log(`[Research] ${agent.id}: queued ${rec.action} ${c.ticker} proposal ($${sized.amountDollars}).`);
             createdProposal = created;
             proposalDisposition = "created";
-            // Observer-only Agent 4 shadow review. Its record is intentionally
+            // Observer-only Kairos shadow review. Its record is intentionally
             // isolated from the proposal's status/signature/execution fields;
             // a missing policy or failed shadow write cannot block Sam's queue.
             try {
@@ -1078,12 +1078,12 @@ async function reviewCandidateForAgent(agent, c, ctx) {
                 context: { ...ctx, cashAvailableBeforeProposal },
               });
               if (shadow.status === "recorded") {
-                console.log(`[Agent4] SHADOW ${shadow.decision.outcome} ${created.side} ${created.ticker}: ${shadow.decision.reasonCodes.join(", ")}`);
+                console.log(`[Kairos] SHADOW ${shadow.decision.outcome} ${created.side} ${created.ticker}: ${shadow.decision.reasonCodes.join(", ")}`);
               } else {
-                console.warn(`[Agent4] Shadow review not recorded for ${created.id}: ${shadow.status}.`);
+                console.warn(`[Kairos] Shadow review not recorded for ${created.id}: ${shadow.status}.`);
               }
             } catch (shadowError) {
-              console.error(`[Agent4] Shadow review failed for ${created.id}; specialist proposal remains unchanged: ${shadowError.message}`);
+              console.error(`[Kairos] Shadow review failed for ${created.id}; specialist proposal remains unchanged: ${shadowError.message}`);
             }
           } else {
             // createProposal already screamed (Redis missing / write failure).

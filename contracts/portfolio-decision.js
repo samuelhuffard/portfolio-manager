@@ -9,7 +9,10 @@ import { z } from "zod";
 import { AGENT_IDS, AgentIdSchema, TICKER_RE } from "./proposal.js";
 import { StrategyProposalSchema } from "./pipeline.js";
 
+// `agent-4` is an immutable machine identifier used in persisted contracts and
+// Redis keys. Keep it stable; use this display name in operator-facing copy.
 export const PORTFOLIO_MANAGER_ID = "agent-4";
+export const PORTFOLIO_MANAGER_NAME = "Kairos";
 export const PORTFOLIO_SHADOW_KEYS = Object.freeze({
   decisionIndex: "pm:portfolio-decisions:index",
   decisionPrefix: "pm:portfolio-decision:",

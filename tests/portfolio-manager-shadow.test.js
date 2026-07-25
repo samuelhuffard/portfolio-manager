@@ -4,6 +4,8 @@ import {
   AllocationPolicySchema,
   AllocationSnapshotSchema,
   PortfolioDecisionSchema,
+  PORTFOLIO_MANAGER_ID,
+  PORTFOLIO_MANAGER_NAME,
   PortfolioReviewRequestSchema,
 } from "../contracts/portfolio-decision.js";
 import {
@@ -12,6 +14,11 @@ import {
 } from "../lib/portfolio-manager-shadow.js";
 
 const NOW = "2026-07-11T12:00:00.000Z";
+
+test("Kairos keeps the stable Agent 4 machine identifier", () => {
+  assert.equal(PORTFOLIO_MANAGER_NAME, "Kairos");
+  assert.equal(PORTFOLIO_MANAGER_ID, "agent-4");
+});
 
 function proposal(overrides = {}) {
   return {

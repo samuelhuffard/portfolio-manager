@@ -200,7 +200,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // Agent 4 remains shadow-only. This state endpoint exposes versioned policy,
+  // Kairos (Agent 4) remains shadow-only. This state endpoint exposes versioned policy,
   // immutable snapshots, and recorded shadow decisions; it never reads or
   // writes the live approval signature/execution queue.
   if (req.method === "GET" && url.pathname === "/portfolio-manager/shadow") {

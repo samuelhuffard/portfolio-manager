@@ -11,9 +11,9 @@ if (!file) {
   try {
     const raw = JSON.parse(await readFile(resolve(file), "utf8"));
     const policy = await activateShadowAllocationPolicy(raw);
-    console.log(`Activated Agent 4 ${policy.mode} policy ${policy.version}. No live authority was granted.`);
+    console.log(`Activated Kairos ${policy.mode} policy ${policy.version}. No live authority was granted.`);
   } catch (error) {
-    console.error(`Agent 4 policy activation failed: ${error.message}`);
+    console.error(`Kairos policy activation failed: ${error.message}`);
     process.exitCode = 1;
   }
 }

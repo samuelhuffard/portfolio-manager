@@ -192,15 +192,15 @@ Gotchas:
 - Empty `personality.md` = the model runs against "general prudence" (evaluator says so explicitly). An empty file is a silent no-mandate, not a safe default — don't half-activate.
 - `aiReviewBudget` is the Anthropic spend guardrail (holdings exempt). Adding a live agent adds cost; confirm the per-day budget across all agents is acceptable.
 
-## Onboarding / changing the Agent 4 allocation policy (portfolio manager)
+## Onboarding / changing the Kairos (Agent 4) allocation policy (portfolio manager)
 
-Agent 4 is the shadow portfolio manager, NOT a specialist — no `config/agents/agent-4/` dir, not in `AGENTS`. It reviews an immutable specialist `StrategyProposal` and may only ACCEPT/REJECT it; it can never originate a trade, mutate a proposal, or authorize an unowned SELL.
+Kairos (machine ID `agent-4`) is the shadow portfolio manager, NOT a specialist — no `config/agents/agent-4/` dir, not in `AGENTS`. It reviews an immutable specialist `StrategyProposal` and may only ACCEPT/REJECT it; it can never originate a trade, mutate a proposal, or authorize an unowned SELL.
 
-Files: `contracts/portfolio-decision.js` (canonical — `AllocationPolicySchema`, `StrategyBudgetSchema`, `AllocationSnapshotSchema`, `PortfolioRiskSnapshotSchema`, reason codes; mirrored to the dashboard via `npm run contracts:sync`), Redis keys `pm:allocation-policy:active` / `pm:allocation-policy:<version>` / `pm:allocation-snapshot:*` / `pm:portfolio-risk-snapshot:*` / `pm:portfolio-decision:*` (`PORTFOLIO_SHADOW_KEYS`), plus the dashboard's Agent 4 shadow control room. Tests: `tests/portfolio-manager-shadow.test.js`, `tests/ownership-enforcement.test.js`.
+Files: `contracts/portfolio-decision.js` (canonical — `AllocationPolicySchema`, `StrategyBudgetSchema`, `AllocationSnapshotSchema`, `PortfolioRiskSnapshotSchema`, reason codes; mirrored to the dashboard via `npm run contracts:sync`), Redis keys `pm:allocation-policy:active` / `pm:allocation-policy:<version>` / `pm:allocation-snapshot:*` / `pm:portfolio-risk-snapshot:*` / `pm:portfolio-decision:*` (`PORTFOLIO_SHADOW_KEYS`), plus the dashboard's Kairos shadow control room. Tests: `tests/portfolio-manager-shadow.test.js`, `tests/ownership-enforcement.test.js`.
 
 Steps:
-1. Convert the friend's Agent 4 personality into a versioned `AllocationPolicy` object: `mode: "SHADOW"` (do not change), `version`, and every hard bound (`maxSingleProposalDollars`, `maxStrategyAllocationPct`, `maxTickerExposurePct`, `minCashReservePct`, `maxGrossExposurePct`, `maxBudgetChangePct`, `evidenceWindowDays`, snapshot-age caps, `minEvaluatedProposals`, `minFilledTrades`). The schema validates numeric ranges only — it does not choose a policy; the numbers are the mandate.
-2. Keep Agent 4 in **shadow mode with Sam as final approver**. No live approval authority until the policy passes shadow-mode evidence (roadmap Phase 2/3 gate). There is deliberately no order-authorization or approval-signature field in these contracts.
+1. Convert Kairos's personality into a versioned `AllocationPolicy` object: `mode: "SHADOW"` (do not change), `version`, and every hard bound (`maxSingleProposalDollars`, `maxStrategyAllocationPct`, `maxTickerExposurePct`, `minCashReservePct`, `maxGrossExposurePct`, `maxBudgetChangePct`, `evidenceWindowDays`, snapshot-age caps, `minEvaluatedProposals`, `minFilledTrades`). The schema validates numeric ranges only — it does not choose a policy; the numbers are the mandate.
+2. Keep Kairos in **shadow mode with Sam as final approver**. No live approval authority until the policy passes shadow-mode evidence (roadmap Phase 2/3 gate). There is deliberately no order-authorization or approval-signature field in these contracts.
 3. Any contract shape change: edit `contracts/portfolio-decision.js`, run `npm run contracts:sync`, commit both repos together (drift-tested).
 
 Gotchas:
