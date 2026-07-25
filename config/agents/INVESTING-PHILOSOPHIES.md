@@ -13,7 +13,7 @@ Initial agent framing:
 - Agent 2: medium-term trading agent. Makes trades monthly.
 - Agent 3: long-term investing agent. Waits at least one year before making a trade.
 
-Implementation note: do not change code yet. This is a planning/strategy placeholder only. Do not write these mandates into the agents' `personality.md` files until the investing philosophies are more fully specified.
+Implementation note: do not change code yet. This is a planning/strategy placeholder only. Do not write these mandates into the agents' `master.md`/`buy-playbook.md` files until the investing philosophies are more fully specified.
 
 Portfolio manager uncommitted worktree note from `git status --short` at capture time:
 

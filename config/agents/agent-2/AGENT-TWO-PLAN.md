@@ -8,7 +8,7 @@ scope: "Agent Two only"
 
 # Agent Two Strategy Specification v3
 
-The full normative mandate is `agent_mandates/Agent_Two_Mandate_v3.md`. The runtime compact mandate is `personality.md`; it is deliberately a constrained summary, not a replacement for the source document.
+The full normative mandate is `agent_mandates/Agent_Two_Mandate_v3.md`. The runtime compact mandate is `master.md` + `buy-playbook.md` (split-mandate layout — see `config/agents/MANDATE-SPLIT-PILOT.md`); together they are deliberately a constrained summary, not a replacement for the source document.
 
 Agent Two is a medium-term momentum specialist: it seeks established trends supported by persistent fundamental and institutional evidence, holds through ordinary noise, and recycles dead capital when the trend genuinely breaks.
 

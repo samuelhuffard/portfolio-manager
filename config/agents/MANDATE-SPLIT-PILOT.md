@@ -1,8 +1,9 @@
-# Mandate-split pilot (Agent 1) — what changed and how to repeat it
+# Mandate split — what changed and how it was done
 
-**Status:** piloted on agent-1 only, on branch `pilot/agent-1-mandate-split`.
-Agent-2 and agent-3 are untouched and still use the flat `personality.md`
-pattern — this is deliberate, not partial work left unfinished.
+**Status:** rolled out to all three agents (agent-1 piloted first on branch
+`pilot/agent-1-mandate-split`; agent-2/agent-3 repeated the same steps on the
+same branch). All three now use `master.md` + `buy-playbook.md` +
+`sell-playbook.md` instead of one flat `personality.md`.
 
 ## Why
 
@@ -21,14 +22,14 @@ thresholds were already externalized as config, exit thresholds weren't.
 
 ## What changed, file by file
 
-### New files (agent-1 only)
+### New files (all three agents)
 
-- `config/agents/agent-1/master.md` — identity, core boundary, mandate
+- `config/agents/agent-N/master.md` — identity, core boundary, mandate
   one-paragraph edge hypothesis, universe eligibility. Applies regardless of
   task.
-- `config/agents/agent-1/buy-playbook.md` — entry hard gates, scoring, sizing.
+- `config/agents/agent-N/buy-playbook.md` — entry hard gates, scoring, sizing.
   This is the part that's actually specific to hunting new BUYs.
-- `config/agents/agent-1/sell-playbook.md` — human-readable narrative of the
+- `config/agents/agent-N/sell-playbook.md` — human-readable narrative of the
   deterministic exit rules. **Not loaded by any job.** Its only purpose is
   letting a reviewer sanity-check that `lib/mandate-policy.js` still matches
   the mandate without reading branching logic. If it and the code ever
@@ -36,7 +37,8 @@ thresholds were already externalized as config, exit thresholds weren't.
 
 ### Deleted
 
-- `config/agents/agent-1/personality.md` — replaced by `master.md` +
+- `config/agents/agent-1/personality.md`, `agent-2/personality.md`,
+  `agent-3/personality.md` — each replaced by that agent's `master.md` +
   `buy-playbook.md`.
 
 ### Code changes
@@ -45,40 +47,54 @@ thresholds were already externalized as config, exit thresholds weren't.
   `master.md`/`buy-playbook.md` both exist, it concatenates them
   (`${master}\n\n${buyPlaybook}`) into the same `personality` slot the AI
   overlay has always received. Otherwise it falls back to reading
-  `personality.md` unchanged. This is the one piece of shared code touched —
-  agent-2/agent-3 hit the fallback branch and are provably unaffected (see
-  Verification below).
-- `config/agents/mandate-policy.js` — added an `exit` block to agent-1's
-  policy object: `atrFullExitThreshold: 2.5`, `atrPartialExitThreshold: 2.0`,
-  `atrReviewThreshold: 1.5`. (The dead-trade day thresholds — 20/30/40 — were
-  *already* in this file's `cadence` block; the code just wasn't reading them.)
-- `lib/mandate-policy.js` — in `evaluateHoldingTriggers`'s agent-1 branch,
-  replaced the hardcoded literals (`2.5`, `2`, `1.5`, `40`, `30`, `20`) with
-  reads from `policy.exit.*` / `policy.cadence.*`. Agent-2 and agent-3
-  branches are untouched — they still use inline literals.
+  `personality.md` unchanged — kept only so a future agent-4-style onboarding
+  can still start flat before splitting; no current agent uses that path.
+- `config/agents/mandate-policy.js` — added an `exit` block to each agent's
+  policy object:
+  - agent-1: `atrFullExitThreshold: 2.5`, `atrPartialExitThreshold: 2.0`,
+    `atrReviewThreshold: 1.5` (the dead-trade day thresholds — 20/30/40 — were
+    *already* in this file's `cadence` block; the code just wasn't reading them).
+  - agent-2: `consecutiveClosesBelow50DayThreshold: 5`,
+    `relativeStrengthDecliningWeeksThreshold: 4`,
+    `revenueDecelerationQuartersThreshold: 2`,
+    `epsDecelerationQuartersThreshold: 2`, `deadQuartersThreshold: 2`.
+  - agent-3: `businessScoreFloor: 65`, `positionDriftCeilingPct: 25`,
+    `valuationPercentileCeiling: 0.9`.
+- `lib/mandate-policy.js` — in `evaluateHoldingTriggers`, all three agent
+  branches now read `policy.exit.*` / `policy.cadence.*` instead of inline
+  numeric literals. The one threshold left as a literal everywhere is the
+  conviction-tier-drop check (`tierDrop >= 1`) — identical across all three
+  agents and not really a mandate-tuning knob, so it wasn't extracted.
 
 ### Docs touched
 
-- `config/agents/README.md` — describes both the flat and split layouts now.
+- `config/agents/README.md` — describes the split layout as the current
+  pattern for all three agents.
 - `docs/CHANGE_MAP.md` — "Onboarding a specialist mandate" section points here.
-- `tests/specialist-mandate-config.test.js` — agent-1's test now reads
-  `master.md` + `buy-playbook.md` and concatenates them the same way the
-  runtime loader does, instead of reading a `personality.md` that no longer
-  exists. Same assertions, same expected content.
+- `config/agents/agent-{1,2,3}/AGENT-*-PLAN.md`,
+  `config/agents/INVESTING-PHILOSOPHIES.md` — updated to reference
+  `master.md`/`buy-playbook.md` instead of the now-deleted `personality.md`.
+- `tests/specialist-mandate-config.test.js` — added a shared `readPersonality(agentId)`
+  helper that reads `master.md` + `buy-playbook.md` and concatenates them the
+  same way the runtime loader does, used for all three agents' tests instead
+  of reading a `personality.md` that no longer exists. Same assertions, same
+  expected content.
 
 ## Verification performed
 
-1. `npm test` — 866/866 passing (baseline required `npm install`; dependencies
+1. `npm test` — 866/866 passing both after the agent-1 pilot and after the
+   agent-2/agent-3 rollout (baseline required `npm install`; dependencies
    weren't present in a fresh checkout).
-2. Ran `loadPersonality()`'s exact logic standalone against all three agents:
-   agent-1 resolved via the new split path (1830 chars, split); agent-2 and
-   agent-3 both resolved via the flat-file fallback, byte-identical to before.
-3. `tests/mandate-policy.test.js` exercises the exact ATR/trading-day
-   thresholds (1.5, 2, 40, etc.) end to end through `evaluateMandateHolding` —
-   passing confirms the config-sourced values produce identical exit decisions
-   to the old hardcoded ones.
+2. Ran `loadPersonality()`'s exact logic standalone against all three agents
+   after each stage to confirm which path each one resolved through (split vs.
+   flat fallback) and that content came out as expected.
+3. `tests/mandate-policy.test.js` exercises the exact exit thresholds (ATR
+   ladder, trading-day windows, business-score floor, drift ceiling,
+   valuation percentile) end to end through `evaluateMandateHolding` for all
+   three agents — passing confirms the config-sourced values produce
+   identical exit decisions to the old hardcoded ones.
 
-## How to repeat for agent-2 / agent-3
+## The steps that were followed (repeat again for a future agent-4-style onboarding)
 
 1. Read the agent's current `personality.md` and split its content: identity
    + core boundary + mandate paragraph + universe/eligibility rules →
@@ -86,18 +102,17 @@ thresholds were already externalized as config, exit thresholds weren't.
    invent or drop rules — same content, reorganized (mirrors the
    `_TEMPLATE-STRATEGY-SPEC.md` rule: don't invent mandate content).
 2. Write `sell-playbook.md` narrating that agent's exit branch in
-   `lib/mandate-policy.js`'s `evaluateHoldingTriggers` (the `else if
-   (policy.agentId === "agent-2")` / `else` branch).
+   `lib/mandate-policy.js`'s `evaluateHoldingTriggers`.
 3. Delete the old `personality.md`. No code change needed here —
    `loadPersonality()` already handles both layouts automatically.
 4. In `config/agents/mandate-policy.js`, add that agent's `exit` block with
-   its current hardcoded threshold values (agent-2: the 50/200-day trend-break
-   day counts, deceleration-quarter counts, dead-quarter count; agent-3: the
-   65 business-score floor, 25% drift cap, 0.9 valuation percentile).
+   its current hardcoded threshold values.
 5. In `lib/mandate-policy.js`, replace that agent's literals with
-   `policy.exit.*` / `policy.cadence.*` reads — same pattern as the agent-1
-   diff on this branch.
-6. Update that agent's block in `tests/specialist-mandate-config.test.js` the
-   same way agent-1's was updated.
+   `policy.exit.*` / `policy.cadence.*` reads.
+6. Add/extend a shared `readPersonality(agentId)` helper in
+   `tests/specialist-mandate-config.test.js` and point that agent's test at it.
 7. Run `npm test` and confirm the pass count doesn't drop, then spot-check
    `loadPersonality()` standalone the same way as step 2 of Verification above.
+8. Sweep the repo for remaining `personality.md` mentions (`grep -rl
+   "personality\.md"`) and update any doc that still claims the flat file is
+   current for that agent.
