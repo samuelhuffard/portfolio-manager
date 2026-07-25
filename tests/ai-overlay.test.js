@@ -35,7 +35,44 @@ test("actual research request includes the fractional-share policy without a cas
   assert.match(FRACTIONAL_SHARE_POLICY, /fractional-share market orders/i);
   assert.match(request.system[0].text, /not whole-share-based/i);
   assert.doesNotMatch(request.messages[0].content, /\$85|available cash/i);
-  assert.equal(request.max_tokens, 1000);
+  assert.equal(request.max_tokens, 1400);
+});
+
+test("a malformed model response gets one compact format-recovery retry", async () => {
+  const requests = [];
+  const responses = [
+    {
+      stop_reason: "max_tokens",
+      usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      content: [{ type: "text", text: '{"action":"HOLD"' }],
+    },
+    {
+      stop_reason: "end_turn",
+      usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      content: [{ type: "text", text: JSON.stringify({ action: "HOLD", target_weight_pct: 0, thesis: "Evidence is insufficient.", risks: [], kill_criteria: [], confidence: 0.5, suspect_evidence: [] }) }],
+    },
+  ];
+  const anthropicClient = { messages: { create: async (input) => {
+    requests.push(input);
+    return responses.shift();
+  } } };
+
+  const rec = await getAIRecommendation({
+    ticker: "TEST", name: "Test Company", quantScore: 70, breakdown: {}, news: [], strategyNotes: "",
+    isHeld: false, nextEarningsDate: null, analystTrend: null, insiderActivity: null,
+    recentFilings: [], marketScanSignals: [], athenaEvidence: [], macro: null, personality: null,
+    persistentMemory: null, proposalPolicy: "Capital availability is handled downstream.", researchHistory: null,
+    boundaryToken: null, evaluatorCritique: null, previousProposal: null, agentId: "agent-3",
+    anthropicClient, recordUsage: async () => ({ persisted: false }),
+  });
+
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].max_tokens, 1400);
+  assert.match(requests[1].messages[0].content, /FORMAT RECOVERY/i);
+  assert.equal(rec.outputInvalid, false);
+  assert.equal(rec.formatRecoveryAttempted, true);
+  assert.equal(rec.initialModelStopReason, "max_tokens");
+  assert.equal(rec.modelStopReason, "end_turn");
 });
 
 test("fractional-share HOLD detector catches position-size rationales but not free-cash-flow fundamentals", () => {
