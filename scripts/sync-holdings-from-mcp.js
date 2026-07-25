@@ -32,7 +32,7 @@
  */
 import "dotenv/config";
 import { fetchQuotes } from "../lib/yahoo.js";
-import { writePortfolioSnapshot } from "../lib/portfolio-snapshot.js";
+import { applyComparableQuoteValuation, writePortfolioSnapshot } from "../lib/portfolio-snapshot.js";
 import { getServiceAccountClients, getSheetIds, resolveSharedSpreadsheetId } from "../lib/sheets.js";
 import { runResearchScan } from "../jobs/research-scan.js";
 import { withWorkflowLock } from "../lib/workflow-lock.js";
@@ -82,17 +82,19 @@ const snapshot = await withWorkflowLock("holdings-sync", async () => {
   const { sheets, drive } = getServiceAccountClients();
   const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
   const sheetIds = await getSheetIds(sheets, spreadsheetId);
-  const quotes = await fetchQuotes(["SPY"]);
+  const quotes = await fetchQuotes(["SPY", ...holdings.map((holding) => holding.ticker)]);
   const spyPrice = quotes.SPY?.regularMarketPrice ?? null;
+  const valued = applyComparableQuoteValuation(holdings, quotes);
   return writePortfolioSnapshot({
     sheets,
     spreadsheetId,
     sheetIds,
-    holdings,
+    holdings: valued.holdings,
     cash,
     spyPrice,
     timestamp,
     holdingsNote: "Synced via Robinhood Agentic MCP",
+    quoteSnapshot: valued.quoteSnapshot,
     sourceRequestId,
   });
 }, { ttlSeconds: 5 * 60 });

@@ -12,6 +12,7 @@ import { runSystemSentinel } from "./jobs/system-sentinel.js";
 import { runScheduledResearchDataRefresh } from "./jobs/research-data-refresh.js";
 import { requestMcpHoldingsSync, requestMcpOrderReconciliation } from "./jobs/mcp-read-requests.js";
 import { runDailyDbParityCheck } from "./jobs/db-parity-check.js";
+import { runProposalShadowReconcile } from "./jobs/proposal-shadow-reconcile.js";
 import { refreshShadowPositions } from "./scripts/refresh-shadow-positions.js";
 import { runResearchOutcomeBiweeklyReport } from "./jobs/research-outcome-biweekly-report.js";
 import { runPhase0Observer } from "./jobs/phase0-observer.js";
@@ -231,6 +232,10 @@ cron.schedule("30 19 * * 1-5", wrapJob("research-data-refresh", "ResearchData", 
 // Rebuild positions from the authoritative Sheet shortly before parity because
 // the Mac MCP companion intentionally does not carry database credentials.
 cron.schedule("50 19 * * 1-5", wrapJob("shadow-positions-refresh", "ShadowPositions", refreshShadowPositions, MARKET_DAY_ONLY), TZ);
+// Replay the authoritative proposal set immediately before parity. This gives
+// dashboard-originated lifecycle updates a durable, observable retry path if
+// the best-effort callback could not reach the Jetson at write time.
+cron.schedule("55 19 * * *", wrapJob("proposal-shadow-reconcile", "ProposalShadow", runProposalShadowReconcile), TZ);
 cron.schedule("0 20 * * *", wrapJob("db-parity", "Parity", runDailyDbParityCheck), TZ);
 
 // ── Final system sentinel (8:10 PM ET, trading weekdays) ────────────────────
