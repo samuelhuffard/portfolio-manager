@@ -1,0 +1,16 @@
+{
+  "version": "agent-4-shadow-v1",
+  "mode": "SHADOW",
+  "effectiveAt": "2026-07-25T00:00:00.000Z",
+  "maxSingleProposalDollars": 10000,
+  "maxStrategyAllocationPct": 70,
+  "maxTickerExposurePct": 20,
+  "minCashReservePct": 0,
+  "maxGrossExposurePct": 100,
+  "maxBudgetChangePct": 10,
+  "evidenceWindowDays": 60,
+  "maxAllocationSnapshotAgeMinutes": 60,
+  "maxPortfolioSnapshotAgeMinutes": 30,
+  "minEvaluatedProposals": 0,
+  "minFilledTrades": 0
+}
