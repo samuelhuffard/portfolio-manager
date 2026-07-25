@@ -3,11 +3,11 @@
 > **Narrow authority: append-only Phase 0 evidence.** The daily rows and count in
 > this file are the evidence for the window. The window definition, two-clock
 > reset taxonomy, and portfolio-wide sequence are canonical in
-> [the master plan](portfolio-master-plan.md).
+> [the master plan](roadmaps/portfolio-master-plan.md).
 
 **Owner:** Codex, with Sam as final authority  
 **Purpose:** the authoritative human-readable record for the five consecutive clean
-trading-day Phase 0 exit gate in `AUTONOMY-ROADMAP.md`. This is evidence tracking,
+trading-day Phase 0 exit gate in `roadmaps/AUTONOMY-ROADMAP.md`. This is evidence tracking,
 not a substitute for the Jetson system sentinel or signed ledgers.
 
 > **2026-07-20 policy update:** the supervised workflow-readiness gate is five

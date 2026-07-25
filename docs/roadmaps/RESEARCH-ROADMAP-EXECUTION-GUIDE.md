@@ -6,7 +6,7 @@
 > packets and verification; it cannot promote a phase or resolve a human policy
 > question.
 
-**Rev 2026-07-13 · companion to `docs/ROADMAP-FORMIDABLE-FUND.md`**
+**Rev 2026-07-13 · companion to `docs/roadmaps/ROADMAP-FORMIDABLE-FUND.md`**
 
 > The roadmap defines the destination and the gates. This document turns it into bounded engineering work that an executor model can complete without silently changing the investment thesis, authority model, or safety invariants.
 
@@ -26,7 +26,7 @@ Owns the larger picture:
 - Reviews every cross-repo or money-adjacent diff.
 - Verifies runtime evidence on the Jetson, dashboard, Redis, Sheets, Postgres, and Mac companion.
 - Decides whether shadow evidence is strong enough for canary or live promotion.
-- Keeps `docs/ROADMAP-FORMIDABLE-FUND.md`, `docs/AUTONOMY-ROADMAP.md`, and runtime behavior consistent.
+- Keeps `docs/roadmaps/ROADMAP-FORMIDABLE-FUND.md`, `docs/roadmaps/AUTONOMY-ROADMAP.md`, and runtime behavior consistent.
 
 The primary reviewer should not hand an executor a vague phase such as “build point-in-time scoring.” It should hand over one packet below with frozen inputs and explicit acceptance criteria.
 
@@ -78,7 +78,7 @@ Runs after meaningful packets:
 Every executor starts with:
 
 1. Resolve the repo as `/Users/samhuffard/All Claude Projects/portfolio-manager`.
-2. Read `.claude/napkin.md`, `CLAUDE.md`, `docs/ROADMAP-FORMIDABLE-FUND.md`, this guide, and the relevant section of `docs/CHANGE_MAP.md`.
+2. Read `.claude/napkin.md`, `CLAUDE.md`, `docs/roadmaps/ROADMAP-FORMIDABLE-FUND.md`, this guide, and the relevant section of `docs/CHANGE_MAP.md`.
 3. If touching proposals, execution, ledgers, lots, or NAV, also read `docs/INVARIANTS.md` completely.
 4. Run `git status --short --branch`. Preserve all pre-existing changes and untracked files.
 5. Read every target file and its closest tests before editing.
@@ -1052,7 +1052,7 @@ Before any GitHub push, scan staged files for `.env`, credential JSON, OAuth tok
 The primary reviewer can hand a small model this template:
 
 ```text
-Work only on packet E0.1 from docs/RESEARCH-ROADMAP-EXECUTION-GUIDE.md.
+Work only on packet E0.1 from docs/roadmaps/RESEARCH-ROADMAP-EXECUTION-GUIDE.md.
 
 Repo: /Users/samhuffard/All Claude Projects/portfolio-manager
 

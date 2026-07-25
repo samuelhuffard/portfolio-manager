@@ -67,7 +67,7 @@ npm test && npm run lint && npm run build
 ## Deploys
 
 **Backend → Jetson** (after pushing the exact reviewed release named in
-`docs/portfolio-master-plan.md`; do not assume `main`):
+`docs/roadmaps/portfolio-master-plan.md`; do not assume `main`):
 ```bash
 ssh sam@100.102.93.103
 cd ~/portfolio-manager

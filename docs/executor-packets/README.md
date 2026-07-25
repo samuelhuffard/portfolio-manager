@@ -9,7 +9,7 @@ This folder contains copy-ready task prompts for separate Codex tasks. Sam may s
 
 The original Wave A/B/C prompts remain useful as specifications and provenance, but their launch sequencing is now historical. The current worktree contains verified local implementations for Wave A, the Phase 1 spine, E2.1 and safe fail-closed evidence primitives, E3.1–E3.3, the backtest scaffold, E4.1 and shadow-only E4.2, and E7 measurement/persistence/reporting surfaces. The execution guide ledger is the status authority.
 
-Nothing in this manifest means committed, migrated, deployed, activated, empirically validated, or promoted. Do not relaunch a historical packet against the shared worktree. Use `docs/RESEARCH-ROADMAP-EXECUTION-GUIDE.md` section 3.1 as the current status authority.
+Nothing in this manifest means committed, migrated, deployed, activated, empirically validated, or promoted. Do not relaunch a historical packet against the shared worktree. Use `docs/roadmaps/RESEARCH-ROADMAP-EXECUTION-GUIDE.md` section 3.1 as the current status authority.
 
 ## Wave A — historical prompts, implementation present locally
 

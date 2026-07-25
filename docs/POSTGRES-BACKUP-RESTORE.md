@@ -2,7 +2,7 @@
 
 This runbook owns only the backup/restore evidence for the Postgres shadow store.
 The promotion sequence and current status remain authoritative in
-`docs/portfolio-master-plan.md`.
+`docs/roadmaps/portfolio-master-plan.md`.
 
 ## What is proved now
 

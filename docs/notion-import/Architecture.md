@@ -50,4 +50,4 @@ Agent 1 / Agent 2 / Agent 3
 - Agents 2/3 are not permitted to produce actionable proposals.
 - The system is not a fund and does not manage outside capital autonomously.
 
-Source: `docs/ARCHITECTURE.md`, `docs/INVARIANTS.md`, `docs/AUTONOMY-ROADMAP.md`.
+Source: `docs/ARCHITECTURE.md`, `docs/INVARIANTS.md`, `docs/roadmaps/AUTONOMY-ROADMAP.md`.

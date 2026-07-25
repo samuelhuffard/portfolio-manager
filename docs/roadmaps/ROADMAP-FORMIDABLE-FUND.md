@@ -14,7 +14,7 @@
 
 This is a roadmap for improving research quality and learning whether an edge exists. It is not evidence that the system beats the market, and it is not authority to accept outside capital or autonomously trade.
 
-Implementation companion: `docs/RESEARCH-ROADMAP-EXECUTION-GUIDE.md` translates each phase into bounded executor packets, exact file surfaces, verification commands, stop conditions, and reviewer-owned decisions.
+Implementation companion: `docs/roadmaps/RESEARCH-ROADMAP-EXECUTION-GUIDE.md` translates each phase into bounded executor packets, exact file surfaces, verification commands, stop conditions, and reviewer-owned decisions.
 
 Frozen implementation authorities:
 
@@ -88,7 +88,7 @@ evidence records are authoritative.
 5. **Deterministic code narrows; AI investigates.** Code handles universe eligibility, calculations, peer resolution, freshness, and ranking. AI receives a small evidence-backed finalist set and may only propose within the active mandate.
 6. **Research cannot manufacture authority.** Scores and AI outputs remain advisory. Risk controls may block, shrink, expire, or downgrade; they never upgrade a recommendation or force a purchase.
 7. **One proposal lineage.** Every actionable proposal must trace to one research intent, evidence snapshot, strategy/mandate version, evaluator result, and—for SELLs—owned lots.
-8. **Human approval remains binding.** Nothing in this roadmap weakens the signed approval, deterministic execution, ledger, or reconciliation boundaries in `docs/AUTONOMY-ROADMAP.md`.
+8. **Human approval remains binding.** Nothing in this roadmap weakens the signed approval, deterministic execution, ledger, or reconciliation boundaries in `docs/roadmaps/AUTONOMY-ROADMAP.md`.
 9. **Cash is valid, but HOLD must be testable.** The system may hold cash indefinitely when no candidate qualifies; it must be able to explain that decision against the strongest available alternatives.
 10. **Claims follow evidence.** Coverage, edge, process maturity, and deployment status are reported from runtime artifacts—not inferred from code existing in a branch.
 
@@ -307,7 +307,7 @@ Required safeguards:
 - Sample-size and confidence intervals; no promotion based on a handful of trades.
 - Clear distinction between historical backtest, shadow counterfactual, paper result, and realized live return.
 
-**Exit gate:** a reproducible research report can show where return came from, what would have happened under the alternatives, how sensitive results are to assumptions, and whether any claimed edge survives costs and out-of-sample testing. Autonomy promotion remains governed separately by `docs/AUTONOMY-ROADMAP.md`.
+**Exit gate:** a reproducible research report can show where return came from, what would have happened under the alternatives, how sensitive results are to assumptions, and whether any claimed edge survives costs and out-of-sample testing. Autonomy promotion remains governed separately by `docs/roadmaps/AUTONOMY-ROADMAP.md`.
 
 ---
 
