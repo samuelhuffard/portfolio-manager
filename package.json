@@ -36,6 +36,7 @@
     "contracts:sync": "node contracts/sync.mjs",
     "db:migrate": "node lib/pg/migrate.js",
     "db:parity": "node scripts/db-parity.mjs",
+    "db:repair-proposals": "node scripts/repair-proposal-shadow.mjs",
     "db:restore-drill": "node scripts/postgres-restore-drill.mjs",
     "db:backfill": "node scripts/db-backfill.mjs",
     "db:migrate-capital-hmacs": "node scripts/migrate-capital-entry-hmacs.mjs",

@@ -62,6 +62,44 @@ test("an enabled shadow failure is reported but never thrown into the authoritat
   }
 });
 
+test("proposal shadow upsert carries a current approval lifecycle into the shadow", async () => {
+  const calls = [];
+  const proposal = {
+    id: "proposal-approval-state",
+    agentId: "agent-3",
+    ticker: "GS",
+    side: "BUY",
+    amountDollars: 6.05,
+    maxPrice: null,
+    rationale: "Evidence-backed test rationale.",
+    riskSummary: "Test risk summary.",
+    status: "ApprovedForBrokerReview",
+    createdAt: "2026-07-24T15:00:00.000Z",
+    updatedAt: "2026-07-24T15:05:00.000Z",
+    expiresAt: "2026-07-26T15:00:00.000Z",
+    createdByUserId: "generator",
+    createdByEmail: null,
+    decidedAt: "2026-07-24T15:05:00.000Z",
+    decidedByUserId: "fund-manager",
+    decisionNote: "Approved after review.",
+    decisionHmac: "signed-decision",
+    fulfilledAt: null,
+    fulfilledOrderId: null,
+    fulfilledShares: null,
+  };
+  const result = await shadowWriteProposal(proposal, {
+    enabled: true,
+    pool: { query: async (...args) => calls.push(args) },
+  });
+  assert.deepEqual(result, { ok: true });
+  assert.equal(calls.length, 1);
+  assert.match(calls[0][0], /ON CONFLICT \(id\) DO UPDATE SET/);
+  assert.match(calls[0][0], /decision_hmac = EXCLUDED.decision_hmac/);
+  assert.equal(calls[0][1][8], "ApprovedForBrokerReview");
+  assert.equal(calls[0][1][14], "2026-07-24T15:05:00.000Z");
+  assert.equal(calls[0][1][17], "signed-decision");
+});
+
 test("position refresh rolls back a partial shadow transaction and still does not throw", async () => {
   const queries = [];
   const client = {
