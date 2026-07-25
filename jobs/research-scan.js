@@ -376,9 +376,16 @@ function makeDateWindow(now = new Date()) {
   threeMonthsAgo.setMonth(now.getMonth() - 3);
   const oneMonthAgo = new Date(now);
   oneMonthAgo.setMonth(now.getMonth() - 1);
-  const eightMonthsAgo = new Date(now);
-  eightMonthsAgo.setMonth(now.getMonth() - 8);
-  return { now, threeMonthsAgo, oneMonthAgo, eightMonthsAgo };
+  // The 52-week-high fallback (lib/evidence-quality-policy.js) needs 252 valid
+  // trading-day closes, which takes ~11.5 calendar months to accumulate. This
+  // was previously 8 months — structurally too short to ever satisfy that (or
+  // even the 200-day) requirement, regardless of ticker. 14 months leaves
+  // buffer for holidays/gaps. The primary source for sma50/sma200/high52Week
+  // is now Yahoo's own precomputed summaryDetail figures (free, no extra
+  // request) — this window only matters as their fallback.
+  const barsHistoryStart = new Date(now);
+  barsHistoryStart.setMonth(now.getMonth() - 14);
+  return { now, threeMonthsAgo, oneMonthAgo, barsHistoryStart };
 }
 
 function toIsoTimestamp(value) {
@@ -414,14 +421,22 @@ function buildCandidateFactEvidence(candidate) {
     sourcedFact("raw_average_daily_dollar_volume", "Average daily dollar volume", candidate.avgDollarVolume, "USD", "Yahoo daily bars"),
   ];
   const technical = candidate.technicalFacts ?? {};
+  // technical.*.source is "yahoo_summary_detail" when it came from Yahoo's own
+  // precomputed figure, otherwise it was reconstructed from daily bars — label
+  // each fact with which one actually happened, not just where a value could
+  // theoretically come from.
+  const technicalSource = (fact) => (fact?.source === "yahoo_summary_detail" ? "Yahoo fundamentals (summaryDetail)" : "Yahoo daily bars");
   if (technical.currentPrice?.status === "available") {
     facts.push(sourcedFact("technical_current_price", "Timestamped current price", technical.currentPrice.value, "USD", "Yahoo quote"));
   }
+  if (technical.sma50?.status === "available") {
+    facts.push(sourcedFact("technical_sma_50", "50-session simple moving average", technical.sma50.value, "USD", technicalSource(technical.sma50)));
+  }
   if (technical.sma200?.status === "available") {
-    facts.push(sourcedFact("technical_sma_200", "200-session simple moving average", technical.sma200.value, "USD", "Yahoo daily bars"));
+    facts.push(sourcedFact("technical_sma_200", "200-session simple moving average", technical.sma200.value, "USD", technicalSource(technical.sma200)));
   }
   if (technical.high52Week?.status === "available") {
-    facts.push(sourcedFact("technical_high_52_week", "52-week high", technical.high52Week.value, "USD", "Yahoo daily bars"));
+    facts.push(sourcedFact("technical_high_52_week", "52-week high", technical.high52Week.value, "USD", technicalSource(technical.high52Week)));
   }
   return facts.filter(Boolean);
 }
@@ -433,8 +448,8 @@ function buildCandidateFactEvidence(candidate) {
  * the scan's candidate loop so the lab single-ticker path builds candidates through
  * the identical code.
  */
-async function buildCandidate(f, riskLimits, { now, threeMonthsAgo, oneMonthAgo, eightMonthsAgo }) {
-  const bars = await fetchDailyBars(f.ticker, { period1: eightMonthsAgo, period2: now });
+async function buildCandidate(f, riskLimits, { now, threeMonthsAgo, oneMonthAgo, barsHistoryStart }) {
+  const bars = await fetchDailyBars(f.ticker, { period1: barsHistoryStart, period2: now });
   const closes = bars.map((b) => b.close);
   const closesSince = (cutoff) => bars.filter((b) => new Date(b.date) >= cutoff).map((b) => ({ close: b.close }));
   const lastBarDate = bars.length ? bars[bars.length - 1].date : null;
@@ -446,6 +461,13 @@ async function buildCandidate(f, riskLimits, { now, threeMonthsAgo, oneMonthAgo,
     price: f.raw?.price?.regularMarketPrice ?? null,
     priceTimestamp: quoteTimestamp,
     asOf: lastBarDate,
+    // Yahoo's own summaryDetail already reports these — free, same fetchFundamentals
+    // call, no extra request. Only falls back to the from-bars reconstruction
+    // above when Yahoo doesn't report one for a given ticker.
+    providedSma50: f.raw?.summaryDetail?.fiftyDayAverage ?? null,
+    providedSma200: f.raw?.summaryDetail?.twoHundredDayAverage ?? null,
+    providedHigh52Week: f.raw?.summaryDetail?.fiftyTwoWeekHigh ?? null,
+    providedAsOf: quoteTimestamp,
   });
 
   const dataGate = evaluateDataGates(
