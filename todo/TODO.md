@@ -18,3 +18,16 @@ for those) — just things to come back to.
       actually are for the time period given, relative to that analyst's
       mandate goals — rather than switching from process-only to performance-
       weighted purely on a calendar trigger.
+
+- [ ] **Wire a real Tier-2 size cap for the single-red macro condition.** As of
+      `jobs/research-scan.js`'s deterministic dual-red gate, a single red macro
+      condition (SPY below 200-day OR rate pressure, not both) is flagged with a
+      mandatory override note but doesn't actually cap position size at Tier 2 —
+      Agent 1 has a live conviction/tier clamp (`lib/conviction.js`,
+      `assessConviction`) that could enforce this; Agent 2 has no equivalent
+      live tier-cap mechanism yet, only the shadow one in
+      `config/agents/mandate-policy.js`'s `score.tiers`. Needs that clamp built
+      for Agent 2 (and decide whether Agent 3, which treats macro as
+      informational only, should be involved at all) before this can be a real
+      enforced cap instead of just a flagged note. See the commit that added
+      `lib/macro-regime.js` for full context.
