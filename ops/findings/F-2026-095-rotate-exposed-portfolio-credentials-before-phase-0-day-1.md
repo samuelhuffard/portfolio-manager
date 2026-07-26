@@ -4,10 +4,10 @@ fingerprint: 5e76eca847f8
 check: security
 type: security
 severity: P1
-status: fixed
+status: open
 firstSeen: 2026-07-15T03:32:21.000Z
-lastSeen: 2026-07-15T03:32:21.000Z
-occurrences: 1
+lastSeen: 2026-07-26T21:00:00.000Z
+occurrences: 2
 title: "Rotate credentials exposed in a private task transcript before Phase 0 Day 1"
 ---
 
@@ -39,6 +39,14 @@ observer, so no Phase 0 Day 1 may count while this item is open or acknowledged.
 Do not print secret values during any step. Use presence/length checks only.
 
 **Next step:** Monitor for regression. When the first genuine proposal appears, Sam must personally review and sign it before the normal runtime signature verification and execution gates are exercised.
+
+## Reopened 2026-07-26
+
+A later diagnostic again exposed process-environment credentials to a private
+agent transcript. The dedicated MCP receipt key was immediately replaced, but
+the remaining provider and signing credentials require a coordinated rotation
+and presence-only verification. This finding is deliberately open so Phase 0
+cannot count a day before that rotation is complete.
 
 ## Resolution
 
