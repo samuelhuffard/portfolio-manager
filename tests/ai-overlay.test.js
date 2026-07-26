@@ -42,6 +42,35 @@ test("parseRecommendation preserves normalized risks and kill criteria", () => {
   assert.deepEqual(recommendation.killCriteria, ["Fundamentals deteriorate"]);
 });
 
+test("two bounded format retries recover a malformed model response", async () => {
+  let calls = 0;
+  const reply = (text) => ({
+    stop_reason: "end_turn",
+    usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    content: [{ type: "text", text }],
+  });
+  const anthropicClient = {
+    messages: {
+      create: async () => {
+        calls += 1;
+        if (calls < 3) return reply('{"action":"HOLD"');
+        return reply(JSON.stringify({ action: "HOLD", target_weight_pct: 0, thesis: "Valid recovery.", risks: [], kill_criteria: [], confidence: 0.5 }));
+      },
+    },
+  };
+  const recommendation = await getAIRecommendation({
+    ticker: "TEST", name: "Test Company", quantScore: 70, breakdown: {}, news: [], strategyNotes: "",
+    isHeld: false, nextEarningsDate: null, analystTrend: null, insiderActivity: null,
+    recentFilings: [], marketScanSignals: [], athenaEvidence: [], macro: null, personality: null,
+    persistentMemory: null, proposalPolicy: "", researchHistory: null, boundaryToken: null,
+    evaluatorCritique: null, previousProposal: null, agentId: "agent-1", anthropicClient,
+    recordUsage: async () => ({ persisted: false }),
+  });
+  assert.equal(calls, 3);
+  assert.equal(recommendation.outputInvalid, false);
+  assert.equal(recommendation.formatRecoveryAttempts, 2);
+});
+
 test("the actual model request carries the fractional-share policy", async () => {
   let request;
   const anthropicClient = {
