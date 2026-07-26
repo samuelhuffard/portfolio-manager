@@ -7,26 +7,27 @@
 - Each item includes date + "Do instead".
 
 ## Execution & Validation (Highest Priority)
-1. **[2026-07-15] Freeze Phase 0 production while improvements develop offline**
-   Do instead: pin the observed production release; build and commit roadmap work on an isolated branch/worktree, and merge or deploy only after the observation window unless a validity-breaking TRUST defect requires a declared reset.
-2. **[2026-07-14] Capital events require unitized, daily NAV controls**
+1. **[2026-07-14] Capital events require unitized, daily NAV controls**
    Do instead: run money-math tests after contribution, withdrawal, NAV, unit, investor-ID, or ledger-signing changes; derive breaker high-water from the final signed row per date so a cash-before-unit transition cannot create a false drawdown.
-3. **[2026-07-17] Scheduled Robinhood MCP reads belong to the always-on Jetson**
+2. **[2026-07-17] Scheduled Robinhood MCP reads belong to the always-on Jetson**
    Do instead: keep PM2 `portfolio-broker-reader` at `COMPANION_ROLE=read-worker` and Mac `portfolio-executor` at `COMPANION_ROLE=execution`; verify the separate reader heartbeat and both account-bound receipts, and never restore the legacy Python/TOTP path as an unattended workaround.
-4. **[2026-07-12] Holdings status rows are not positions**
+3. **[2026-07-12] Holdings status rows are not positions**
    Do instead: keep every Holdings reader/parity projection filtering `Last synced`, `Synced via Robinhood Agentic MCP`, cash, and sample-marker rows; regression-test any new marker format.
-5. **[2026-07-13] Research outcomes require decision-time facts**
+4. **[2026-07-13] Research outcomes require decision-time facts**
    Do instead: classify outcomes from structured scan facts and persist versioned aggregates; treat legacy Sheet/Redis rows as non-classifiable instead of parsing rationale text.
-6. **[2026-07-13] Observation days need clean parity and sentinel state**
+5. **[2026-07-13] Observation days need clean parity and sentinel state**
    Do instead: count a Phase 0 day only after the scheduled jobs complete with no active P1s and live Sheets/Postgres parity is `MATCH`; local commits and basic `/health` cannot substitute for that evidence.
-7. **[2026-07-13] API-key presence is not research availability**
+6. **[2026-07-13] API-key presence is not research availability**
    Do instead: reconcile attempted reviews to explicit successes, blocks, and failures and inspect current provider errors; never treat a green key-presence `/health` check or a completed job wrapper as proof the model calls worked.
-8. **[2026-07-14] Position accounting parity excludes quote-derived market value**
+7. **[2026-07-14] Position accounting parity excludes quote-derived market value**
    Do instead: digest ticker/name/shares/average cost/cost basis at schema precision; report valuation separately and compare it exactly only with the same versioned quote snapshot, source, and source timestamp.
-9. **[2026-07-14] Scheduled diagnostics must propagate negative verdicts**
+8. **[2026-07-14] Scheduled diagnostics must propagate negative verdicts**
    Do instead: when a report-only job returns `false` for detected problems, make its scheduler adapter throw so `pm:job:<name>:last-run` records `ok:false` instead of a false green.
-10. **[2026-07-14] TRUST days and SKILL samples use independent clocks**
+9. **[2026-07-14] TRUST days and SKILL samples use independent clocks**
    Do instead: classify evidence as TRUST, SKILL, or BOTH; never reset a clean safety day for a research failure or discard a valid research sample because safety evidence failed.
+
+10. **[2026-07-26] PM2 diagnostics can leak process environments**
+    Do instead: never run raw `pm2 jlist`, `pm2 describe`, or print PM2 process environments into a task transcript. Extract and emit only the status, cwd, role, uptime, and restart fields needed for verification; rotate any dedicated secret immediately if an accidental private-transcript disclosure occurs.
 
 ## Domain Behavior Guardrails
 1. **[2026-07-11] Unattributed lots are quarantined until explicitly resolved**

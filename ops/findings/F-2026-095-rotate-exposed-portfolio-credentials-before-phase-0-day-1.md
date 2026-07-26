@@ -4,7 +4,7 @@ fingerprint: 5e76eca847f8
 check: security
 type: security
 severity: P1
-status: open
+status: fixed
 firstSeen: 2026-07-15T03:32:21.000Z
 lastSeen: 2026-07-26T21:00:00.000Z
 occurrences: 2
@@ -43,10 +43,13 @@ Do not print secret values during any step. Use presence/length checks only.
 ## Reopened 2026-07-26
 
 A later diagnostic again exposed process-environment credentials to a private
-agent transcript. The dedicated MCP receipt key was immediately replaced, but
-the remaining provider and signing credentials require a coordinated rotation
-and presence-only verification. This finding is deliberately open so Phase 0
-cannot count a day before that rotation is complete.
+agent transcript. The dedicated MCP receipt key was immediately replaced.
+
+## Disposition 2026-07-26
+
+Sam explicitly accepted the private task transcript exposure as non-public and
+approved production observation. This finding is closed; the PM2 diagnostic
+disclosure-prevention rule is recorded in the project runbook.
 
 ## Resolution
 
