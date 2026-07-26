@@ -6,7 +6,7 @@
 > packets and verification; it cannot promote a phase or resolve a human policy
 > question.
 
-**Rev 2026-07-13 · companion to `docs/ROADMAP-FORMIDABLE-FUND.md`**
+**Rev 2026-07-16 · companion to `docs/ROADMAP-FORMIDABLE-FUND.md`**
 
 > The roadmap defines the destination and the gates. This document turns it into bounded engineering work that an executor model can complete without silently changing the investment thesis, authority model, or safety invariants.
 
@@ -104,7 +104,7 @@ Stop and ask the primary reviewer when:
 ### Completion report template
 
 ```text
-Packet: E#.# — <name>
+Packet: <O# | E#.#> — <name>
 Outcome: complete | blocked
 
 Changed:
@@ -177,7 +177,97 @@ Phase 6 cash challenger → Phase 7 edge measurement
 
 No packet below a decision gate may be promoted merely because its code is easy to write.
 
-### 3.1 Verified local implementation ledger
+### 3.1 Phase 0 observation-period offline work program
+
+This program turns the July 15 Claude review and the independent cross-model
+review into bounded work that may proceed while the 10-day TRUST observation is
+running. It does **not** authorize a production release. Its purpose is to use the
+freeze productively without changing the system being observed.
+
+Executor-ready wave assignments, owned-file lists, read sets, acceptance criteria,
+verification commands, and Claude/Codex handoff prompts live in
+[`OBSERVATION-PERIOD-OFFLINE-EXECUTION-PLAN.md`](OBSERVATION-PERIOD-OFFLINE-EXECUTION-PLAN.md).
+
+#### Binding operating boundary
+
+- Create an isolated branch/worktree from the exact observed production revision.
+  Do not perform this work in the production-tracking checkout when it contains
+  observation or planning edits.
+- Commits are allowed only on the isolated non-production branch. Do not merge to,
+  push over, or deploy `mandate-v3` or `main`; do not restart the Jetson, companion,
+  or dashboard.
+- Do not run production migrations, change production environment variables or
+  flags, write Redis/Sheets/Postgres/broker state, create proposals, or call paid
+  model/vendor services.
+- Use deterministic fixtures, synthetic cases, sanitized immutable historical
+  inputs, and injected fakes. Any code that could affect a live job must remain
+  disconnected from schedulers and production entry points.
+- A local pass is engineering evidence only. It cannot count as a TRUST day, a
+  SKILL sample, a shadow/canary day, or a phase promotion.
+- If a real S1/S2 defect is discovered, stop this program and return it to the
+  primary reviewer. Do not disguise an emergency repair as an offline packet.
+
+#### Gate interpretation to encode in documentation
+
+The execution target is two independent completions:
+
+1. **Phase 0-TRUST complete:** 10/10 clean trading days plus zero unresolved
+   critical incidents under the pinned supervised release.
+2. **Current-version research throughput:** at least three organic actionable
+   specialist proposals and one evaluator approval under the first declared R1
+   cohort. This remains a real gate, but it blocks positive research canaries and
+   later authority promotion—not Phase 0-TRUST completion, Phase 1 policy work, or
+   inert Phase 2 shadow plumbing.
+
+This split must not weaken any money, monitoring, companion, parity, receipt,
+ledger, reconciliation, or holding-coverage requirement. Forced legacy proposals
+do not count as organic throughput. A material R1 release opens a new SKILL cohort;
+it does not reset already-clean TRUST days unless it also changes S1/S2 behavior.
+
+#### Observation-period packet order
+
+| Packet | Scope | Class / clock effect | Production boundary | Completion evidence |
+|---|---|---|---|---|
+| **O0 — Reconcile the saved gates** | Draft the master-plan/roadmap wording that separates Phase 0-TRUST completion from the R1 throughput gate; mark superseded July 15 blocker conclusions as historical. | D; no reset | Documentation only; no observer or runtime semantics | Cross-document consistency review; TRUST requirements unchanged; throughput gate retained and attached to the first R1 cohort |
+| **O1 — Pre-register proposal-quality measurement** | Replace the informal 78/90/60 confidence numbers with explicit priors or targets; define a qualifying setup, organic sample, exclusion rules, policy/version strata, measurements, and decision thresholds. | D/R1 design; no reset | No prompt, threshold, evaluator, or candidate-selection change | Frozen measurement spec and fixtures; no claim of measured accuracy or edge |
+| **O2 — Build the offline R1 diagnostic harness** | Add a fully stubbed positive-path contract test and deterministic fixtures for evaluator contradiction veto, `generator_degraded`, stale-data cohort eligibility, near-miss/margin telemetry, novelty, and outcome conservation. | R1 local-only; no TRUST reset | Pure modules/tests or disconnected adapters only; no scheduler/job wiring, model calls, queue writes, or proposal creation | Focused tests, full backend tests, fail-closed/downgrade-only proof, and a search proving no live entry point imports the new harness |
+| **O3 — Specify equal discovery with mandate-specific judgment** | Define the neutral eligible candidate-bus contract, shared evidence/capacity/failure invariants, mandate-specific ranking interface, recency/event inputs, and Agent 1/2/3 fixtures. | R1 design/local-only; no TRUST reset | No catalog activation, watchlist removal, live rotation, slot counts, or materiality thresholds | Contract/fixture review; Q-001–Q-005 unknowns remain explicit; identical eligibility does not imply identical ranking |
+| **O4 — Freeze Athena package and golden-set fixtures** | Draft `AthenaEvidencePackage-v1`, partial/stale/conflict/drift behavior, immutable fingerprint rules, and the predeclared 30-company golden-set expected facts and scoring rubric. | D/R1/R2 local-only; no TRUST reset | No live Athena intake, endpoint dependency, production credentials, paid trials, purchases, or proposal use | Schema/fixture validation, permission/API assumptions listed, expected facts frozen before vendor results |
+| **O5 — Run free deterministic offline comparisons** | Compare current, compact-Athena, and full-package paths only with approved fixtures or already captured immutable inputs; measure factual support, missing-data honesty, evaluator behavior, latency structure, and reproducibility. | R1 local evidence; new SKILL cohort only after an actual declared release | No paid models/vendors, live prompts, production inputs, or investment action | Reproducible aggregate report with negative/null results, explicit limitations, and no promotion/edge conclusion |
+| **O6 — Assemble a non-production release candidate** | Reconcile O0–O5, remove stale references, document flags and rollback, and prepare independently reviewable commits for later consideration. | D/R1/R2; no clock effect while undeployed | Remains on isolated branch; no merge, deployment, restart, migration, activation, or production verification claim | Clean diff/secret scan, focused and full tests, independent review, and proof that all promotion flags and live imports remain unchanged |
+
+#### Dependency and stop rules
+
+- O0 and O1 may proceed first and in parallel as documentation work. O1 must finish
+  before O2 results are interpreted.
+- O2 may build deterministic mechanics before Q-001–Q-005, but it may not invent
+  investment thresholds or mark any synthetic result as an observation sample.
+- O3 may freeze interface shape before mandate decisions; actionable adapters,
+  live rotation policy, event materiality, and canary slots stop at Q-001–Q-005.
+- O4 contract fixtures may proceed before Athena owner permission. Any endpoint
+  integration, source transfer, vendor trial, or use of Athena code/data stops until
+  permission, ownership, privacy, and service expectations are explicit.
+- O5 runs only with zero-cost, non-production inputs authorized for local use. If a
+  meaningful comparison requires a paid call or current private production payload,
+  stop and request a separate decision after Phase 0.
+- O6 is a review candidate, not a release. After Phase 0, the primary reviewer must
+  reclassify every diff as D, R1, R2, S1, or S2 and choose what—if anything—may be
+  merged into a declared research release.
+
+#### Explicitly deferred until after Phase 0
+
+- Any live R1 prompt, evaluator, threshold, scoring, freshness, or candidate-policy
+  change.
+- Agent 2/3 catalog/candidate-bus activation, positive canary slots, or production
+  watchlist removal.
+- Athena production intake, live package consumption, vendor trials/purchases, or
+  production data-source changes.
+- Observer/deployment-identity changes absent a demonstrated false green; companion
+  downtime continues to invalidate TRUST evidence.
+- Signature v2, proposal-lineage enforcement, canonical Postgres money reads,
+  Agent 4 authority, execution/accounting changes, or any S1/S2 release.
+
+### 3.2 Verified local implementation ledger
 
 This ledger describes the current worktree, not production. “Verified locally” means the scoped implementation passed focused and full repository verification; it does not mean the packet is committed, migrated, deployed, activated, empirically validated, or promoted.
 

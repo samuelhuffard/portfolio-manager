@@ -7,45 +7,43 @@
 - Each item includes date + "Do instead".
 
 ## Execution & Validation (Highest Priority)
-1. **[2026-07-14] Capital events require unitized, daily NAV controls**
+1. **[2026-07-15] Freeze Phase 0 production while improvements develop offline**
+   Do instead: pin the observed production release; build and commit roadmap work on an isolated branch/worktree, and merge or deploy only after the observation window unless a validity-breaking TRUST defect requires a declared reset.
+2. **[2026-07-14] Capital events require unitized, daily NAV controls**
    Do instead: run money-math tests after contribution, withdrawal, NAV, unit, investor-ID, or ledger-signing changes; derive breaker high-water from the final signed row per date so a cash-before-unit transition cannot create a false drawdown.
-2. **[2026-07-11] Robinhood scheduled sync requires a configured TOTP secret**
-   Do instead: keep `ROBINHOOD_TOTP_SECRET` nonempty and `ROBINHOOD_STORE_SESSION=false`; restore MFA directly on the Jetson, then prove freshness with read-only reconciliation and holdings sync.
-3. **[2026-07-12] Holdings status rows are not positions**
+3. **[2026-07-17] Scheduled Robinhood MCP reads belong to the always-on Jetson**
+   Do instead: keep PM2 `portfolio-broker-reader` at `COMPANION_ROLE=read-worker` and Mac `portfolio-executor` at `COMPANION_ROLE=execution`; verify the separate reader heartbeat and both account-bound receipts, and never restore the legacy Python/TOTP path as an unattended workaround.
+4. **[2026-07-12] Holdings status rows are not positions**
    Do instead: keep every Holdings reader/parity projection filtering `Last synced`, `Synced via Robinhood Agentic MCP`, cash, and sample-marker rows; regression-test any new marker format.
-4. **[2026-07-13] Research outcomes require decision-time facts**
+5. **[2026-07-13] Research outcomes require decision-time facts**
    Do instead: classify outcomes from structured scan facts and persist versioned aggregates; treat legacy Sheet/Redis rows as non-classifiable instead of parsing rationale text.
-5. **[2026-07-20] Phase 0 needs five clean days plus throughput proof**
-   Do instead: count a Phase 0 day only after scheduled jobs complete with no active P1s and live Sheets/Postgres parity is `MATCH`; require five consecutive TRUST days plus three genuine actionable proposals and one evaluator approval, without treating the result as investment-performance proof or new trading authority.
-6. **[2026-07-13] API-key presence is not research availability**
+6. **[2026-07-13] Observation days need clean parity and sentinel state**
+   Do instead: count a Phase 0 day only after the scheduled jobs complete with no active P1s and live Sheets/Postgres parity is `MATCH`; local commits and basic `/health` cannot substitute for that evidence.
+7. **[2026-07-13] API-key presence is not research availability**
    Do instead: reconcile attempted reviews to explicit successes, blocks, and failures and inspect current provider errors; never treat a green key-presence `/health` check or a completed job wrapper as proof the model calls worked.
-7. **[2026-07-14] Position accounting parity excludes quote-derived market value**
+8. **[2026-07-14] Position accounting parity excludes quote-derived market value**
    Do instead: digest ticker/name/shares/average cost/cost basis at schema precision; report valuation separately and compare it exactly only with the same versioned quote snapshot, source, and source timestamp.
-8. **[2026-07-14] Scheduled diagnostics must propagate negative verdicts**
+9. **[2026-07-14] Scheduled diagnostics must propagate negative verdicts**
    Do instead: when a report-only job returns `false` for detected problems, make its scheduler adapter throw so `pm:job:<name>:last-run` records `ok:false` instead of a false green.
-9. **[2026-07-14] TRUST days and SKILL samples use independent clocks**
+10. **[2026-07-14] TRUST days and SKILL samples use independent clocks**
    Do instead: classify evidence as TRUST, SKILL, or BOTH; never reset a clean safety day for a research failure or discard a valid research sample because safety evidence failed.
-10. **[2026-07-14] Per-holding jobs must prove coverage conservation**
-   Do instead: persist aggregate `held = monitored + explicitly degraded` evidence with zero silent skips; make malformed, failed, or missing coverage block the TRUST day.
 
 ## Domain Behavior Guardrails
-1. **[2026-07-20] Research and monitoring holdings must come from verified strategy ownership**
-   Do instead: reconcile aggregate Holdings shares to the signed open-lot book, quarantine unattributed lots, and size, monitor, or review a SELL only from the owning agent's lot value; allow only documented Sheet-rounding residue.
-2. **[2026-07-20] Event and review timestamps require typed proof**
-   Do instead: keep annual/earnings re-underwrites unavailable without durable receipts; treat a lot date only as entry and a fiscal period only as a period, never as proof of an underwrite or event time.
-3. **[2026-07-11] Unattributed lots are quarantined until explicitly resolved**
+1. **[2026-07-11] Unattributed lots are quarantined until explicitly resolved**
    Do instead: require a signed, auditable assignment or manual/reconciled exit policy before a strategy may consume a legacy `unattributed` lot; never silently use it as ownership top-up.
-4. **[2026-07-11] Strategy ownership governs exits**
+2. **[2026-07-11] Strategy ownership governs exits**
    Do instead: record the originating agent on every BUY lot; permit a SELL proposal only from that agent, while Agent 4 may accept/reject the exact proposal but cannot create or force an exit.
-5. **[2026-07-11] Agent 4 is a bounded portfolio manager**
+3. **[2026-07-11] Agent 4 is a bounded portfolio manager**
    Do instead: use versioned, explainable performance/holding/macro inputs with hard allocation limits; keep Agent 4 unable to originate or mutate trades until its shadow evidence earns promotion.
-6. **[2026-06-18] Backend is read-only with Robinhood**
+4. **[2026-06-18] Backend is read-only with Robinhood**
    Do instead: keep `robinhood-sync.py` limited to holdings/cash reads and search for `rh.order_` before Robinhood-related changes.
-7. **[2026-06-18] Contributions record confirmed transfers only**
+5. **[2026-06-18] Contributions record confirmed transfers only**
    Do instead: keep `record-contribution.js` as accounting for money already received/sent, never as a money-movement command.
-8. **[2026-06-29] Pending proposals are competing alternatives**
+6. **[2026-06-29] Pending proposals are competing alternatives**
    Do instead: let all agents create pending proposals against the shared cash pool; only accepted, unfilled BUY proposals reserve cash.
-9. **[2026-06-29] Backend reads durable agent memories**
+7. **[2026-06-29] Backend reads durable agent memories**
    Do instead: pull global `pm:agent-memory:<agentId>:global` memories into `research-scan.js` so proposal generation reflects Sam's durable feedback.
-10. **[2026-07-20] Canonical specialist policy is the sector-agnostic v3 family**
-   Do instead: treat `agent_mandates/Agent_{One,Two,Three}_Mandate_v3.md` as binding; do not restore Agent One's stale technology-only v5 prompt, plan, cash posture, or sub-vertical limits.
+8. **[2026-07-15] Read formatted Sheet money cells as unformatted numbers**
+   Do instead: set `valueRenderOption: "UNFORMATTED_VALUE"` for Holdings cash, market-value, price, cost, shares, and return readers; a currency string such as `$85.00` becomes `NaN` under `Number()` and can silently fail closed to zero.
+9. **[2026-07-15] Athena is richer than its Portfolio Manager adapter**
+   Do instead: treat Athena as a separate research platform and inspect its current full-case contract before integration changes; preserve Portfolio Manager's mandate/execution authority and do not infer Athena capability from the six-section, 500-character evidence adapter.

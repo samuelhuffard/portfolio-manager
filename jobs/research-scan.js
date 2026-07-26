@@ -7,16 +7,21 @@ import { extractMarketCap, fetchFundamentals, fetchFundamentalsBatch, fetchDaily
 import { scoreCandidates } from "../lib/quant-scorer.js";
 import { rsi, atr, avgDailyDollarVolume, weeklyVolatility, classifySubVertical } from "../lib/indicators.js";
 import { evaluateDataGates } from "../lib/data-gates.js";
-import { screenUniverse } from "../lib/screener.js";
+import { evaluateMandateBusinessEligibility, screenCatalogForAgent } from "../lib/mandate-catalog-screen.js";
+import { assessEvidenceQuality, buildTechnicalFactPacket } from "../lib/evidence-quality-policy.js";
 import { assembleEntrySignals, assessConviction } from "../lib/conviction.js";
 import { tavilySearch } from "../lib/tavily.js";
 import { fetchRecentFilings } from "../lib/edgar.js";
 import { fetchMacroSnapshot, formatMacroSnapshot } from "../lib/fred.js";
-import { getAIRecommendation } from "../lib/ai-overlay.js";
+import { enforceFractionalShareHoldPolicy, getAIRecommendation } from "../lib/ai-overlay.js";
 import { applyRiskChecks } from "../lib/risk-engine.js";
 import { evaluateProposal, resolveFinalVerdict } from "../lib/evaluator.js";
 import { makeBoundaryToken, sanitizeEvidenceItems } from "../lib/evidence.js";
-import { formatEvidenceFlagSummary, shouldTelegramEvidenceFlags, summarizeEvidenceFlags } from "../lib/evidence-alerts.js";
+import {
+  formatEvidenceFlagSummary,
+  shouldTelegramEvidenceFlags,
+  summarizeEvidenceFlags,
+} from "../lib/evidence-alerts.js";
 import { assessCircuitBreaker, applyBreakerToProposal, deriveDailyNavBreakerBasis, reconcileNavHighWaterMark } from "../lib/circuit-breaker.js";
 import { sendMessage as sendTelegram } from "../lib/telegram.js";
 import { formatAgentMemoriesForPrompt, listAgentMemories } from "../lib/agent-memory.js";
@@ -36,21 +41,27 @@ import {
   setSlateSnapshot,
   setPrivateResearchSlate,
   setResearchScanStatus,
+  setAgentParityRuntimeSummary,
 } from "../lib/redis.js";
 import { sizeProposalAmount, hasOpenProposal, hasRecentProposal } from "../lib/proposal-sizing.js";
 import { syncMarketScansFromRobinhood } from "../lib/market-scan-sync.js";
-import { toScreenerCandidates } from "../lib/universe.js";
 import { buildSlate, formatSlateCounts } from "../lib/candidate-slate.js";
+import {
+  ATTENTION_POLICY_VERSIONS,
+  buildLiveResearchCandidateBus,
+  resolveAgentCatalogMode,
+} from "../lib/research-candidate-bus.js";
+import { allocateFairAgentRunCaps } from "../lib/research-capacity.js";
+import { projectAgentOwnedHoldings } from "../lib/research-holding-ownership.js";
+import { resolveSectorExposureKey } from "../lib/sector-exposure.js";
 import { readResearchLedger, applyResearchRecords, formatResearchHistoryForPrompt, summarizeResearchLedger } from "../lib/research-ledger.js";
 import { getAthenaConfig, createAthenaCircuit, fetchAthenaDossier, athenaDossierToEvidence } from "../lib/athena.js";
 import {
   getServiceAccountClients,
   resolveSharedSpreadsheetId,
   getSheetIds,
-  readHoldingsTickers,
   readCashBalance,
   readHoldingsAllocation,
-  readHoldingsReturnPct,
   readAllLots,
   readMarketScans,
   readAgentStrategyNotes,
@@ -70,10 +81,18 @@ import {
 import { withWorkflowLock } from "../lib/workflow-lock.js";
 import { BudgetExhaustedError, createResearchRunBudget } from "../lib/ai-budget.js";
 import { createAnthropicMonthlyBudget } from "../lib/anthropic-monthly-budget.js";
+import { buildAgentParityRuntimeSummary } from "../lib/agent-parity-runtime-summary.js";
 import { recordAgent4ShadowReview } from "../lib/agent4-shadow-adapter.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_AGENT_IDS = AGENTS.map((agent) => agent.id);
+
+function blankModelCallCounts() {
+  return {
+    generator: { attempted: 0, succeeded: 0, failed: 0 },
+    evaluator: { attempted: 0, succeeded: 0, failed: 0 },
+  };
+}
 
 function blankAgentScanSummary(agentId) {
   return {
@@ -89,10 +108,47 @@ function blankAgentScanSummary(agentId) {
     budgetExhaustions: 0,
     evaluatorRejects: 0,
     outcomeCounts: blankOutcomeCounts(),
+    discovery: null,
+    capacity: null,
+    modelCalls: blankModelCallCounts(),
     startedAt: new Date().toISOString(),
     completedAt: null,
     error: null,
   };
+}
+
+async function callGeneratorForAgent(agentId, input, ctx) {
+  const counts = ctx.modelCalls?.generator;
+  if (counts) counts.attempted += 1;
+  try {
+    const result = await getAIRecommendation({
+      ...input,
+      agentId,
+      budget: ctx.budget,
+    });
+    if (counts) counts.succeeded += 1;
+    return result;
+  } catch (error) {
+    if (counts) counts.failed += 1;
+    throw error;
+  }
+}
+
+async function callEvaluatorForAgent(agentId, input, ctx) {
+  const counts = ctx.modelCalls?.evaluator;
+  if (counts) counts.attempted += 1;
+  try {
+    const result = await evaluateProposal({
+      ...input,
+      agentId,
+      budget: ctx.budget,
+    });
+    if (counts) counts.succeeded += 1;
+    return result;
+  } catch (error) {
+    if (counts) counts.failed += 1;
+    throw error;
+  }
 }
 
 function summarizeRecommendation(summary, recommendation) {
@@ -308,6 +364,51 @@ function makeDateWindow(now = new Date()) {
   return { now, threeMonthsAgo, oneMonthAgo, eightMonthsAgo };
 }
 
+function toIsoTimestamp(value) {
+  if (value == null || value === "") return null;
+  const numeric = typeof value === "number" ? value : Number(value);
+  const parsed = Number.isFinite(numeric)
+    ? new Date(numeric < 10_000_000_000 ? numeric * 1000 : numeric)
+    : new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
+}
+
+function sourcedFact(id, label, value, unit, source) {
+  if (value == null || value === "" || (typeof value === "number" && !Number.isFinite(value))) return null;
+  return { id, kind: "raw_fact", label, value, unit, source };
+}
+
+function buildCandidateFactEvidence(candidate) {
+  const raw = candidate.raw ?? {};
+  const facts = [
+    sourcedFact("raw_current_price", "Current price", raw.price?.regularMarketPrice, "USD", "Yahoo quote"),
+    sourcedFact("raw_trailing_pe", "Trailing P/E", raw.summaryDetail?.trailingPE, "multiple", "Yahoo fundamentals"),
+    sourcedFact("raw_forward_pe", "Forward P/E", raw.summaryDetail?.forwardPE, "multiple", "Yahoo fundamentals"),
+    sourcedFact("raw_trailing_eps", "Trailing EPS", raw.defaultKeyStatistics?.trailingEps, "USD per share", "Yahoo fundamentals"),
+    sourcedFact("raw_forward_eps", "Forward EPS", raw.defaultKeyStatistics?.forwardEps, "USD per share", "Yahoo fundamentals"),
+    sourcedFact("raw_revenue_growth", "Revenue growth", raw.financialData?.revenueGrowth, "decimal", "Yahoo fundamentals"),
+    sourcedFact("raw_earnings_growth", "Earnings growth", raw.financialData?.earningsGrowth, "decimal", "Yahoo fundamentals"),
+    sourcedFact("raw_gross_margin", "Gross margin", raw.financialData?.grossMargins, "decimal", "Yahoo fundamentals"),
+    sourcedFact("raw_profit_margin", "Profit margin", raw.financialData?.profitMargins, "decimal", "Yahoo fundamentals"),
+    sourcedFact("raw_free_cash_flow", "Free cash flow", raw.financialData?.freeCashflow, "USD", "Yahoo fundamentals"),
+    sourcedFact("raw_momentum_3m", "Three-month price return", candidate.momentum3m, "decimal", "Yahoo daily bars"),
+    sourcedFact("raw_momentum_1m", "One-month price return", candidate.momentum1m, "decimal", "Yahoo daily bars"),
+    sourcedFact("raw_rsi_14", "14-session RSI", candidate.rsi, "index_0_to_100", "Yahoo daily bars"),
+    sourcedFact("raw_average_daily_dollar_volume", "Average daily dollar volume", candidate.avgDollarVolume, "USD", "Yahoo daily bars"),
+  ];
+  const technical = candidate.technicalFacts ?? {};
+  if (technical.currentPrice?.status === "available") {
+    facts.push(sourcedFact("technical_current_price", "Timestamped current price", technical.currentPrice.value, "USD", "Yahoo quote"));
+  }
+  if (technical.sma200?.status === "available") {
+    facts.push(sourcedFact("technical_sma_200", "200-session simple moving average", technical.sma200.value, "USD", "Yahoo daily bars"));
+  }
+  if (technical.high52Week?.status === "available") {
+    facts.push(sourcedFact("technical_high_52_week", "52-week high", technical.high52Week.value, "USD", "Yahoo daily bars"));
+  }
+  return facts.filter(Boolean);
+}
+
 /**
  * Builds one research candidate from a fetched fundamentals record: one daily-bar
  * fetch covers momentum, RSI, ATR, weekly vol, and ADDV (replaces the prior two
@@ -322,6 +423,13 @@ async function buildCandidate(f, riskLimits, { now, threeMonthsAgo, oneMonthAgo,
   const lastBarDate = bars.length ? bars[bars.length - 1].date : null;
   const addv = avgDailyDollarVolume(bars, 30);
   const marketCap = f.marketCap ?? extractMarketCap(f.raw);
+  const quoteTimestamp = toIsoTimestamp(f.raw?.price?.regularMarketTime);
+  const technicalFacts = buildTechnicalFactPacket({
+    bars,
+    price: f.raw?.price?.regularMarketPrice ?? null,
+    priceTimestamp: quoteTimestamp,
+    asOf: lastBarDate,
+  });
 
   const dataGate = evaluateDataGates(
     {
@@ -341,6 +449,8 @@ async function buildCandidate(f, riskLimits, { now, threeMonthsAgo, oneMonthAgo,
 
   return {
     ...f,
+    sector: f.sector ?? f.raw?.assetProfile?.sector ?? null,
+    industry: f.industry ?? f.raw?.assetProfile?.industry ?? null,
     subVertical: classifySubVertical(f),
     momentum3m: percentChange(closesSince(threeMonthsAgo)),
     momentum1m: percentChange(closesSince(oneMonthAgo)),
@@ -350,27 +460,28 @@ async function buildCandidate(f, riskLimits, { now, threeMonthsAgo, oneMonthAgo,
     avgDollarVolume: addv,
     marketCap,
     lastBarDate,
+    technicalFacts,
     dataGate,
   };
 }
 
 /**
  * Portfolio-wide context shared by every ticker an agent reviews in one run:
- * benchmark entry price; current exposure by ticker/sub-vertical (% of invested
- * capital, for the v5 concentration cap — the risk engine still uses legacy
- * field names internally); macro backdrop (shared market fact — fetched/cached
+ * benchmark entry price; current exposure by ticker/broad sector (% of invested
+ * capital, with legacy sub-vertical only as a fallback when sector is absent);
+ * macro backdrop (shared market fact — fetched/cached
  * once globally, not per-agent); and the sizing/dedup context for auto-queueing
  * risk-gated BUY/SELL calls into the approval queue. openProposals and
  * availableCashForBuys are mutated as tickers queue within a run so a later
  * ticker (or the next agent's run) doesn't double-queue against a list fetched
  * before the run started.
  */
-async function buildAgentReviewContext(sheets, spreadsheetId, { candidates, riskLimits, benchmark }) {
-  const spyQuote = await fetchQuotes([benchmark]);
-  const spyEntryPrice = spyQuote[benchmark]?.regularMarketPrice ?? null;
+async function buildAgentReviewContext(sheets, spreadsheetId, { candidates, riskLimits, benchmark, heldAllocation = null }) {
+  const benchmarkQuotes = await fetchQuotes([benchmark]);
+  const spyEntryPrice = benchmarkQuotes[benchmark]?.regularMarketPrice ?? null;
 
-  const [heldAllocation, cashBalance, lots] = await Promise.all([
-    readHoldingsAllocation(sheets, spreadsheetId),
+  const [resolvedHeldAllocation, cashBalance, lots] = await Promise.all([
+    heldAllocation ? Promise.resolve(heldAllocation) : readHoldingsAllocation(sheets, spreadsheetId),
     readCashBalance(sheets, spreadsheetId),
     // Kairos's shadow observer needs ownership data for SELL review. A read
     // failure must never disturb the existing specialist/approval path.
@@ -379,16 +490,18 @@ async function buildAgentReviewContext(sheets, spreadsheetId, { candidates, risk
       return null;
     }),
   ]);
+  heldAllocation = resolvedHeldAllocation;
   const investedTotal = heldAllocation.reduce((sum, h) => sum + (h.marketValue ?? 0), 0);
   const tickerWeightPct = {};
-  const subVerticalWeightPct = {};
+  const sectorWeightPct = {};
   for (const h of heldAllocation) {
     if (!h.marketValue || !investedTotal) continue;
     const weightPct = (h.marketValue / investedTotal) * 100;
     tickerWeightPct[h.ticker] = weightPct;
-    const known = candidates.find((c) => c.ticker === h.ticker)?.subVertical;
-    const subVertical = known ?? classifySubVertical(await fetchFundamentals(h.ticker));
-    if (subVertical) subVerticalWeightPct[subVertical] = (subVerticalWeightPct[subVertical] ?? 0) + weightPct;
+    const known = candidates.find((c) => c.ticker === h.ticker);
+    const evidence = known ?? await fetchFundamentals(h.ticker);
+    const sector = resolveSectorExposureKey(evidence);
+    if (sector) sectorWeightPct[sector] = (sectorWeightPct[sector] ?? 0) + weightPct;
   }
 
   let macroSnapshot = await getCachedMacro();
@@ -412,7 +525,7 @@ async function buildAgentReviewContext(sheets, spreadsheetId, { candidates, risk
     spyEntryPrice,
     heldAllocation,
     tickerWeightPct,
-    subVerticalWeightPct,
+    sectorWeightPct,
     macroText,
     totalPortfolioValue,
     openProposals,
@@ -527,6 +640,14 @@ async function reviewCandidateForAgent(agent, c, ctx) {
   }
   const safeNews = newsScan.items;
   const safeScanSignals = scanSignalScan.items;
+  const newsQuality = assessEvidenceQuality(safeNews);
+  const newsForProposal = safeNews.map((item, index) => ({
+    ...item,
+    // Keep context-only reporting visible to the model as fenced context, but
+    // prohibit it from entering the typed evidence ledger as thesis support.
+    thesisSupport: newsQuality[index]?.support === true,
+    sourceQualityReasons: newsQuality[index]?.reasons ?? [],
+  }));
 
   // Optional Athena dossier (lib/athena.js): a second, locally-run research
   // system's read on this ticker. Config-gated off by default; fetched fresh
@@ -554,10 +675,8 @@ async function reviewCandidateForAgent(agent, c, ctx) {
 
   const recentFilings = await fetchRecentFilings(c.ticker, { limit: 3 });
   const proposalPolicy = [
-    `Available cash for new BUY proposals before this ticker: $${ctx.availableCashForBuys.toFixed(2)} after accepted, unfilled BUY reserves.`,
-    ctx.availableCashForBuys > 0
-      ? "When free cash exists, it is acceptable to propose BUYs every scan day for names that clear the evidence/risk bar."
-      : "When free cash is zero, do not treat hypothetical sale proceeds as available cash for a BUY proposal.",
+    "Capital availability and exact dollar sizing are enforced mechanically after this research decision. Do not use available cash, a minimum allocation, per-share price, or whole-share affordability to choose BUY, SELL, or HOLD.",
+    "Fractional-share market orders are supported. When the investment case clears the evidence and risk bar, return the appropriate target weight; downstream controls determine the executable dollar amount.",
     `Ordinary research-scan SELL/rotation proposals are cadence-capped to one SELL review per agent/ticker every ${ctx.ordinarySellCooldownDays} days.`,
     "A sell-funded replacement is a contingent rotation idea: first propose/review the SELL, then only propose the BUY after the sell is approved, filled, and cash is synced. Do not present a new BUY as funded until cash is real.",
     "Immediate risk exits from stop/kill-criteria monitors are handled by separate exit jobs and can bypass this ordinary rotation cadence.",
@@ -568,7 +687,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     name: c.name,
     quantScore: c.quantScore,
     breakdown: c.breakdown,
-    news: safeNews,
+    news: newsForProposal,
     strategyNotes: ctx.strategyNotes,
     isHeld: ctx.holdingTickers.includes(c.ticker),
     nextEarningsDate: c.nextEarningsDate,
@@ -585,17 +704,74 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     // so it belongs in the user message, never the cached system block.
     researchHistory: formatResearchHistoryForPrompt(ctx.researchLedger[c.ticker]),
     boundaryToken: ctx.boundaryToken,
+    factEvidence: buildCandidateFactEvidence(c),
   };
-  const proposal = await getAIRecommendation({ ...overlayInput, budget: ctx.budget });
+  let proposal = await callGeneratorForAgent(agent.id, overlayInput, ctx);
+  if (proposal.outputInvalid) {
+    const error = new Error(`model_output_invalid: ${proposal.outputError ?? "invalid structured response"}`);
+    error.code = "model_output_invalid";
+    throw error;
+  }
+  const preflightNotes = [];
+  const fractionalPolicy = await enforceFractionalShareHoldPolicy(proposal, async (violations) => {
+    console.warn(`[Research] ${agent.id}: ${c.ticker} HOLD used prohibited fractional-share reasoning (${violations.join(", ")}); retrying once.`);
+    const corrected = await callGeneratorForAgent(agent.id, {
+      ...overlayInput,
+      decisionPolicyCorrection: violations.join(", "),
+    }, ctx);
+    if (corrected.outputInvalid) {
+      const error = new Error(`model_output_invalid: ${corrected.outputError ?? "invalid corrected structured response"}`);
+      error.code = "model_output_invalid";
+      throw error;
+    }
+    return corrected;
+  });
+  proposal = fractionalPolicy.proposal;
+  if (fractionalPolicy.retried) {
+    preflightNotes.push(`fractional_share_policy_retry: ${fractionalPolicy.initialViolations.join(",")}`);
+    if (fractionalPolicy.repeatedViolations.length) {
+      const reason = `model repeated prohibited fractional-share HOLD reasoning after correction (${fractionalPolicy.repeatedViolations.join(",")})`;
+      console.error(`[Research] ${agent.id}: NO_TRADE ${c.ticker} — ${reason}`);
+      return {
+        recommendation: {
+          date: new Date().toISOString().slice(0, 10), ticker: c.ticker, action: "NO_TRADE", quantScore: c.quantScore,
+          rationale: `NO_TRADE (policy invalid): ${reason}`, newsLinks: news.map((n) => n.url).join(", "), status: "policy_invalid",
+          entryPrice: c.raw?.price?.regularMarketPrice ?? null, spyEntryPrice: ctx.spyEntryPrice, targetWeight: 0, confidence: null,
+          ruleCheck: `fractional_share_policy_invalid: ${fractionalPolicy.repeatedViolations.join(",")}`,
+        },
+        researchRecord: { ticker: c.ticker, action: "NO_TRADE", quantScore: c.quantScore ?? null, confidence: null, thesis: `NO_TRADE (policy invalid): ${reason}`, entryPrice: c.raw?.price?.regularMarketPrice ?? null },
+        rec: null, createdProposal: null, evaluatorVerdict: "not run (policy invalid)", noProposalReason: reason,
+        outcomeFacts: {
+          attempted: true, dataGateBlocked: false, dataGateStale: false, failureKind: "review_error", generatorAction: "HOLD", finalAction: "HOLD",
+          riskOverridden: false, evaluatorState: "not_run", duplicateOpen: false, proposalDisposition: "not_applicable",
+        },
+      };
+    }
+  }
   const generatorAction = proposal.action;
+  if (proposal.evidenceValidation && !proposal.evidenceValidation.valid) {
+    preflightNotes.push(`evidence_preflight: ${proposal.evidenceValidation.issues.join("; ")}`);
+  }
+  if (proposal.action !== "HOLD") {
+    const businessEligibility = evaluateMandateBusinessEligibility({
+      agentId: agent.id,
+      candidate: c,
+      claimedBusinessFamily: proposal.claimedBusinessFamily,
+    });
+    if (!businessEligibility.eligible) {
+      preflightNotes.push(`${businessEligibility.reasonCode}: ${businessEligibility.reason}`);
+      proposal = { ...proposal, action: "HOLD", targetWeight: 0 };
+    }
+  }
   if (proposal.suspectEvidence?.length) {
     ctx.evidenceFlags.push({ kind: `model:${c.ticker}`, reasons: proposal.suspectEvidence });
     console.error(`[Evidence] ${agent.id}: model flagged suspect evidence for ${c.ticker}: ${proposal.suspectEvidence.join("; ")}`);
   }
 
+  const sector = resolveSectorExposureKey(c);
   const riskContext = {
-    sector: c.subVertical,
-    currentSectorWeightPct: ctx.subVerticalWeightPct[c.subVertical] ?? 0,
+    sector,
+    currentSectorWeightPct: sector ? (ctx.sectorWeightPct[sector] ?? 0) : 0,
     currentPositionWeightPct: ctx.tickerWeightPct[c.ticker] ?? 0,
     // Friend's rule: never average down into a losing held position, and never let a
     // stale-data read slip past the AI overlay into a live proposal.
@@ -607,6 +783,9 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     insiderActivity: c.insiderActivity ?? null,
   };
   let rec = applyConvictionClamp(applyRiskChecks(proposal, riskContext, riskLimits), agent, c, riskLimits);
+  if (preflightNotes.length) {
+    rec = { ...rec, overrideNotes: [...preflightNotes, ...(rec.overrideNotes ?? [])] };
+  }
   let riskOverridden = generatorAction !== "HOLD" && rec.action === "HOLD";
 
   // Circuit-breaker pre-gate: don't spend evaluator tokens on an action the
@@ -661,6 +840,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
           rsi14: c.rsi ?? null,
           avgDailyDollarVolume: c.avgDollarVolume ?? null,
           heldPositionWeightPct: ctx.tickerWeightPct[c.ticker] ?? 0,
+          sector,
           subVertical: c.subVertical ?? null,
         },
         newsBlock: safeNews.map((n) => `- ${n.title} (${n.url})\n  ${(n.content ?? "").slice(0, 300)}`).join("\n"),
@@ -669,17 +849,21 @@ async function reviewCandidateForAgent(agent, c, ctx) {
       };
 
       let finalEval;
-      const first = await evaluateProposal({ ...evalContext, proposal: rec, budget: ctx.budget });
+      const first = await callEvaluatorForAgent(agent.id, { ...evalContext, proposal: rec }, ctx);
       if (first.verdict === "REVISE") {
         console.log(`[Evaluator] ${agent.id}: ${c.ticker} sent back for revision — ${first.critique.join("; ")}`);
-        const revisedRaw = await getAIRecommendation({ ...overlayInput, evaluatorCritique: first.critique, previousProposal: rec, budget: ctx.budget });
+        const revisedRaw = await callGeneratorForAgent(agent.id, {
+          ...overlayInput,
+          evaluatorCritique: first.critique,
+          previousProposal: rec,
+        }, ctx);
         const revised = applyConvictionClamp(applyRiskChecks(revisedRaw, riskContext, riskLimits), agent, c, riskLimits);
         if (revised.action === "HOLD") {
           // Generator conceded (or the risk engine downgraded the revision) — final HOLD.
           finalEval = { ...first, verdict: "REJECT", revisions: 1, critique: [...first.critique, "generator conceded on revision"] };
           rec = revised;
         } else {
-          const second = await evaluateProposal({ ...evalContext, proposal: revised, budget: ctx.budget });
+          const second = await callEvaluatorForAgent(agent.id, { ...evalContext, proposal: revised }, ctx);
           finalEval = resolveFinalVerdict(first, second);
           if (finalEval.verdict === "APPROVE") rec = revised;
         }
@@ -787,7 +971,10 @@ async function reviewCandidateForAgent(agent, c, ctx) {
         totalPortfolioValue: ctx.totalPortfolioValue,
         // Actual position dollars — SELLs exit what's really held, and BUY
         // increments are computed against the same total-value denominator.
-        currentPositionValue: ctx.heldAllocation.find((h) => h.ticker === c.ticker)?.marketValue ?? 0,
+        currentPositionValue:
+          rec.action === "SELL"
+            ? ctx.ownedPositionValueByTicker[c.ticker] ?? 0
+            : ctx.heldAllocation.find((h) => h.ticker === c.ticker)?.marketValue ?? 0,
         cashAvailable: rec.action === "BUY" ? ctx.availableCashForBuys : undefined,
         limits: riskLimits,
       });
@@ -867,6 +1054,9 @@ async function reviewCandidateForAgent(agent, c, ctx) {
             side: rec.action,
             amountDollars: sized.amountDollars,
             maxPrice,
+            sellOwnerShareLimit: rec.action === "SELL"
+              ? ctx.ownedPositionSharesByTicker[c.ticker]
+              : null,
             rationale,
             riskSummary,
           });
@@ -967,19 +1157,32 @@ async function reviewCandidateForAgent(agent, c, ctx) {
 
 /**
  * Runs one agent's full scan (quant score -> AI overlay -> risk engine -> write) against
- * its own daily universe (catalog-sourced candidate slate, or seed watchlist for agents
- * without a mandate — see universe.json), but the SAME shared portfolio/spreadsheet as
+ * its own daily universe (the shared catalog through its mandate screen, or an
+ * explicit degraded seed-watchlist rollback), but the SAME shared portfolio/spreadsheet as
  * the other two agents —
  * so risk checks (sector/position-size limits) see real combined exposure across all
  * three agents, and one agent's proposal can be downgraded because of another agent's
  * existing position. One agent's failure doesn't block the others (see runResearchScan).
  */
-async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, { breaker, boundaryToken, budget, runId } = {}) {
+async function runResearchScanForAgent(
+  agent,
+  sheets,
+  spreadsheetId,
+  sheetIds,
+  { breaker, boundaryToken, budget, runId, candidateBus = null, runBudgetCapUsd = null, verifiedLots = [] } = {}
+) {
   const summary = blankAgentScanSummary(agent.id);
   breaker = breaker ?? { tier: "NONE", drawdownPct: 0 };
   boundaryToken = boundaryToken ?? makeBoundaryToken();
   const evidenceFlags = []; // injection-suspect evidence collected across the run, Telegramed once at the end
   const { watchlist, weights: weightsConfig, riskLimits, personality, universe: universeCfg } = loadAgentConfig(agent.id);
+  const catalogMode = resolveAgentCatalogMode(agent.id, universeCfg);
+  summary.capacity = {
+    allocationPolicyVersion: "equal-agent-run-cap-v1",
+    maxUsd: runBudgetCapUsd,
+    starting: budget?.snapshot?.() ?? null,
+    ending: null,
+  };
   const marketScans = await readMarketScans(sheets, spreadsheetId).catch((err) => {
     console.warn(`[Research] ${agent.id}: market scan context unavailable:`, err.message);
     return [];
@@ -987,11 +1190,17 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
 
   // Holdings + research ledger come first now: the candidate slate needs both
   // before the day's universe is even known (catalog-sourced agents).
-  const [holdingTickers, strategyNotes, heldReturnPct] = await Promise.all([
-    readHoldingsTickers(sheets, spreadsheetId),
+  const [accountHoldings, strategyNotes] = await Promise.all([
+    readHoldingsAllocation(sheets, spreadsheetId),
     readAgentStrategyNotes(sheets, spreadsheetId, agent.id),
-    readHoldingsReturnPct(sheets, spreadsheetId),
   ]);
+  const ownedHoldings = projectAgentOwnedHoldings({
+    agentId: agent.id,
+    lots: verifiedLots,
+    holdings: accountHoldings,
+  });
+  const holdingTickers = ownedHoldings.tickers;
+  const heldReturnPct = ownedHoldings.returnPctByTicker;
   const researchLedger = await readResearchLedger(agent.id);
 
   // For catalog agents the watchlist is no longer the universe — scan names only
@@ -999,30 +1208,43 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
   const scanTickers = selectMarketScanTickers(
     agent.id,
     marketScans,
-    universeCfg.source === "catalog" ? holdingTickers : watchlist.tickers
+    catalogMode.effectiveSource === "catalog" ? holdingTickers : watchlist.tickers
   );
 
   // Day's universe: catalog-sourced agents get a slate narrowed from the full
-  // philosophy-screened NYSE/NASDAQ catalog (LOOP-DESIGN funnel); watchlist
-  // agents (and any agent whose catalog is unavailable) keep the seed-list path.
+  // mandate-screened NYSE/NASDAQ catalog (LOOP-DESIGN funnel); explicit rollback
+  // or unavailable catalog data uses the visibly degraded seed-list path.
   let universeTickers;
   let explorationTickers = new Set();
-  if (universeCfg.source === "catalog") {
-    const catalog = await getUniverseCatalog();
-    const screenerCandidates = catalog ? toScreenerCandidates(catalog) : [];
-    const { passed: screened } = screenUniverse(screenerCandidates, riskLimits);
-    if (screened.length) {
+  if (catalogMode.effectiveSource === "catalog") {
+    const agentBus = candidateBus?.agents?.[agent.id] ?? null;
+    const screened = agentBus?.eligible ?? [];
+    if (agentBus && screened.length) {
       const { slate, counts } = buildSlate({
         screened,
         holdings: holdingTickers,
         scanTickers,
         ledger: researchLedger,
-        config: universeCfg,
+        config: { ...universeCfg, agentId: agent.id },
       });
       universeTickers = slate.map((s) => s.ticker);
       explorationTickers = new Set(slate.filter((s) => s.bucket === "exploration").map((s) => s.ticker));
+      summary.discovery = {
+        status: "complete",
+        source: "catalog",
+        degraded: false,
+        reasonCode: null,
+        candidateBusVersion: candidateBus.contractVersion,
+        catalogSnapshotId: candidateBus.catalogSnapshotId,
+        screenPolicyVersion: agentBus.screenPolicyVersion,
+        attentionPolicyVersion: agentBus.attentionPolicyVersion,
+        visible: agentBus.visibleCount,
+        eligible: agentBus.eligibleCount,
+        screenedOut: agentBus.rejectedCount,
+        counts,
+      };
       console.log(
-        `[Research] ${agent.id}: slate = ${formatSlateCounts(counts)}; catalog ${screened.length} screened / ${screenerCandidates.length} sector-enriched / ${catalog ? Object.keys(catalog).length : 0} cataloged.`
+        `[Research] ${agent.id}: slate = ${formatSlateCounts(counts)}; catalog ${agentBus.eligibleCount} eligible / ${agentBus.visibleCount} visible / ${candidateBus.census.listed} listed (${candidateBus.catalogSnapshotId}).`
       );
       // Phase 1 funnel observability (AUTONOMY-ROADMAP): persist the day's slate
       // composition + research-ledger coverage so /health can show the funnel
@@ -1030,36 +1252,95 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
       // the snapshot surfaces on the unauthenticated /health route.
       await setSlateSnapshot(agent.id, {
         date: new Date().toISOString().slice(0, 10),
+        status: "complete",
+        degraded: false,
+        reasonCode: null,
         source: "catalog",
+        candidateBusVersion: candidateBus.contractVersion,
+        catalogSnapshotId: candidateBus.catalogSnapshotId,
+        screenPolicyVersion: agentBus.screenPolicyVersion,
+        attentionPolicyVersion: agentBus.attentionPolicyVersion,
         counts,
-        screened: screened.length,
-        sectorEnriched: screenerCandidates.length,
-        cataloged: catalog ? Object.keys(catalog).length : 0,
+        screened: agentBus.eligibleCount,
+        screenedOut: agentBus.rejectedCount,
+        sectorEnriched: candidateBus.census.classified,
+        cataloged: candidateBus.census.listed,
+        census: candidateBus.census,
         aiReviewBudget: universeCfg.aiReviewBudget ?? 12,
         ledger: summarizeResearchLedger(researchLedger),
       });
     } else {
-      // The scan must never starve to zero, but a missing catalog is a broken
-      // discovery funnel — scream so it can't quietly regress to the static list.
+      const reasonCode = agentBus ? "catalog_screen_empty" : "catalog_unavailable";
+      // A missing/torn catalog may use the seed list, but it must remain
+      // explicitly degraded. An intact catalog whose mandate screen produces no
+      // eligible names fails closed instead of bypassing that screen.
       console.error(
-        `[Research] ${agent.id}: universe catalog empty or unavailable — FALLING BACK to seed watchlist (${watchlist.tickers.length} names). Check jobs/universe-refresh.js.`
+        `[Research] ${agent.id}: ${reasonCode}${agentBus ? " — no non-holding candidate is eligible; failing closed." : ` — FALLING BACK to seed watchlist (${watchlist.tickers.length} names). Check jobs/universe-refresh.js.`}`
       );
-      universeTickers = [...new Set([...watchlist.tickers, ...scanTickers])];
+      universeTickers = agentBus
+        ? [...new Set(holdingTickers)]
+        : [...new Set([...holdingTickers, ...watchlist.tickers, ...scanTickers])];
+      summary.discovery = {
+        status: "degraded",
+        source: agentBus ? "catalog" : "watchlist-fallback",
+        degraded: true,
+        reasonCode,
+        candidateBusVersion: candidateBus?.contractVersion ?? null,
+        catalogSnapshotId: candidateBus?.catalogSnapshotId ?? null,
+        screenPolicyVersion: agentBus?.screenPolicyVersion ?? null,
+        attentionPolicyVersion: agentBus?.attentionPolicyVersion ?? ATTENTION_POLICY_VERSIONS[agent.id],
+        visible: agentBus?.visibleCount ?? 0,
+        eligible: agentBus?.eligibleCount ?? 0,
+        screenedOut: agentBus?.rejectedCount ?? 0,
+        counts: { holdings: holdingTickers.length, movers: 0, ranked: 0, exploration: 0 },
+      };
       await setSlateSnapshot(agent.id, {
         date: new Date().toISOString().slice(0, 10),
-        source: "watchlist-fallback", // catalog unavailable — the funnel is broken, make that visible
-        counts: null,
-        screened: 0,
-        sectorEnriched: 0,
-        cataloged: 0,
+        status: "degraded",
+        degraded: true,
+        reasonCode,
+        source: agentBus ? "catalog" : "watchlist-fallback",
+        candidateBusVersion: candidateBus?.contractVersion ?? null,
+        catalogSnapshotId: candidateBus?.catalogSnapshotId ?? null,
+        screenPolicyVersion: agentBus?.screenPolicyVersion ?? null,
+        attentionPolicyVersion: agentBus?.attentionPolicyVersion ?? ATTENTION_POLICY_VERSIONS[agent.id],
+        counts: summary.discovery.counts,
+        screened: agentBus?.eligibleCount ?? 0,
+        screenedOut: agentBus?.rejectedCount ?? 0,
+        sectorEnriched: candidateBus?.census?.classified ?? 0,
+        cataloged: candidateBus?.census?.listed ?? 0,
+        census: candidateBus?.census ?? null,
         aiReviewBudget: universeCfg.aiReviewBudget ?? 12,
         ledger: summarizeResearchLedger(researchLedger),
       });
     }
   } else {
-    universeTickers = [...new Set([...watchlist.tickers, ...scanTickers])];
+    // A rollback changes discovery input, never holding-monitor obligations.
+    universeTickers = [...new Set([...holdingTickers, ...watchlist.tickers, ...scanTickers])];
+    summary.discovery = {
+      status: catalogMode.degraded ? "degraded" : "legacy",
+      source: catalogMode.degraded ? "watchlist-rollback" : "watchlist",
+      degraded: catalogMode.degraded,
+      reasonCode: catalogMode.reasonCode,
+      candidateBusVersion: candidateBus?.contractVersion ?? null,
+      catalogSnapshotId: candidateBus?.catalogSnapshotId ?? null,
+      screenPolicyVersion: candidateBus?.agents?.[agent.id]?.screenPolicyVersion ?? null,
+      attentionPolicyVersion: ATTENTION_POLICY_VERSIONS[agent.id],
+      visible: candidateBus?.agents?.[agent.id]?.visibleCount ?? 0,
+      eligible: 0,
+      screenedOut: 0,
+      counts: null,
+    };
+    await setSlateSnapshot(agent.id, {
+      date: new Date().toISOString().slice(0, 10),
+      ...summary.discovery,
+      cataloged: candidateBus?.census?.listed ?? 0,
+      census: candidateBus?.census ?? null,
+      aiReviewBudget: universeCfg.aiReviewBudget ?? 12,
+      ledger: summarizeResearchLedger(researchLedger),
+    });
     console.log(
-      `[Research] ${agent.id}: scanning ${universeTickers.length} tickers (${watchlist.tickers.length} watchlist + ${scanTickers.length} Robinhood scan).`
+      `[Research] ${agent.id}: explicit ${summary.discovery.source} mode — scanning ${universeTickers.length} tickers (${watchlist.tickers.length} seed + ${scanTickers.length} Robinhood scan).`
     );
   }
 
@@ -1076,17 +1357,24 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
     candidates.push(await buildCandidate(f, riskLimits, dateWindow));
   }
 
-  // Universe screen (agent-1's memo-specific mandate): drop names outside the SaaS/Semis
-  // sub-verticals + market-cap band + micro-cap liquidity floor before scoring, so quant
-  // normalization only ranks eligible names. Other agents keep their own universes for now.
-  let eligible = candidates;
-  if (agent.id === "agent-1") {
-    const { passed, rejected } = screenUniverse(candidates, riskLimits);
-    for (const r of rejected) console.log(`[Research] ${agent.id}: screened out ${r.ticker} — ${r.reason}`);
-    eligible = passed;
-    if (candidates.length > 0 && passed.length === 0) {
-      console.error(`[Research] ${agent.id}: universe screen rejected every candidate — failing closed with zero eligible names.`);
-    }
+  // Re-apply the same mandate screen to fresh fundamentals/price candidates.
+  // Held names are mandatory monitoring overrides, never entry eligibility.
+  const { passed, rejected } = screenCatalogForAgent(agent.id, candidates, riskLimits);
+  for (const rejection of rejected) {
+    console.log(`[Research] ${agent.id}: screened out ${rejection.ticker} — ${rejection.reason}`);
+  }
+  const passedTickers = new Set(passed.map((candidate) => candidate.ticker));
+  const mandatoryHoldings = candidates.filter(
+    (candidate) => holdingTickers.includes(candidate.ticker) && !passedTickers.has(candidate.ticker)
+  );
+  const eligible = [...passed, ...mandatoryHoldings];
+  if (mandatoryHoldings.length) {
+    console.warn(
+      `[Research] ${agent.id}: ${mandatoryHoldings.length} attributed holding(s) bypassed discovery eligibility for mandatory monitoring only.`
+    );
+  }
+  if (candidates.length > 0 && eligible.length === 0) {
+    console.error(`[Research] ${agent.id}: mandate screen rejected every candidate — failing closed with zero eligible names.`);
   }
 
   const scored = scoreCandidates(eligible, weightsConfig.quant_weights);
@@ -1123,6 +1411,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
     candidates,
     riskLimits,
     benchmark: watchlist.benchmark,
+    heldAllocation: accountHoldings,
   });
 
   const ctx = {
@@ -1133,11 +1422,14 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
     persistentMemory,
     marketScans,
     holdingTickers,
+    ownedPositionSharesByTicker: ownedHoldings.positionSharesByTicker,
+    ownedPositionValueByTicker: ownedHoldings.positionValueByTicker,
     heldReturnPct,
     researchLedger,
     breaker,
     boundaryToken,
     budget,
+    modelCalls: summary.modelCalls,
     evidenceFlags,
     athenaCircuit: createAthenaCircuit(),
     alertedResearchFailures: new Set(),
@@ -1220,7 +1512,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
   // Capture the actual completed live-review selection, not the wider candidate
   // slate built before fundamentals, screening, scoring, and the AI budget. This
   // occurs only after both recommendation and research-ledger persistence pass.
-  if (universeCfg.source === "catalog") {
+  if (catalogMode.requestedSource === "catalog") {
     await setPrivateResearchSlate(agent.id, [...toReview.keys()].map((ticker) => ({
       ticker,
       bucket: reviewBuckets.get(ticker),
@@ -1229,16 +1521,6 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
 
   // Injection-suspect evidence is logged every time, but Telegram only escalates
   // higher-signal cases so routine single-source redactions don't look like bot replies.
-  const dataBlocked = summary.outcomeCounts.data_gate + summary.outcomeCounts.stale_data;
-  if (dataBlocked > 0) {
-    const blockedTickers = recommendations.filter((r) => r.action === "NO_TRADE").map((r) => r.ticker).join(", ");
-    try {
-      await sendTelegram(`⚠️ Research data error: ${agent.id} blocked ${dataBlocked} review(s); no HOLD was recorded. ${blockedTickers || "Check the Agent tab for details."}`);
-    } catch (err) {
-      console.error(`[Research] data-error Telegram alert failed:`, err.message);
-    }
-  }
-
   const evidenceSummary = summarizeEvidenceFlags(evidenceFlags);
   if (shouldTelegramEvidenceFlags(evidenceFlags)) {
     const summary = `⚠️ Scheduled research scan safety alert: ${agent.id} flagged ${evidenceSummary.rawCount} evidence item(s) across ${evidenceSummary.uniqueCount} root cause(s): ${formatEvidenceFlagSummary(evidenceSummary)}`;
@@ -1250,6 +1532,7 @@ async function runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
   } else if (evidenceFlags.length) {
     console.warn(`[Evidence] ${agent.id}: ${evidenceSummary.rawCount} evidence flag(s) across ${evidenceSummary.uniqueCount} root cause(s) logged without Telegram: ${formatEvidenceFlagSummary(evidenceSummary)}`);
   }
+  summary.capacity.ending = budget?.snapshot?.() ?? null;
   summary.completedAt = new Date().toISOString();
   return summary;
 }
@@ -1265,7 +1548,7 @@ async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = 
   const agentSummaries = [];
   const persistFinalStatus = async (status, error = null) => {
     const completedAt = new Date().toISOString();
-    await setResearchScanStatus({
+    const terminalStatus = {
       runId,
       source,
       status,
@@ -1297,7 +1580,19 @@ async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = 
       ),
       classificationVersion: RESEARCH_OUTCOME_VERSION,
       error,
-    });
+    };
+    await setResearchScanStatus(terminalStatus);
+    if (source === "scheduled") {
+      try {
+        await setAgentParityRuntimeSummary(buildAgentParityRuntimeSummary(terminalStatus));
+      } catch (telemetryError) {
+        // The independently retained scheduler terminal receipt is written only
+        // after this function returns. Missing runtime telemetry stays visible
+        // as absent/stale health evidence but cannot rewrite an already-retained
+        // terminal scan outcome into a conflicting status.
+        console.error("[Research] Agent parity runtime telemetry failed:", telemetryError.message);
+      }
+    }
   };
 
   await setResearchScanStatus({
@@ -1314,18 +1609,21 @@ async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = 
   try {
     // Refresh the shared Market Scans tab from Robinhood before any agent reads it, so
     // scanTickers (see selectMarketScanTickers above) can include names outside each
-    // agent's static watchlist. Never blocks the scan — a failure here just leaves
-    // agents scanning their watchlists only, same as before this existed.
+    // agent's seed watchlist. Never blocks the scan — a failure here just removes
+    // supplemental broker-scan movers from that day's research.
     try {
       const count = await syncMarketScansFromRobinhood();
       console.log(`[Research] Market scan refresh: ${count} row(s) from Robinhood.`);
     } catch (err) {
-      console.warn("[Research] Market scan refresh failed — continuing with watchlists only:", err.message);
+      console.warn("[Research] Market scan refresh failed — continuing without supplemental movers:", err.message);
     }
 
     const { sheets, drive } = getServiceAccountClients();
     const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
     const sheetIds = await getSheetIds(sheets, spreadsheetId);
+    // Verified operational-ledger read. A signature failure stops the scan
+    // before any agent can infer ownership or size a SELL from untrusted lots.
+    const verifiedLots = await readAllLots(sheets, spreadsheetId);
 
     // System-wide gates computed ONCE per run, before any agent: the drawdown
     // circuit breaker (restricts what any agent may queue) and the per-run
@@ -1333,15 +1631,60 @@ async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = 
     const breaker = await resolveCircuitBreaker(sheets, spreadsheetId);
     const boundaryToken = makeBoundaryToken();
     const monthlyBudget = createAnthropicMonthlyBudget();
-    const budget = createResearchRunBudget({
-      monthlyBudget,
-      onWarning: ({ reservedUsd, maxUsd }) => sendTelegram(`⚠️ Research API budget is ${Math.round((reservedUsd / maxUsd) * 100)}% reserved ($${reservedUsd.toFixed(2)} of $${maxUsd.toFixed(2)}).`).catch((err) => console.error("[Research] Budget warning Telegram failed:", err.message)),
-    });
-
     const activeAgents = AGENTS.filter((a) => agentIds.includes(a.id));
+    const catalog = await getUniverseCatalog();
+    let candidateBus = null;
+    if (catalog && Object.keys(catalog).length) {
+      try {
+        candidateBus = buildLiveResearchCandidateBus({
+          catalog,
+          agentConfigs: Object.fromEntries(
+            activeAgents.map((agent) => {
+              const config = loadAgentConfig(agent.id);
+              return [agent.id, { riskLimits: config.riskLimits, universe: config.universe }];
+            })
+          ),
+        });
+      } catch (error) {
+        console.error(`[Research] shared candidate bus failed closed: ${error.message}`);
+      }
+    } else {
+      console.error("[Research] shared candidate bus unavailable: universe catalog is empty or unreadable.");
+    }
+
+    const totalRunMaxUsd = Number(process.env.RESEARCH_RUN_MAX_USD);
+    const fairCaps = allocateFairAgentRunCaps(
+      activeAgents.map((agent) => agent.id),
+      Number.isFinite(totalRunMaxUsd) && totalRunMaxUsd > 0 ? totalRunMaxUsd : 3
+    );
+    const agentBudgets = new Map(
+      activeAgents.map((agent) => {
+        const cap = fairCaps[agent.id];
+        return [
+          agent.id,
+          createResearchRunBudget({
+            env: { ...process.env, RESEARCH_RUN_MAX_USD: String(cap) },
+            monthlyBudget,
+            onWarning: ({ reservedUsd, maxUsd }) =>
+              sendTelegram(
+                `⚠️ Research API budget for ${agent.id} is ${Math.round((reservedUsd / maxUsd) * 100)}% reserved ($${reservedUsd.toFixed(2)} of $${maxUsd.toFixed(2)}).`
+              ).catch((err) => console.error("[Research] Budget warning Telegram failed:", err.message)),
+          }),
+        ];
+      })
+    );
+
     for (const agent of activeAgents) {
       try {
-        const summary = await runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, { breaker, boundaryToken, budget, runId });
+        const summary = await runResearchScanForAgent(agent, sheets, spreadsheetId, sheetIds, {
+          breaker,
+          boundaryToken,
+          budget: agentBudgets.get(agent.id),
+          runId,
+          candidateBus,
+          runBudgetCapUsd: fairCaps[agent.id],
+          verifiedLots,
+        });
         agentSummaries.push(summary);
       } catch (err) {
         console.error(`[Research] ${agent.id} failed:`, err.message);
@@ -1356,8 +1699,8 @@ async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = 
     const status = agentSummaries.some((agent) => agent.status === "failed") ? "failed" : "completed";
     await persistFinalStatus(status, status === "failed" ? "One or more agents failed. See per-agent status." : null);
     if (status === "failed") {
-      // A retained status alone is not enough: the scheduler's invocation
-      // history must record a failed run so the observer cannot call it green.
+      // Persisting a failed status alone is insufficient: the scheduler's own
+      // invocation receipt must be failed so Phase 0 cannot count it green.
       throw new Error("One or more research agents failed; see persisted per-agent status.");
     }
     return { status, agents: agentSummaries };
@@ -1411,11 +1754,14 @@ async function researchTickerForAgentUnlocked(agentId, ticker) {
     console.warn(`[Research] ${agent.id}: market scan context unavailable:`, err.message);
     return [];
   });
-  const [holdingTickers, strategyNotes, heldReturnPct] = await Promise.all([
-    readHoldingsTickers(sheets, spreadsheetId),
+  const [accountHoldings, verifiedLots, strategyNotes] = await Promise.all([
+    readHoldingsAllocation(sheets, spreadsheetId),
+    readAllLots(sheets, spreadsheetId),
     readAgentStrategyNotes(sheets, spreadsheetId, agent.id),
-    readHoldingsReturnPct(sheets, spreadsheetId),
   ]);
+  const ownedHoldings = projectAgentOwnedHoldings({ agentId: agent.id, lots: verifiedLots, holdings: accountHoldings });
+  const holdingTickers = ownedHoldings.tickers;
+  const heldReturnPct = ownedHoldings.returnPctByTicker;
   const researchLedger = await readResearchLedger(agent.id);
 
   const [fundamentals] = await fetchFundamentalsBatch([symbol]);
@@ -1424,12 +1770,11 @@ async function researchTickerForAgentUnlocked(agentId, ticker) {
   }
   const candidateRaw = await buildCandidate(fundamentals, riskLimits, makeDateWindow());
 
-  // Lab is an alternate entry point, not an escape hatch from Agent One's
-  // mandate. Out-of-universe names can still use the general research tools,
-  // but this agent-specific path must stop before proposal generation.
-  if (agent.id === "agent-1") {
-    const { rejected } = screenUniverse([candidateRaw], riskLimits);
-    if (rejected.length) {
+  // Lab is an alternate entry point, not an escape hatch from any mandate.
+  // This agent-specific path stops before proposal generation on screen failure.
+  {
+    const { rejected } = screenCatalogForAgent(agent.id, [candidateRaw], riskLimits);
+    if (rejected.length && !holdingTickers.includes(symbol)) {
       const reason = rejected.map((r) => r.reason).join("; ");
       console.log(`[Research] ${agent.id}: NO_TRADE ${symbol} — ${reason}`);
       return {
@@ -1471,6 +1816,7 @@ async function researchTickerForAgentUnlocked(agentId, ticker) {
     candidates: [candidate],
     riskLimits,
     benchmark: watchlist.benchmark,
+    heldAllocation: accountHoldings,
   });
 
   const ctx = {
@@ -1481,6 +1827,8 @@ async function researchTickerForAgentUnlocked(agentId, ticker) {
     persistentMemory,
     marketScans,
     holdingTickers,
+    ownedPositionSharesByTicker: ownedHoldings.positionSharesByTicker,
+    ownedPositionValueByTicker: ownedHoldings.positionValueByTicker,
     heldReturnPct,
     researchLedger,
     breaker,

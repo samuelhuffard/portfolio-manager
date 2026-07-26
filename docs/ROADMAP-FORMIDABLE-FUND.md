@@ -16,6 +16,15 @@ This is a roadmap for improving research quality and learning whether an edge ex
 
 Implementation companion: `docs/RESEARCH-ROADMAP-EXECUTION-GUIDE.md` translates each phase into bounded executor packets, exact file surfaces, verification commands, stop conditions, and reviewer-owned decisions.
 
+Analytical-depth companion:
+`docs/ATHENA-INTEGRATION-AND-AGENT-PARITY-PLAN.md` records the plan to evaluate
+Athena as the shared research substrate for all three specialists, replace the
+current lossy conclusion-only adapter with a versioned point-in-time evidence
+package, validate paid/free sources through a golden-set bakeoff, and preserve
+Portfolio Manager's mandate, evaluator, proposal, approval, and execution
+authority. It is a supporting plan only; it does not activate Athena, change the
+phase order, or authorize an implementation packet.
+
 Frozen implementation authorities:
 
 - `docs/RESEARCH-DECISION-REGISTER.md` — accepted architecture/policy choices and the remaining investment-policy questions.

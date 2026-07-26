@@ -1,14 +1,15 @@
 # Portfolio Manager — Architecture
 
-End-to-end map of the system as it actually runs (2026-07-02). Covers all three runtimes: this backend repo, `portfolio-dashboard` (sibling repo), and the Mac companion executor (which lives in the dashboard repo but runs as its own process).
+End-to-end map of the system as it actually runs (updated 2026-07-17). Covers the backend, dashboard, always-on broker reader, and human-approved trade executor.
 
-## The three runtimes
+## The four runtimes
 
 | Runtime | Code | Host | Process |
 |---|---|---|---|
 | Backend scheduler + HTTP server | `portfolio-manager` | Jetson (`~/portfolio-manager`) | PM2 `portfolio-manager` → `scheduler.js` (also serves `server.js` on :3200) |
 | Dashboard (UI + API) | `portfolio-dashboard` | Vercel prod (`portfolio-dashboard-ivory-five.vercel.app`) | Next.js 16, Clerk auth |
-| Trade executor ("Mac companion") | `portfolio-dashboard/scripts/mac-companion.mjs` | Sam's Mac | PM2 `portfolio-executor` |
+| Scheduled broker reader | `portfolio-dashboard/scripts/mac-companion.mjs` | Jetson (`~/portfolio-dashboard`) | PM2 `portfolio-broker-reader`, `COMPANION_ROLE=read-worker` |
+| Trade executor | `portfolio-dashboard/scripts/mac-companion.mjs` | Sam's Mac | PM2 `portfolio-executor`, `COMPANION_ROLE=execution` |
 
 They share two stores: **one Google Spreadsheet** (system of record for holdings/ledger/performance) and **one Upstash Redis** (cross-service bus: proposals, triggers, caches, agent memory, audit log — shared instance with Jordan/Aide, `pm:` prefix).
 
@@ -17,7 +18,7 @@ They share two stores: **one Google Spreadsheet** (system of record for holdings
 | Time (ET) | Job | File | What it does |
 |---|---|---|---|
 | 8:30 AM | Pre-market check | `jobs/premarket-check.js` | Macro refresh, regime check, overnight news on held positions |
-| 9:30 AM, 11, 1, 3, 4:30 | Holdings sync request | `jobs/mcp-read-requests.js` + Mac `scripts/mac-companion.mjs` | Jetson queues one typed, durable request; the authenticated Mac MCP companion claims it, calls only the exact account-pinned read tools, then writes Holdings/Performance/Overview + NAV/unit + cached total value. Requests are idempotent across retries. |
+| 9:30 AM, 11, 1, 3, 4:30 | Holdings sync request | `jobs/mcp-read-requests.js` + Jetson `scripts/mac-companion.mjs` | Backend queues one typed, durable request; the authenticated Jetson read worker claims it, calls only the exact account-pinned read tools, then writes Holdings/Performance/Overview + NAV/unit + cached total value. Requests are idempotent across retries. |
 | 9:35 AM | Opening check | `jobs/intraday-monitor.js` (`context: "opening"`) | Gap analysis, open-triggered alerts |
 | every 30 min, 10:00–3:30 | Intraday monitor | `jobs/intraday-monitor.js` | Price alerts (Telegram push via `lib/telegram.js`), ATR stop checks on losing positions → SELL proposals |
 | 3:50 PM | Pre-close sweep | same, `context: "pre-close"` | Last stop-breach check before EOD |
@@ -71,7 +72,11 @@ Manual path: `EXECUTION-GUIDE.md` + `scripts/list-approved-proposals.js` (annota
 
 ## Robinhood sync boundary
 
-- **Scheduled reads** are performed only by the authenticated Mac companion through Robinhood MCP. Jetson can queue only one of two typed, bounded jobs: `holdings-sync` and `order-reconciliation`. Their exact tool allowlists contain no mutation APIs.
+- **Scheduled reads** are performed only by the authenticated Jetson
+  `read-worker` through Robinhood MCP. The backend can queue only one of two
+  typed, bounded jobs: `holdings-sync` and `order-reconciliation`. Their exact
+  tool allowlists contain no mutation APIs. The Mac `execution` role cannot
+  consume either queue.
 - **Account binding is fail-closed:** the companion supplies `ROBINHOOD_ACCOUNT_NUMBER` to each account-scoped MCP call, captures Claude's stream-json tool trace, and refuses to write any internal projection unless every required tool call explicitly used that number. A model's final text alone is never account evidence.
 - **Legacy Python** (`lib/robinhood-sync.py`, `lib/robinhood-scan.py`) remains diagnostic-only. It contains no `rh.order_*` calls and must not be treated as an unattended workaround for Robinhood device approvals, SMS, passkeys, or TOTP.
 - **Write path** exists ONLY through the Robinhood Agentic Trading MCP (`https://agent.robinhood.com/mcp/trading`, registered in `.mcp.json`), driven by the Mac companion or a human session, always against a signed approved proposal.
@@ -110,6 +115,7 @@ Dashboard has its own independent TS reader (`portfolio-dashboard/lib/sheets.ts`
 | `pm:exec_lock:{id}` | 300s execution lock | companion |
 | `pm:exec_trigger`, `pm:market_scan_trigger` | manual wake keys (TTL) | dashboard → companion |
 | `pm:companion:last-seen` | executor heartbeat (30s) | companion → dashboard GET /api/companion/trigger |
+| `pm:broker-reader:last-seen` | always-on scheduled broker-reader heartbeat (30s) | Jetson read worker → operations |
 | `pm:portfolio:total-value` | cached sizing input | holdings-sync → research scan |
 | `pm:shared:spreadsheet-id` | spreadsheet ID cache | backend → dashboard (dashboard hard-fails without it) |
 | `pm:agent-memory:<id>:*` | persistent agent memory | dashboard (write/extract) → backend prompts |
