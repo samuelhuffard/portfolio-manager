@@ -33,6 +33,12 @@ redis.call("EXPIRE", KEYS[1], tonumber(ARGV[3]))
 return 1
 `;
 
+function getMcpReceiptSecret(env = process.env) {
+  const secret = env.MCP_RECEIPT_HMAC_SECRET?.trim();
+  if (!secret) throw new Error("MCP_RECEIPT_HMAC_SECRET is required; unsigned broker-read receipts cannot count toward Phase 0.");
+  return secret;
+}
+
 function parse(raw) {
   if (!raw) return null;
   return typeof raw === "string" ? JSON.parse(raw) : raw;
@@ -254,6 +260,7 @@ export async function gatherPhase0Evidence({
   budgetReadiness = getAnthropicBudgetReadiness,
   capacityEvidence = {},
   secret = getOperationalLedgerSecret(),
+  mcpReceiptSecret = getMcpReceiptSecret(),
 } = {}) {
   if (!redis) throw new Error("Redis is not configured; Phase 0 evidence cannot be read or recorded.");
   const observationDate = etDateString(now);
@@ -321,6 +328,8 @@ export async function gatherPhase0Evidence({
     capacity: mapAnthropicBudgetReadiness(readiness, capacityEvidence, observationDate),
     proposalQueue: queueCounts,
     deployment: { ...revision, policies },
+    // Used only by the in-memory verdict builder; it is never persisted.
+    mcpReceiptSecret,
   };
 }
 

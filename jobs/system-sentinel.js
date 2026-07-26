@@ -14,6 +14,11 @@ import { sendMessage } from "../lib/telegram.js";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
+export function assertSentinelPublished(published) {
+  if (published !== true) throw new Error("System sentinel snapshot was not durably published; refusing a false-green scheduled run.");
+  return true;
+}
+
 export async function runSystemSentinel({ dryRun = false } = {}) {
   const started = Date.now();
   console.log(`[Sysloop] Sentinel run starting...${dryRun ? " (dry run — no Redis publish, no Telegram)" : ""}`);
@@ -47,6 +52,7 @@ export async function runSystemSentinel({ dryRun = false } = {}) {
     repoRoot: REPO_ROOT,
     consumedDeployMarkerKeys,
   });
+  if (!dryRun) assertSentinelPublished(published);
   console.log(`[Sysloop] Done in ${Date.now() - started}ms (published=${published})`);
   return snapshot;
 }

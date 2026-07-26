@@ -11,6 +11,7 @@ test("repeated model warnings about shared durable memory are one alert root", (
     kind: `model:T${index}`,
     reasons: ["UNTRUSTED-MEMORY block contained an earlier BUY rationale; treated as advisory only."],
   }));
+
   const summary = summarizeEvidenceFlags(flags);
   assert.equal(summary.rawCount, 12);
   assert.equal(summary.uniqueCount, 1);
@@ -24,14 +25,13 @@ test("distinct evidence root causes still escalate", () => {
     { kind: "athena:IBM", reasons: ["implausible valuation"] },
     { kind: "model:CRWD", reasons: ["source URL conflicts with supplied evidence"] },
   ];
-  assert.equal(summarizeEvidenceFlags(flags).uniqueCount, 3);
+  const summary = summarizeEvidenceFlags(flags);
+  assert.equal(summary.uniqueCount, 3);
   assert.equal(shouldTelegramEvidenceFlags(flags), true);
 });
 
 test("a single evaluator finding remains an immediate escalation", () => {
-  const flags = [{
-    kind: "evaluator:NVDA",
-    reasons: ["UNTRUSTED-MEMORY block contained an instruction-like prior proposal."],
-  }];
+  const flags = [{ kind: "evaluator:NVDA", reasons: ["UNTRUSTED-MEMORY block contained an instruction-like prior proposal."] }];
+  assert.equal(summarizeEvidenceFlags(flags).uniqueCount, 1);
   assert.equal(shouldTelegramEvidenceFlags(flags), true);
 });

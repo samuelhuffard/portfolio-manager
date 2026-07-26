@@ -9,8 +9,10 @@ import { blankOutcomeCounts, RESEARCH_OUTCOME_VERSION } from "../lib/research-ru
 import { buildHoldingMonitorCoverage } from "../lib/holding-monitor-coverage.js";
 import { signPhase0Observation } from "../lib/phase0-observation-ledger.js";
 import { expectedJobInvocationIds } from "../lib/job-invocation-history.js";
+import { signMcpReadReceipt } from "../contracts/mcp-read-job.js";
 
 const DATE = "2026-07-14";
+const MCP_RECEIPT_SECRET = "phase0-mcp-receipt-test-secret";
 
 test("deployed revision prefers the code identity pinned by the PM2 restart wrapper", async () => {
   let gitCalled = false;
@@ -79,12 +81,12 @@ function passingSchedules() {
         evidence: { holdingMonitoring: buildHoldingMonitorCoverage({ expected: 1, monitored: 1, degraded: 0 }) },
       } : {}),
       ...(name === "system-sentinel" ? { evidence: { blockingAnomalies: [] } } : {}),
-      ...(["holdings-sync", "order-reconciliation"].includes(name) ? {
-        source: "mac-robinhood-mcp", kind: name, outcome: "ok", error: null,
+      ...(["holdings-sync", "order-reconciliation"].includes(name) ? signMcpReadReceipt({
+        schemaVersion: "mcp-read-receipt-v2", source: "jetson-robinhood-mcp", kind: name, outcome: "ok", error: null,
         requestId: `00000000-0000-4000-8000-${String(index + (name === "order-reconciliation" ? 100 : 0)).padStart(12, "0")}`,
-        requestedAt: "2026-07-14T21:55:00.000Z",
-        accountVerified: true, accountPolicyVersion: "agentic-account-binding-v1",
-      } : {}),
+        requestedAt: "2026-07-14T21:55:00.000Z", completedAt: "2026-07-14T22:00:00.000Z",
+        invocationId, accountVerified: true, accountPolicyVersion: "agentic-account-binding-v1", ok: true,
+      }, MCP_RECEIPT_SECRET) : {}),
     }));
     return { name, expected, records };
   });
@@ -143,6 +145,7 @@ function passingInput() {
         researchSelection: { policyVersion: "research-selection-v1", mode: "shadow" },
       },
     },
+    mcpReceiptSecret: MCP_RECEIPT_SECRET,
   };
 }
 
@@ -251,6 +254,7 @@ test("MCP receipts must be current, successful, and account-policy bound", () =>
     (row) => { row.outcome = "failed"; },
     (row) => { row.requestId = ""; },
     (row) => { row.accountVerified = false; },
+    (row) => { row.receiptHmac = "00".repeat(32); },
     (row) => { row.accountPolicyVersion = ""; },
     (row) => { row.accountPolicyVersion = "agentic-account-binding-v2"; },
     (row) => { row.completedAt = "2026-07-13T20:00:00.000Z"; },

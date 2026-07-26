@@ -6,7 +6,7 @@ test("extractMarketCap handles Yahoo module drift and quote fallback", () => {
   assert.equal(extractMarketCap({ price: { marketCap: 123 } }), 123);
   assert.equal(extractMarketCap({ summaryDetail: { nonDilutedMarketCap: 456 } }), 456);
   assert.equal(extractMarketCap({}, { marketCap: 789 }), 789);
-  assert.equal(extractMarketCap({}, {}), null);
+  assert.equal(extractMarketCap({ price: { marketCap: null } }, {}), null);
 });
 
 test("Yahoo HTML failures become one concise observable message", () => {
@@ -20,8 +20,17 @@ test("Yahoo text failures are whitespace-normalized and bounded", () => {
 });
 
 test("Yahoo schema notices collapse to one bounded provider error", () => {
-  const notice = new Error("The following result did not validate with schema: #/definitions/QuoteSummaryResult");
+  const notice = new Error(`The following result did not validate with schema: #/definitions/QuoteSummaryResult
+missing netSharePurchaseActivity.netInstSharesBuying
+missing netSharePurchaseActivity.netInstBuyingPercent
+Additionally, your yahoo-finance2 version out of date: 3.15.4 < 4.0.0
+${"issue template text ".repeat(100)}`);
   assert.equal(summarizeYahooError(notice), "Failed Yahoo Schema validation");
+  assert.ok(summarizeYahooError(notice).length <= 240);
+});
+
+test("real Yahoo transport failures remain distinguishable from schema noise", () => {
+  assert.equal(summarizeYahooError(new Error("HTTP 503 upstream unavailable")), "HTTP 503 upstream unavailable");
 });
 
 test("Yahoo non-Error objects retain useful fields instead of becoming object Object", () => {

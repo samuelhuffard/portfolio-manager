@@ -44,11 +44,12 @@ test("missing required fields => not ok but not stale", () => {
   assert.equal(r.availableDataScore, 71);
 });
 
-test("missing market cap is a fail-closed data gate, not stale price data", () => {
+test("missing Yahoo fundamentals remain a fail-closed NO_TRADE gate", () => {
   const r = evaluateDataGates({ ...complete, marketCap: null }, LIMITS, { now: NOW });
   assert.equal(r.ok, false);
   assert.equal(r.stale, false);
   assert.ok(r.missing.includes("marketCap"));
+  assert.match(r.reasons[0], /missing required data: marketCap/);
 });
 
 test("micro-cap below the ADDV floor fails", () => {

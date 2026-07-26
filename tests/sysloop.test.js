@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { assertSentinelPublished } from "../jobs/system-sentinel.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -47,7 +48,7 @@ test("checkPhase0Throughput stays quiet early in the window", () => {
 });
 
 test("checkPhase0Throughput flags a maturing window that hasn't proven throughput", () => {
-  const out = checkPhase0Throughput({ actionableProposals: 1, evaluatorApprovals: 0, tradingDaysElapsed: 4 });
+  const out = checkPhase0Throughput({ actionableProposals: 1, evaluatorApprovals: 0, tradingDaysElapsed: 9 });
   assert.equal(out.length, 1);
   assert.equal(out[0].severity, "P2");
   assert.match(out[0].detail, /1\/3 actionable proposals and 0\/1 evaluator APPROVE/);
@@ -55,13 +56,13 @@ test("checkPhase0Throughput flags a maturing window that hasn't proven throughpu
 
 test("checkPhase0Throughput passes when the bar is met", () => {
   assert.deepEqual(
-    checkPhase0Throughput({ actionableProposals: 4, evaluatorApprovals: 2, tradingDaysElapsed: 5 }),
+    checkPhase0Throughput({ actionableProposals: 4, evaluatorApprovals: 2, tradingDaysElapsed: 10 }),
     []
   );
 });
 
 test("checkPhase0Throughput fails closed on unreadable counts", () => {
-  const out = checkPhase0Throughput({ tradingDaysElapsed: 4 });
+  const out = checkPhase0Throughput({ tradingDaysElapsed: 9 });
   assert.equal(out.length, 1);
   assert.match(out[0].title, /input UNKNOWN/);
 });
@@ -69,6 +70,11 @@ import { upsertFindings, loadFindings, openFindingsSummary, renderFixlist } from
 
 const NOW = Date.parse("2026-07-06T22:15:00Z"); // 18:15 ET on a Monday
 const ET = { date: "2026-07-06", hour: 18, minute: 15, weekday: "Mon", iso: "2026-07-06T22:15:00Z" };
+
+test("system sentinel refuses to report a successful scheduled run without durable publication", () => {
+  assert.equal(assertSentinelPublished(true), true);
+  assert.throws(() => assertSentinelPublished(false), /not durably published/);
+});
 
 // ── fingerprinting ───────────────────────────────────────────────────────────
 
@@ -103,14 +109,23 @@ test("clusterLogLines groups and counts", () => {
 });
 
 test("Yahoo validation notice clusters are provider degradation, never P1 growth", () => {
-  const clusters = clusterLogLines(Array.from({ length: 12 }, () => "The following result did not validate with schema: #/definitions/QuoteSummaryResult"));
-  assert.equal(isKnownYahooValidationNoise(clusters[0].exemplar), true);
+  const noticeLines = [
+    "The following result did not validate with schema: #/definitions/QuoteSummaryResult",
+    "missing netSharePurchaseActivity.netInstSharesBuying",
+    "missing netSharePurchaseActivity.netInstBuyingPercent",
+    "Additionally, your yahoo-finance2 version out of date: 3.15.4 < 4.0.0",
+  ];
+  assert.equal(isKnownYahooValidationNoise(noticeLines[0]), true);
+  assert.equal(isKnownYahooValidationNoise("HTTP 503 upstream unavailable"), false);
+  const clusters = clusterLogLines(Array.from({ length: 12 }, () => noticeLines).flat());
   const out = checkLogClusters({
     clusters: clusters.map((cluster) => ({ ...cluster, count: 12 })),
     prevClusters: clusters.map((cluster) => ({ fingerprint: cluster.fingerprint, count: 2 })),
   });
-  assert.equal(out[0].severity, "P2");
-  assert.match(out[0].title, /Yahoo provider-data degradation/);
+  assert.ok(out.length > 0);
+  assert.ok(out.every((finding) => finding.severity === "P2"));
+  assert.ok(out.every((finding) => /Yahoo provider-data degradation/.test(finding.title)));
+  assert.ok(out.every((finding) => !/growing fast/.test(finding.title)));
 });
 
 // ── fail-closed on unavailable inputs ────────────────────────────────────────

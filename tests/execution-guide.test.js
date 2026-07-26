@@ -4,7 +4,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const guide = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "EXECUTION-GUIDE.md"), "utf8");
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const guide = readFileSync(path.join(__dirname, "..", "EXECUTION-GUIDE.md"), "utf8");
 
 test("execution guide preserves fractional quantities instead of flooring to whole shares", () => {
   assert.match(guide, /shares = proposal\.amountDollars \/ currentPrice/);

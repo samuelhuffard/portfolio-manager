@@ -35,6 +35,7 @@ Google Sheet: create a blank Sheet in a personal Drive, share it Editor with the
 | INVESTOR_LEDGER_HMAC_SECRET | ✅ | ✗ | via backend checkout |
 | OPERATIONAL_LEDGER_HMAC_SECRET / OPERATIONAL_LEDGER_LEGACY_HMAC_SECRETS | ✅ (dedicated signer + comma-separated migration-only legacy verification keys. Once the dedicated key exists, investor/audit keys are **not** implicitly trusted. Performance/Trade/Lot rows are long-lived: remove the legacy list only after deliberate re-sign/migration and after immutable retained records age out) | ✗ | via backend checkout |
 | SYSLOOP_DEPLOY_HMAC_SECRET | ✅ (**dedicated, no fallback** — signs PM2 deploy markers) | ✗ | ✗ |
+| MCP_RECEIPT_HMAC_SECRET | ✅ (**required** — verifies signed scheduled broker-read receipts) | ✗ | ✅ (**required** — signs receipts) |
 | ANTHROPIC_MONTHLY_MAX_USD / ANTHROPIC_MONTHLY_PROTECTED_RESERVE_USD | ✅ ($40 ceiling / $10 protected pool) | ✗ | ✗ |
 | ANTHROPIC_BUDGET_REQUIRED | ✅ (**set `true` in production** — a missing ceiling then refuses calls instead of silently removing the cap) | ✗ | ✗ |
 | AGENT_1_CATALOG_ROLLBACK / AGENT_2_CATALOG_ROLLBACK / AGENT_3_CATALOG_ROLLBACK | opt ✅ (emergency per-agent fallback only; leave `false` for the live shared catalog) | ✗ | ✗ |
@@ -48,6 +49,8 @@ Google Sheet: create a blank Sheet in a personal Drive, share it Editor with the
 
 Companion env cascade: `portfolio-dashboard/.env.local` → `.env` → `../portfolio-manager/.env` (first hit wins per var). The Mac therefore needs a working `portfolio-manager` checkout as a **sibling directory** — `record-trade.js`/sync scripts are invoked at `../../portfolio-manager/`.
 
+The Jetson `portfolio-broker-reader` must run with `COMPANION_ROLE=read-worker` and emit `MCP_READ_RECEIPT_SOURCE=jetson-robinhood-mcp`. The backend rejects any unsigned or legacy receipt, so set the same dedicated `MCP_RECEIPT_HMAC_SECRET` on both before a scheduled observation day.
+
 **Secret handling rules:** move values with `printf ... | ssh` or file copies, never `echo` into a terminal; verify with `grep -c`; `.trim()` every env read in code.
 
 ## Local verification commands
@@ -55,6 +58,7 @@ Companion env cascade: `portfolio-dashboard/.env.local` → `.env` → `../portf
 ```bash
 # Backend
 npm test                       # full suite
+node scripts/observation-preflight.js # exact branch/revision + required safety keys
 node --check <file>.js         # syntax after edits
 npm run tavily:check           # Tavily key live check
 npm run proposals:approved     # queue state + signatureValid per proposal
@@ -98,7 +102,19 @@ curl -o /dev/null -w "%{http_code}\n" https://portfolio-dashboard-ivory-five.ver
 curl -o /dev/null -w "%{http_code}\n" https://portfolio-dashboard-ivory-five.vercel.app/api/portfolio  # 401 signed-out
 ```
 
-**Companion → Mac:** it runs from the working tree, so `git pull` (or local edits) + `pm2 restart portfolio-executor --update-env` IS the deploy. Verify: `pm2 logs portfolio-executor --lines 5 --nostream` shows the startup line, and Redis `pm:companion:last-seen` updates within ~30s.
+**Broker reader → Jetson:** `~/portfolio-dashboard` runs PM2
+`portfolio-broker-reader` with `COMPANION_ROLE=read-worker` and
+`CLAUDE_BIN=/home/sam/.npm-global/bin/claude`. Verify the startup line says
+`execution=false brokerReads=true marketScans=false`, Redis
+`pm:broker-reader:last-seen` updates within 30 seconds, and both MCP queues and
+leases are empty after work completes.
+
+**Trade executor → Mac:** the same script runs PM2 `portfolio-executor` with
+`COMPANION_ROLE=execution`. Verify the startup line says
+`execution=true brokerReads=false marketScans=true` and Redis
+`pm:companion:last-seen` updates within 30 seconds. Keep `portfolio-keepawake`
+only as execution-host protection; scheduled observation evidence no longer
+depends on Mac uptime.
 
 ## PM2 / log checks
 
@@ -106,8 +122,10 @@ curl -o /dev/null -w "%{http_code}\n" https://portfolio-dashboard-ivory-five.ver
 # Jetson
 pm2 ls; pm2 logs portfolio-manager --lines 30 --nostream
 ls -la ~/.pm2/logs/            # CHECK MTIMES — stale error logs have misled diagnosis before
-# Mac
+# Mac execution worker
 pm2 describe portfolio-executor
+# Jetson read worker
+pm2 describe portfolio-broker-reader
 ```
 
 ## Health checks
@@ -137,7 +155,7 @@ pm2 describe portfolio-executor
 - MCP reads are queued FIFO by invocation ID. A failed request remains retryable
   at the head, while later scheduled slots remain distinct behind it instead of
   being coalesced away.
-- Jetson queues the 4:40 PM ET report-only broker-vs-ledger reconciliation for the Mac companion. The companion performs the MCP read against the pinned Agentic account, writes a durable receipt, alerts on a missing or malformed ledger match, and never records a trade or alters an order.
+- Jetson queues the 4:40 PM ET report-only broker-vs-ledger reconciliation for the Jetson `read-worker`. The worker performs the MCP read against the pinned Agentic account, writes a durable receipt, alerts on a missing or malformed ledger match, and never records a trade or alters an order.
 - Mac PM2 process `portfolio-sysloop` (this repo's working tree): cross-watch every 30 min, triage 6:35 PM Mon–Fri (`npm run sysloop:triage`), weekly Sun 10 AM (`npm run sysloop:weekly`). Both accept `--force` to bypass the once-per-period Redis rate cap.
 - Findings ledger: `ops/findings/*.md` (git-tracked). To close one, edit `status: open` → `fixed`; if the fingerprint reappears it auto-flips to `regressed` and escalates. Weekly artifacts: `ops/reports/`, `ops/proposed-tests/`, `ops/proposed-patches/` — all propose-only, nothing is applied automatically.
 - **`ops/FIXLIST.md` is the single readable view** of everything above — regenerated after every triage/weekly pass, or manually via `npm run sysloop:fixlist` after editing a finding's status. Claude Code sessions read it at session start (pointer in `CLAUDE.md`).
@@ -160,7 +178,12 @@ pm2 describe portfolio-executor
 
 ## Verifying Robinhood sync safely (no trades)
 
-- Scheduled path: Jetson writes one typed request under `pm:mcp-read:<kind>:request`; the Mac companion claims it with a lease, runs only its fixed read-tool allowlist, proves every account-scoped tool call used `ROBINHOOD_ACCOUNT_NUMBER`, and writes `pm:mcp-read:<kind>:last-run` on completion.
+- Scheduled path: the backend writes one typed request to the FIFO
+  `pm:mcp-read:<kind>:queue`; the Jetson `portfolio-broker-reader` claims it
+  with a lease, runs only its fixed read-tool allowlist, proves every
+  account-scoped tool call used `ROBINHOOD_ACCOUNT_NUMBER`, and writes
+  `pm:mcp-read:<kind>:last-run` on completion. The Mac `execution` role cannot
+  claim these queues.
 - A request is safe to retry: its request ID is bound to the signed Performance row, so retries replay Holdings/Overview projections but cannot append a second performance row.
 - The former `robin_stocks` path is diagnostic-only and must not be used as an unattended authentication workaround for device approvals, SMS, or passkeys.
 - MCP path: use ONLY read tools (`get_equity_positions`, `get_portfolio`, `get_equity_orders`) and pipe into `npm run holdings:sync` (`sync-holdings-from-mcp.js`). The scan sync explicitly disallows all order/mutation tools (`MARKET_SYNC_DISALLOWED_TOOLS` in mac-companion).

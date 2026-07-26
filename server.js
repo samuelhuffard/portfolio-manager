@@ -25,6 +25,7 @@ const AGENT_IDS = AGENTS.map((a) => a.id);
 
 let scanRunning = false;
 let syncRunning = false;
+const MAX_JSON_BODY_BYTES = 128 * 1024;
 
 // Lab single-ticker research runs (POST /research-ticker): in-flight keys
 // (`agentId:ticker`) so the same request can't double-run; results live in
@@ -76,19 +77,43 @@ function auth(req) {
   return timingSafeEqual(provided, expected);
 }
 
-function readBody(req) {
+export function readBody(req) {
   return new Promise((resolve, reject) => {
-    let body = "";
-    req.on("data", (chunk) => { body += chunk; });
-    req.on("end", () => {
-      try { resolve(body ? JSON.parse(body) : {}); }
-      catch (e) { reject(e); }
+    const declaredLength = Number(req.headers["content-length"]);
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_JSON_BODY_BYTES) {
+      reject(new Error("Request body exceeds the 128 KiB limit."));
+      return;
+    }
+    const chunks = [];
+    let bytes = 0;
+    let settled = false;
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+    req.on("data", (chunk) => {
+      if (settled) return;
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      bytes += buffer.length;
+      if (bytes > MAX_JSON_BODY_BYTES) {
+        fail(new Error("Request body exceeds the 128 KiB limit."));
+        req.destroy();
+        return;
+      }
+      chunks.push(buffer);
     });
-    req.on("error", reject);
+    req.on("end", () => {
+      if (settled) return;
+      const body = Buffer.concat(chunks).toString("utf8");
+      try { resolve(body ? JSON.parse(body) : {}); }
+      catch (e) { fail(e); }
+    });
+    req.on("error", fail);
   });
 }
 
-const server = http.createServer(async (req, res) => {
+async function handleRequest(req, res) {
   res.setHeader("Content-Type", "application/json");
   const url = new URL(req.url, `http://localhost`);
 
@@ -422,6 +447,16 @@ const server = http.createServer(async (req, res) => {
 
   res.writeHead(404);
   res.end(JSON.stringify({ error: "Not found" }));
+}
+
+const server = http.createServer((req, res) => {
+  void handleRequest(req, res).catch((error) => {
+    console.error("[Server] unhandled request error:", error.message);
+    if (!res.headersSent && !res.writableEnded && !res.destroyed) {
+      res.writeHead(500);
+      res.end(JSON.stringify({ error: "Internal server error" }));
+    }
+  });
 });
 
 export function startServer() {

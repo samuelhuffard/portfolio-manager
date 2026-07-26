@@ -32,6 +32,7 @@ import {
   specialistExitPolicyMode,
 } from "../lib/holding-monitor-ownership.js";
 import { sendMessage as sendTelegram } from "../lib/telegram.js";
+import { withWorkflowLock } from "../lib/workflow-lock.js";
 import { researchTickerForAgent } from "./research-scan.js";
 import {
   getServiceAccountClients,
@@ -65,7 +66,7 @@ export function recordIntradayProposalQueueFailure(coverage) {
   coverage.reasons.exit_proposal_queue_failure = (coverage.reasons.exit_proposal_queue_failure ?? 0) + 1;
 }
 
-export async function runIntradayMonitor({ context = "intraday" } = {}) {
+async function runIntradayMonitorUnlocked({ context = "intraday" } = {}) {
   console.log(`[Intraday] Starting ${context} check...`);
 
   const { sheets, drive } = getServiceAccountClients();
@@ -274,6 +275,13 @@ export async function runIntradayMonitor({ context = "intraday" } = {}) {
     `${summary.holdingMonitoring.failed} failed of ${summary.holdingMonitoring.expected}.`
   );
   return summary;
+}
+
+// A manual dashboard trigger must never overlap a scheduled check: both can
+// create alert-driven research or exit proposals. Redis makes this exclusion
+// hold across PM2 restarts and future multi-process operation.
+export async function runIntradayMonitor(options = {}) {
+  return withWorkflowLock("intraday-monitor", () => runIntradayMonitorUnlocked(options), { ttlSeconds: 20 * 60 });
 }
 
 if (fileURLToPath(import.meta.url) === process.argv[1]) {
