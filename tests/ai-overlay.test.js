@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { FRACTIONAL_SHARE_POLICY, getAIRecommendation, promptBreakdown, promptNumber } from "../lib/ai-overlay.js";
+import { FRACTIONAL_SHARE_POLICY, getAIRecommendation, parseRecommendation, promptBreakdown, promptNumber } from "../lib/ai-overlay.js";
 
 test("promptNumber never emits NaN or Infinity into prompts", () => {
   assert.equal(promptNumber(72.345), 72.34);
@@ -29,6 +29,17 @@ test("research prompt tells agents that fractional shares make dollar-sized BUYs
   assert.match(FRACTIONAL_SHARE_POLICY, /fractional-share market orders/i);
   assert.match(FRACTIONAL_SHARE_POLICY, /not whole-share-based/i);
   assert.match(FRACTIONAL_SHARE_POLICY, /Never use a stock's per-share price/i);
+});
+
+test("parseRecommendation preserves normalized risks and kill criteria", () => {
+  const recommendation = parseRecommendation(JSON.stringify({
+    action: "HOLD",
+    thesis: "Wait for a clearer setup.",
+    risks: ["Volatility"],
+    kill_criteria: ["Fundamentals deteriorate"],
+  }), "TEST");
+  assert.deepEqual(recommendation.risks, ["Volatility"]);
+  assert.deepEqual(recommendation.killCriteria, ["Fundamentals deteriorate"]);
 });
 
 test("the actual model request carries the fractional-share policy", async () => {

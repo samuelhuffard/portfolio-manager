@@ -10,6 +10,7 @@ import {
   classifyRecommendationOutcome,
   formatResearchRunReport,
   outcomeTotal,
+  researchOutcomeCountsHaveFailures,
 } from "../lib/research-run-report.js";
 
 function facts(overrides = {}) {
@@ -72,6 +73,12 @@ test("outcome aggregation conserves attempted reviews", () => {
   assert.equal(assertOutcomeConservation(counts, 3), true);
   assert.throws(() => assertOutcomeConservation(counts, 2), /conservation failed/);
   assert.throws(() => addOutcome(counts, "not-a-category"), /Unknown research outcome/);
+});
+
+test("review failures make an otherwise terminal scan non-clean", () => {
+  assert.equal(researchOutcomeCountsHaveFailures(blankOutcomeCounts()), false);
+  assert.equal(researchOutcomeCountsHaveFailures({ ...blankOutcomeCounts(), review_error: 1 }), true);
+  assert.equal(researchOutcomeCountsHaveFailures({ ...blankOutcomeCounts(), evaluator_error: 1 }), true);
 });
 
 test("legacy status is explicitly non-classifiable", () => {

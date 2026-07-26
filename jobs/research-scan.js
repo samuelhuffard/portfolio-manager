@@ -77,6 +77,7 @@ import {
   assertOutcomeConservation,
   blankOutcomeCounts,
   classifyRecommendationOutcome,
+  researchOutcomeCountsHaveFailures,
 } from "../lib/research-run-report.js";
 import { withWorkflowLock } from "../lib/workflow-lock.js";
 import { BudgetExhaustedError, createResearchRunBudget } from "../lib/ai-budget.js";
@@ -1696,7 +1697,9 @@ async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = 
         });
       }
     }
-    const status = agentSummaries.some((agent) => agent.status === "failed") ? "failed" : "completed";
+    const status = agentSummaries.some(
+      (agent) => agent.status === "failed" || researchOutcomeCountsHaveFailures(agent.outcomeCounts)
+    ) ? "failed" : "completed";
     await persistFinalStatus(status, status === "failed" ? "One or more agents failed. See per-agent status." : null);
     if (status === "failed") {
       // Persisting a failed status alone is insufficient: the scheduler's own
