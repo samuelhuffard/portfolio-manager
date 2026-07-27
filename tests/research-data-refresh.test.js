@@ -205,9 +205,10 @@ test("scheduled research-data job refreshes the universe when peer metrics are d
       calls.push(["universe", options]);
       return { state: "ok", cataloged: 4_321 };
     },
+    refreshPeerCoverage: async (options) => { calls.push(["peer-coverage", options]); return { state: "disabled" }; },
   });
 
-  assert.deepEqual(calls, [["universe", { strictPeerMetrics: false }]]);
+  assert.deepEqual(calls, [["universe", { strictPeerMetrics: false }], ["peer-coverage", { env: {} }]]);
   assert.deepEqual(statuses, [{ state: "disabled", reason: "peer_metrics_disabled" }]);
   assert.equal(result.state, "disabled");
   assert.equal(result.reason, "peer_metrics_disabled");
@@ -218,6 +219,7 @@ test("scheduled research-data job refreshes the universe when the optional workf
   const statuses = [];
   let fullCalls = 0;
   let universeCalls = 0;
+  let coverageCalls = 0;
   const result = await runScheduledResearchDataRefresh({
     env: enabledEnv,
     redis: fakeRedis(),
@@ -228,10 +230,12 @@ test("scheduled research-data job refreshes the universe when the optional workf
       universeCalls++;
       return { state: "ok", cataloged: 4_567 };
     },
+    refreshPeerCoverage: async () => { coverageCalls++; return { state: "completed" }; },
   });
 
   assert.equal(fullCalls, 0);
   assert.equal(universeCalls, 1);
+  assert.equal(coverageCalls, 1);
   assert.deepEqual(statuses, [{
     state: "not_configured",
     reason: "durable_research_store_not_configured",
@@ -252,13 +256,15 @@ test("enabled scheduled research-data workflow owns the universe refresh exactly
       return { state: "completed", cataloged: 4_789 };
     },
     refreshUniverse: async () => { calls.push(["fallback-universe"]); },
+    refreshPeerCoverage: async (options) => { calls.push(["peer-coverage", options]); return { state: "completed" }; },
   });
 
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 2);
   assert.equal(calls[0][0], "full");
   assert.equal(calls[0][1].env, enabledEnv);
   assert.ok(calls[0][1].redis);
   assert.deepEqual(calls[0][1].pool, {});
+  assert.deepEqual(calls[1], ["peer-coverage", { env: enabledEnv }]);
   assert.equal(result.state, "completed");
   assert.equal(result.cataloged, 4_789);
 });

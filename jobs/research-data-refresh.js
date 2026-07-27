@@ -2,6 +2,7 @@ import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { runUniverseRefresh } from "./universe-refresh.js";
+import { runPeerCoverageRefresh } from "./peer-coverage-refresh.js";
 import { runPeerDistributions } from "./peer-distributions.js";
 import { runMandateScoring } from "./mandate-scoring.js";
 import { getRedis, setResearchDataStatus } from "../lib/redis.js";
@@ -213,19 +214,30 @@ export async function runScheduledResearchDataRefresh({
   codeRevision,
   durableStoreConfigured = researchStoreConfigured,
   refreshUniverse = runUniverseRefresh,
+  refreshPeerCoverage = runPeerCoverageRefresh,
   runFullRefresh = runResearchDataRefresh,
   writeStatus = (status) => setResearchDataStatus(status, { redis }),
 } = {}) {
   const prerequisite = researchDataPrerequisite({ env, redis, pool, codeRevision, durableStoreConfigured });
   if (prerequisite.enabled) {
-    return runFullRefresh({ env, redis, pool, codeRevision, durableStoreConfigured });
+    const result = await runFullRefresh({ env, redis, pool, codeRevision, durableStoreConfigured });
+    // A requested Lab cohort must not depend on the optional Postgres
+    // observation/shadow-selection prerequisites. Refresh it directly after
+    // the scheduled owner completes its broad work, including when the full
+    // workflow is enabled, so every durable coverage request makes progress.
+    const peerCoverage = await refreshPeerCoverage({ env });
+    return { ...result, peerCoverage };
   }
 
   const status = { state: prerequisite.state, reason: prerequisite.reason };
   if (redis) await writeStatus(status);
   console.log(`[ResearchData] ${prerequisite.state} — ${prerequisite.reason}; refreshing universe catalog only.`);
   const universe = await refreshUniverse({ strictPeerMetrics: false });
-  return { ...status, universe };
+  // The catalog/observation workflow may be intentionally not configured,
+  // but peer coverage is useful independently and has its own narrow flags.
+  // The collector is a data-only job and never invokes a model or order path.
+  const peerCoverage = await refreshPeerCoverage({ env });
+  return { ...status, universe, peerCoverage };
 }
 
 if (fileURLToPath(import.meta.url) === process.argv[1]) {
