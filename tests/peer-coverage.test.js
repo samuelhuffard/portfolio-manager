@@ -53,6 +53,12 @@ test("Lab scores a target against stored peer fundamentals rather than itself", 
   assert.ok(result.breakdown.trailingPE > 90); // lower P/E ranks higher
 });
 
+test("peer-fundamental scoring refuses legacy rows without enough scoreable fields", () => {
+  const candidate = { ticker: "V", raw: { financialData: { revenueGrowth: 0.2 } } };
+  const peers = Array.from({ length: 7 }, (_, index) => ({ ticker: `P${index}`, quant: { revenueGrowth: index / 10 } }));
+  assert.equal(scorePeerFundamentals({ candidate, peers }), null);
+});
+
 test("scheduled research queues every selected candidate missing a complete cohort", async () => {
   const requested = [];
   const result = await queuePeerCoverageForCandidates([

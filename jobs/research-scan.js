@@ -1471,15 +1471,54 @@ async function runResearchScanForAgent(
   // Coverage is a normal part of scheduled research, not a Lab-only escape
   // hatch. This queues every selected candidate before any model call; the
   // 17:30 targeted collector and nightly data refresh consume it durably.
+  const storedPeerMetrics = await getPeerMetrics();
   const peerCoverageQueue = await queuePeerCoverageForCandidates([...toReview.values()], {
-    peerMetrics: await getPeerMetrics(),
+    peerMetrics: storedPeerMetrics,
   });
   if (peerCoverageQueue.queued.length) {
     console.log(`[Research] ${agent.id}: queued peer coverage for ${peerCoverageQueue.queued.length}/${toReview.size} review candidates.`);
   }
 
-  console.log(`[Research] ${agent.id}: running AI overlay for ${toReview.size} tickers (budget ${aiReviewBudget}, holdings exempt)...`);
-  summary.attemptedReviews = toReview.size;
+  // A scheduled scan is held to the same peer-relative standard as Lab. Do
+  // not send a candidate through the model on its old mixed-slate score while
+  // its requested cohort is still being collected; it will re-enter tomorrow
+  // once the post-scan collector has made the cohort scoreable.
+  const peerScoredToReview = new Map();
+  for (const c of toReview.values()) {
+    const coverage = assessPeerCoverage({
+      ticker: c.ticker,
+      industry: c.industry ?? null,
+      sector: c.sector ?? null,
+      peerMetrics: storedPeerMetrics,
+    });
+    if (!coverage.ready) continue;
+    const peerScore = scorePeerFundamentals({ candidate: c, peers: coverage.peers });
+    if (!peerScore) continue;
+    const peerCohortLabel = `${coverage.peerSetUsed.key ?? coverage.peerSetUsed.level} peer cohort (${coverage.peerCount + 1} names)`;
+    peerScoredToReview.set(c.ticker, {
+      ...c,
+      quantScore: peerScore.quantScore,
+      breakdown: peerScore.breakdown,
+      quantScoreContext: {
+        source: `stored Yahoo/SEC peer fundamentals; ${peerCohortLabel}`,
+        description: `normalized rank versus the resolved ${peerCohortLabel}; seven current fundamental fields only (no momentum, estimates, or long-horizon mandate evidence), not a full mandate conviction score`,
+        researchOnly: true,
+      },
+      peerFactEvidence: sourcedFact(
+        "peer_cohort",
+        "Resolved peer cohort",
+        `${peerCohortLabel}; ${coverage.peerCount} data-complete peers`,
+        "cohort description",
+        "stored peer coverage cache (Yahoo fundamentals and SEC-derived metrics)",
+      ),
+    });
+  }
+  const deferredForPeerCoverage = toReview.size - peerScoredToReview.size;
+  if (deferredForPeerCoverage) {
+    console.log(`[Research] ${agent.id}: deferred ${deferredForPeerCoverage}/${toReview.size} selected candidates pending a scoreable peer cohort.`);
+  }
+  console.log(`[Research] ${agent.id}: running AI overlay for ${peerScoredToReview.size} peer-scored tickers (budget ${aiReviewBudget}, holdings exempt)...`);
+  summary.attemptedReviews = peerScoredToReview.size;
 
   const reviewContext = await buildAgentReviewContext(sheets, spreadsheetId, {
     candidates,
@@ -1513,7 +1552,7 @@ async function runResearchScanForAgent(
   const recommendations = [];
   const researchRecords = []; // research-ledger updates, persisted once after the loop
   const decisionAudits = [];
-  for (const c of toReview.values()) {
+  for (const c of peerScoredToReview.values()) {
     try {
       const { recommendation, researchRecord, createdProposal, decisionAudit, outcomeFacts } = await reviewCandidateForAgent(agent, c, ctx);
       const outcomeKind = classifyRecommendationOutcome(outcomeFacts);
