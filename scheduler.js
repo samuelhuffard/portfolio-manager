@@ -10,6 +10,7 @@ import { runWeeklyReview } from "./jobs/weekly-review.js";
 import { runInvestorWeeklyUpdate } from "./jobs/investor-weekly-update.js";
 import { runSystemSentinel } from "./jobs/system-sentinel.js";
 import { runScheduledResearchDataRefresh } from "./jobs/research-data-refresh.js";
+import { runPeerCoverageRefresh } from "./jobs/peer-coverage-refresh.js";
 import { requestMcpHoldingsSync, requestMcpOrderReconciliation } from "./jobs/mcp-read-requests.js";
 import { runDailyDbParityCheck } from "./jobs/db-parity-check.js";
 import { refreshShadowPositions } from "./scripts/refresh-shadow-positions.js";
@@ -195,6 +196,11 @@ cron.schedule("45 16 * * 0-4", wrapJob("exit-monitor", "ExitMonitor", runExitMon
 // Sunday is an explicit Friday-close replay; its runId is consumed once by the
 // next weekday observation and never counted again.
 cron.schedule("15 17 * * 0-4", wrapJob("research-scan", "Research", runResearchScan, MARKET_DAY_ONLY), TZ);
+
+// Consume the coverage requests made by the research scan immediately after
+// it completes. This is data-only (no model, proposal, or order path) and
+// keeps every reviewed company moving toward a complete peer cohort overnight.
+cron.schedule("30 17 * * 0-4", wrapJob("peer-coverage-refresh", "PeerCoverage", runPeerCoverageRefresh, MARKET_DAY_ONLY), TZ);
 
 // ── Performance review (5:45 PM ET) ─────────────────────────────────────────
 // Scores past recommendations whose 30/90/180-day windows have elapsed.

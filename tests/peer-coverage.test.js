@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { assessPeerCoverage, coveragePriorityTickers, mergeCoverageRequests, scorePeerFundamentals } from "../lib/peer-coverage.js";
+import { queuePeerCoverageForCandidates } from "../jobs/research-scan.js";
 import { selectEnrichmentBatch } from "../lib/universe.js";
 
 const row = (ticker, industry = "Payments", sector = "Financial Services") => ({
@@ -50,4 +51,17 @@ test("Lab scores a target against stored peer fundamentals rather than itself", 
   assert.ok(result.quantScore > 90);
   assert.ok(result.breakdown.revenueGrowth > 90);
   assert.ok(result.breakdown.trailingPE > 90); // lower P/E ranks higher
+});
+
+test("scheduled research queues every selected candidate missing a complete cohort", async () => {
+  const requested = [];
+  const result = await queuePeerCoverageForCandidates([
+    { ticker: "V", industry: "Payments", sector: "Financial Services" },
+    { ticker: "MA", industry: "Payments", sector: "Financial Services" },
+  ], {
+    peerMetrics: {},
+    requestCoverage: async (request) => requested.push(request),
+  });
+  assert.deepEqual(result.queued, ["V", "MA"]);
+  assert.deepEqual(requested.map((request) => request.source), ["scheduled_research", "scheduled_research"]);
 });

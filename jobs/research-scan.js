@@ -417,6 +417,41 @@ function buildCandidateFactEvidence(candidate) {
 }
 
 /**
+ * Every scheduled AI-review candidate participates in peer coverage, not just
+ * names entered through Lab. A missing cohort is queued before model work; the
+ * dedicated collector then fetches the target plus its economic peers.
+ */
+export async function queuePeerCoverageForCandidates(candidates = [], {
+  peerMetrics = {},
+  requestCoverage = requestPeerCoverage,
+} = {}) {
+  const queued = [];
+  const covered = [];
+  for (const candidate of candidates) {
+    const ticker = String(candidate?.ticker ?? "").trim().toUpperCase();
+    if (!ticker) continue;
+    const coverage = assessPeerCoverage({
+      ticker,
+      industry: candidate.industry ?? null,
+      sector: candidate.sector ?? null,
+      peerMetrics,
+    });
+    if (coverage.ready) {
+      covered.push(ticker);
+      continue;
+    }
+    await requestCoverage({
+      ticker,
+      industry: candidate.industry ?? null,
+      sector: candidate.sector ?? null,
+      source: "scheduled_research",
+    });
+    queued.push(ticker);
+  }
+  return { queued, covered };
+}
+
+/**
  * Builds one research candidate from a fetched fundamentals record: one daily-bar
  * fetch covers momentum, RSI, ATR, weekly vol, and ADDV (replaces the prior two
  * close-only fetches and feeds lib/indicators.js + the data gates). Extracted from
@@ -1431,6 +1466,16 @@ async function runResearchScanForAgent(
   for (const c of scored) {
     if (toReview.size >= aiReviewBudget) break;
     addToReview(c.ticker);
+  }
+
+  // Coverage is a normal part of scheduled research, not a Lab-only escape
+  // hatch. This queues every selected candidate before any model call; the
+  // 17:30 targeted collector and nightly data refresh consume it durably.
+  const peerCoverageQueue = await queuePeerCoverageForCandidates([...toReview.values()], {
+    peerMetrics: await getPeerMetrics(),
+  });
+  if (peerCoverageQueue.queued.length) {
+    console.log(`[Research] ${agent.id}: queued peer coverage for ${peerCoverageQueue.queued.length}/${toReview.size} review candidates.`);
   }
 
   console.log(`[Research] ${agent.id}: running AI overlay for ${toReview.size} tickers (budget ${aiReviewBudget}, holdings exempt)...`);
