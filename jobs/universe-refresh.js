@@ -3,10 +3,11 @@ import { fileURLToPath } from "node:url";
 import { fetchUsListing, mergeCatalog, applyQuotes, dropJunk, selectEnrichmentBatch } from "../lib/universe.js";
 import { fetchQuotes, fetchFundamentals } from "../lib/yahoo.js";
 import { classifySubVertical } from "../lib/indicators.js";
-import { getUniverseCatalog, setUniverseCatalog, setUniverseStatus, getPeerMetrics, setPeerMetrics } from "../lib/redis.js";
+import { getUniverseCatalog, setUniverseCatalog, setUniverseStatus, getPeerMetrics, setPeerMetrics, getPeerCoverageRequests } from "../lib/redis.js";
 import { peerMetricsRow } from "../lib/mandate-metrics.js";
 import { fetchCompanyFacts } from "../lib/edgar.js";
 import { sendMessage as sendTelegram } from "../lib/telegram.js";
+import { coveragePriorityTickers } from "../lib/peer-coverage.js";
 
 const QUOTE_CHUNK_SIZE = 200;
 const QUOTE_CHUNK_DELAY_MS = 400;
@@ -55,7 +56,9 @@ export async function runUniverseRefresh({ strictPeerMetrics = false } = {}) {
     }
     catalog = dropJunk(catalog);
 
-    const toEnrich = selectEnrichmentBatch(catalog, { perRun: ENRICH_PER_RUN });
+    const coverageRequests = PEER_METRICS_ENABLED ? await getPeerCoverageRequests() : {};
+    const priorityTickers = coveragePriorityTickers(catalog, coverageRequests);
+    const toEnrich = selectEnrichmentBatch(catalog, { perRun: ENRICH_PER_RUN, priorityTickers });
     let enriched = 0;
     const peerRows = {}; // ticker → peerMetricsRow, when PEER_METRICS_ENABLED
     for (const ticker of toEnrich) {
@@ -106,7 +109,7 @@ export async function runUniverseRefresh({ strictPeerMetrics = false } = {}) {
     };
     await setUniverseStatus(status);
     console.log(
-      `[Universe] Refresh done: ${total} cataloged, ${sectorEnriched} sector-enriched (${Math.round((sectorEnriched / total) * 100)}%), +${enriched} tonight.`
+      `[Universe] Refresh done: ${total} cataloged, ${sectorEnriched} sector-enriched (${Math.round((sectorEnriched / total) * 100)}%), +${enriched} tonight${priorityTickers.length ? `, ${priorityTickers.length} coverage-priority ticker(s)` : ""}.`
     );
     return status;
   } catch (err) {

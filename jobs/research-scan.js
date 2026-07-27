@@ -39,11 +39,15 @@ import {
   getBreakerState,
   setBreakerState,
   getUniverseCatalog,
+  getPeerMetrics,
+  requestPeerCoverage,
+  getMandateScores,
   setSlateSnapshot,
   setPrivateResearchSlate,
   setResearchScanStatus,
   setAgentParityRuntimeSummary,
 } from "../lib/redis.js";
+import { assessPeerCoverage, resolveLabMandateScore } from "../lib/peer-coverage.js";
 import { sizeProposalAmount, hasOpenProposal, hasRecentProposal } from "../lib/proposal-sizing.js";
 import { requestMcpMarketScan } from "./market-scan-requests.js";
 import { buildSlate, formatSlateCounts } from "../lib/candidate-slate.js";
@@ -1798,6 +1802,65 @@ async function researchTickerForAgentUnlocked(agentId, ticker) {
   }
   const candidateRaw = await buildCandidate(fundamentals, riskLimits, makeDateWindow());
 
+  // A Lab request may expand the data-coverage queue, but must never score a
+  // company against itself while its cohort is absent. This is intentionally a
+  // coverage outcome, not an investment HOLD, and runs before any model call.
+  const peerMetrics = await getPeerMetrics();
+  const peerCoverage = assessPeerCoverage({
+    ticker: symbol,
+    industry: fundamentals.industry ?? null,
+    sector: fundamentals.sector ?? null,
+    peerMetrics,
+  });
+  if (!peerCoverage.ready) {
+    await requestPeerCoverage({
+      ticker: symbol,
+      industry: fundamentals.industry ?? null,
+      sector: fundamentals.sector ?? null,
+      source: "lab",
+    });
+    const reason = `research coverage pending: ${peerCoverage.reason}; ${peerCoverage.peerCount} data-complete peers (${peerCoverage.peerSetUsed.level ?? "unclassified"})`;
+    return {
+      ticker: symbol,
+      agentId: agent.id,
+      quantScore: null,
+      rec: null,
+      recommendation: {
+        ticker: symbol,
+        action: "NO_TRADE",
+        quantScore: null,
+        rationale: `NO_TRADE (${reason})`,
+        confidence: null,
+        ruleCheck: `peer_coverage_pending: ${peerCoverage.reason}`,
+      },
+      createdProposal: null,
+      evaluatorVerdict: "not run (peer coverage pending)",
+      noProposalReason: reason,
+    };
+  }
+
+  const mandateScore = resolveLabMandateScore(await getMandateScores(agent.id), symbol);
+  if (!mandateScore.ready) {
+    const reason = `research coverage available, but ${mandateScore.reason.replaceAll("_", " ")}`;
+    return {
+      ticker: symbol,
+      agentId: agent.id,
+      quantScore: null,
+      rec: null,
+      recommendation: {
+        ticker: symbol,
+        action: "NO_TRADE",
+        quantScore: null,
+        rationale: `NO_TRADE (${reason})`,
+        confidence: null,
+        ruleCheck: `peer_score_pending: ${mandateScore.reason}`,
+      },
+      createdProposal: null,
+      evaluatorVerdict: "not run (peer score pending)",
+      noProposalReason: reason,
+    };
+  }
+
   // Lab is an alternate entry point, not an escape hatch from any mandate.
   // This agent-specific path stops before proposal generation on screen failure.
   {
@@ -1836,8 +1899,14 @@ async function researchTickerForAgentUnlocked(agentId, ticker) {
     }
   }
 
-  // Quant score normalizes within the slate; a single-name slate scores against itself.
-  const [candidate] = scoreCandidates([candidateRaw], weightsConfig.quant_weights);
+  // Never normalize a Lab ticker against itself. Once the mandate snapshot is
+  // actionable, its deterministic peer-relative score is the only scalar score
+  // exposed here. Per-metric legacy ranks remain intentionally unavailable.
+  const candidate = {
+    ...candidateRaw,
+    quantScore: mandateScore.score.total,
+    breakdown: {},
+  };
 
   const persistentMemory = formatAgentMemoriesForPrompt(await listAgentMemories(agent.id));
   const reviewContext = await buildAgentReviewContext(sheets, spreadsheetId, {
