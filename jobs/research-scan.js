@@ -27,6 +27,7 @@ import { sendMessage as sendTelegram } from "../lib/telegram.js";
 import { formatAgentMemoriesForPrompt, listAgentMemories } from "../lib/agent-memory.js";
 import {
   getCachedNews,
+  getRedis,
   setCachedNews,
   getCachedMacro,
   setCachedMacro,
@@ -84,6 +85,7 @@ import { BudgetExhaustedError, createResearchRunBudget } from "../lib/ai-budget.
 import { createAnthropicMonthlyBudget } from "../lib/anthropic-monthly-budget.js";
 import { buildAgentParityRuntimeSummary } from "../lib/agent-parity-runtime-summary.js";
 import { recordAgent4ShadowReview } from "../lib/agent4-shadow-adapter.js";
+import { appendResearchDecisionAudits } from "../lib/research-decision-audit.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_AGENT_IDS = AGENTS.map((agent) => agent.id);
@@ -562,6 +564,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
   const { riskLimits } = ctx;
   let createdProposal = null;
   let evaluatorVerdict = null;
+  let evaluatorCritique = [];
   let noProposalReason = null;
   let evaluatorState = "not_run";
   let proposalDisposition = "not_applicable";
@@ -875,6 +878,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
       if (finalEval.suspectEvidence?.length) {
         ctx.evidenceFlags.push({ kind: `evaluator:${c.ticker}`, reasons: finalEval.suspectEvidence });
       }
+      evaluatorCritique = finalEval.critique ?? [];
       if (finalEval.verdict === "APPROVE") {
         evaluatorState = "approved";
         rec.overrideNotes = [
@@ -1141,6 +1145,22 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     createdProposal,
     evaluatorVerdict,
     noProposalReason,
+    decisionAudit: {
+      runId: ctx.runId,
+      agentId: agent.id,
+      ticker: c.ticker,
+      decidedAt: new Date().toISOString(),
+      quantScore: c.quantScore ?? null,
+      generatorAction,
+      finalAction: rec.action,
+      evaluatorState,
+      evaluatorVerdict,
+      evaluatorCritique,
+      proposalDisposition,
+      proposalId: createdProposal?.id ?? null,
+      reason: noProposalReason,
+      ruleCheck: rec.overrideNotes ?? [],
+    },
     outcomeFacts: {
       attempted: true,
       dataGateBlocked: false,
@@ -1417,6 +1437,7 @@ async function runResearchScanForAgent(
 
   const ctx = {
     ...reviewContext,
+    runId,
     riskLimits,
     personality,
     strategyNotes,
@@ -1438,12 +1459,14 @@ async function runResearchScanForAgent(
 
   const recommendations = [];
   const researchRecords = []; // research-ledger updates, persisted once after the loop
+  const decisionAudits = [];
   for (const c of toReview.values()) {
     try {
-      const { recommendation, researchRecord, createdProposal, outcomeFacts } = await reviewCandidateForAgent(agent, c, ctx);
+      const { recommendation, researchRecord, createdProposal, decisionAudit, outcomeFacts } = await reviewCandidateForAgent(agent, c, ctx);
       const outcomeKind = classifyRecommendationOutcome(outcomeFacts);
       summary.outcomeCounts = addOutcome(summary.outcomeCounts, outcomeKind);
       if (researchRecord) researchRecords.push(researchRecord);
+      if (decisionAudit) decisionAudits.push(decisionAudit);
       if (createdProposal) {
         summary.proposalsCreated += 1;
         if (createdProposal.side === "BUY" || createdProposal.side === "SELL") {
@@ -1504,6 +1527,7 @@ async function runResearchScanForAgent(
   assertOutcomeConservation(summary.outcomeCounts, summary.attemptedReviews);
 
   await appendAgentRecommendations(sheets, spreadsheetId, sheetIds[agentTabName(agent.id)], agent.id, recommendations);
+  await appendResearchDecisionAudits(decisionAudits, { redis: getRedis() });
   console.log(`[Research] ${agent.id}: done — wrote ${recommendations.length} recommendations.`);
 
   // Persist this run's research memory (advisory: rotation + prompt context only,
