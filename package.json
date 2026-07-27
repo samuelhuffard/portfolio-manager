@@ -11,6 +11,7 @@
     "performance:review": "node jobs/performance-review.js",
     "research:data-refresh": "node jobs/research-data-refresh.js",
     "peer:dist": "node jobs/peer-distributions.js",
+    "peer:coverage": "node jobs/peer-coverage-refresh.js",
     "mandate:score": "node jobs/mandate-scoring.js",
     "peer:probe": "node scripts/peer-probe.mjs",
     "weekly:review": "node jobs/weekly-review.js",
