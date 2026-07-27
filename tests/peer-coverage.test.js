@@ -41,6 +41,23 @@ test("requested target and cohort preempt ordinary enrichment", () => {
   assert.deepEqual(selectEnrichmentBatch(catalog, { perRun: 3, priorityTickers: priority }), ["V", "MA", "PYPL"]);
 });
 
+test("thin industries widen collection to the sector so eight peers can be built", () => {
+  const catalog = {
+    AAA: { t: "AAA", i: "Niche Payments", s: "Financial Services", mc: 500 },
+    BBB: { t: "BBB", i: "Niche Payments", s: "Financial Services", mc: 400 },
+    CCC: { t: "CCC", i: "Niche Payments", s: "Financial Services", mc: 300 },
+    DDD: { t: "DDD", i: "Banks", s: "Financial Services", mc: 250 },
+    EEE: { t: "EEE", i: "Banks", s: "Financial Services", mc: 240 },
+    FFF: { t: "FFF", i: "Banks", s: "Financial Services", mc: 230 },
+    GGG: { t: "GGG", i: "Insurance", s: "Financial Services", mc: 220 },
+    HHH: { t: "HHH", i: "Insurance", s: "Financial Services", mc: 210 },
+    III: { t: "III", i: "Insurance", s: "Financial Services", mc: 200 },
+  };
+  const priority = coveragePriorityTickers(catalog, { AAA: { ticker: "AAA", industry: "Niche Payments", sector: "Financial Services", lastRequestedAt: "2026-07-27T12:00:00.000Z" } });
+  assert.equal(priority.length, 9);
+  assert.deepEqual(priority.slice(0, 3), ["AAA", "BBB", "CCC"]);
+});
+
 test("Lab scores a target against stored peer fundamentals rather than itself", () => {
   const candidate = { ticker: "V", quant: { revenueGrowth: 0.2, earningsGrowth: 0.3, profitMargins: 0.5, returnOnEquity: 0.4, trailingPE: 20, debtToEquity: 1, pegRatio: 1 } };
   const peers = Array.from({ length: 7 }, (_, index) => ({
