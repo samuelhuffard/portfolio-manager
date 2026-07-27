@@ -44,7 +44,7 @@ import {
   setAgentParityRuntimeSummary,
 } from "../lib/redis.js";
 import { sizeProposalAmount, hasOpenProposal, hasRecentProposal } from "../lib/proposal-sizing.js";
-import { syncMarketScansFromRobinhood } from "../lib/market-scan-sync.js";
+import { requestMcpMarketScan } from "./market-scan-requests.js";
 import { buildSlate, formatSlateCounts } from "../lib/candidate-slate.js";
 import {
   ATTENTION_POLICY_VERSIONS,
@@ -1608,15 +1608,16 @@ async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = 
   });
 
   try {
-    // Refresh the shared Market Scans tab from Robinhood before any agent reads it, so
-    // scanTickers (see selectMarketScanTickers above) can include names outside each
-    // agent's seed watchlist. Never blocks the scan — a failure here just removes
-    // supplemental broker-scan movers from that day's research.
+    // Request a refresh of the shared Market Scans tab before any agent reads it.
+    // Scan movers are refreshed by the Mac execution companion using only its
+    // read-only Robinhood MCP. Jetson intentionally has no direct broker-login
+    // credentials, so research always proceeds against the last completed
+    // snapshot rather than attempting a legacy Python login or waiting here.
     try {
-      const count = await syncMarketScansFromRobinhood();
-      console.log(`[Research] Market scan refresh: ${count} row(s) from Robinhood.`);
+      const { queued } = await requestMcpMarketScan();
+      console.log(`[Research] Market scan refresh ${queued ? "requested from" : "already pending for"} Mac MCP companion.`);
     } catch (err) {
-      console.warn("[Research] Market scan refresh failed — continuing without supplemental movers:", err.message);
+      console.warn("[Research] Could not request Mac MCP market scan refresh — continuing with last completed snapshot:", err.message);
     }
 
     const { sheets, drive } = getServiceAccountClients();
