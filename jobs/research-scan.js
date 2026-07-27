@@ -41,13 +41,12 @@ import {
   getUniverseCatalog,
   getPeerMetrics,
   requestPeerCoverage,
-  getMandateScores,
   setSlateSnapshot,
   setPrivateResearchSlate,
   setResearchScanStatus,
   setAgentParityRuntimeSummary,
 } from "../lib/redis.js";
-import { assessPeerCoverage, resolveLabMandateScore } from "../lib/peer-coverage.js";
+import { assessPeerCoverage, scorePeerFundamentals } from "../lib/peer-coverage.js";
 import { sizeProposalAmount, hasOpenProposal, hasRecentProposal } from "../lib/proposal-sizing.js";
 import { requestMcpMarketScan } from "./market-scan-requests.js";
 import { buildSlate, formatSlateCounts } from "../lib/candidate-slate.js";
@@ -413,6 +412,7 @@ function buildCandidateFactEvidence(candidate) {
   if (technical.high52Week?.status === "available") {
     facts.push(sourcedFact("technical_high_52_week", "52-week high", technical.high52Week.value, "USD", "Yahoo daily bars"));
   }
+  if (candidate.peerFactEvidence) facts.push(candidate.peerFactEvidence);
   return facts.filter(Boolean);
 }
 
@@ -688,6 +688,9 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     `Ordinary research-scan SELL/rotation proposals are cadence-capped to one SELL review per agent/ticker every ${ctx.ordinarySellCooldownDays} days.`,
     "A sell-funded replacement is a contingent rotation idea: first propose/review the SELL, then only propose the BUY after the sell is approved, filled, and cash is synced. Do not present a new BUY as funded until cash is real.",
     "Immediate risk exits from stop/kill-criteria monitors are handled by separate exit jobs and can bypass this ordinary rotation cadence.",
+    ...(c.quantScoreContext?.researchOnly === true
+      ? ["This Lab score is a partial peer-fundamental research screen, not a complete agent-mandate score. It may be discussed as a relative score only, but it cannot authorize a BUY or SELL. Return HOLD and state what additional mandate evidence would be needed for an actionable conclusion."]
+      : []),
   ].join("\n");
 
   const overlayInput = {
@@ -713,6 +716,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     researchHistory: formatResearchHistoryForPrompt(ctx.researchLedger[c.ticker]),
     boundaryToken: ctx.boundaryToken,
     factEvidence: buildCandidateFactEvidence(c),
+    quantScoreContext: c.quantScoreContext,
   };
   let proposal = await callGeneratorForAgent(agent.id, overlayInput, ctx);
   if (proposal.outputInvalid) {
@@ -1839,28 +1843,6 @@ async function researchTickerForAgentUnlocked(agentId, ticker) {
     };
   }
 
-  const mandateScore = resolveLabMandateScore(await getMandateScores(agent.id), symbol);
-  if (!mandateScore.ready) {
-    const reason = `research coverage available, but ${mandateScore.reason.replaceAll("_", " ")}`;
-    return {
-      ticker: symbol,
-      agentId: agent.id,
-      quantScore: null,
-      rec: null,
-      recommendation: {
-        ticker: symbol,
-        action: "NO_TRADE",
-        quantScore: null,
-        rationale: `NO_TRADE (${reason})`,
-        confidence: null,
-        ruleCheck: `peer_score_pending: ${mandateScore.reason}`,
-      },
-      createdProposal: null,
-      evaluatorVerdict: "not run (peer score pending)",
-      noProposalReason: reason,
-    };
-  }
-
   // Lab is an alternate entry point, not an escape hatch from any mandate.
   // This agent-specific path stops before proposal generation on screen failure.
   {
@@ -1899,13 +1881,34 @@ async function researchTickerForAgentUnlocked(agentId, ticker) {
     }
   }
 
-  // Never normalize a Lab ticker against itself. Once the mandate snapshot is
-  // actionable, its deterministic peer-relative score is the only scalar score
-  // exposed here. Per-metric legacy ranks remain intentionally unavailable.
+  // Never normalize a Lab ticker against itself. This cohort score is useful
+  // research evidence, but it is intentionally not a fabricated full mandate
+  // score: the proposal policy below forces HOLD until that separate evidence
+  // package is complete.
+  const peerScore = scorePeerFundamentals({
+    candidate: { ...candidateRaw, ticker: symbol },
+    peers: peerCoverage.peers,
+  });
+  if (!peerScore) {
+    throw new Error(`Peer coverage was marked ready for ${symbol}, but no peer-fundamental score could be built`);
+  }
+  const peerCohortLabel = `${peerCoverage.peerSetUsed.key ?? peerCoverage.peerSetUsed.level} peer cohort (${peerCoverage.peerCount + 1} names)`;
   const candidate = {
     ...candidateRaw,
-    quantScore: mandateScore.score.total,
-    breakdown: {},
+    quantScore: peerScore.quantScore,
+    breakdown: peerScore.breakdown,
+    quantScoreContext: {
+      source: `stored Yahoo/SEC peer fundamentals; ${peerCohortLabel}`,
+      description: `normalized rank versus the resolved ${peerCohortLabel}; seven current fundamental fields only (no momentum, estimates, or long-horizon mandate evidence), not a full mandate conviction score`,
+      researchOnly: true,
+    },
+    peerFactEvidence: sourcedFact(
+      "peer_cohort",
+      "Resolved peer cohort",
+      `${peerCohortLabel}; ${peerCoverage.peerCount} data-complete peers`,
+      "cohort description",
+      "stored peer coverage cache (Yahoo fundamentals and SEC-derived metrics)",
+    ),
   };
 
   const persistentMemory = formatAgentMemoriesForPrompt(await listAgentMemories(agent.id));

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { assessPeerCoverage, coveragePriorityTickers, mergeCoverageRequests, resolveLabMandateScore } from "../lib/peer-coverage.js";
+import { assessPeerCoverage, coveragePriorityTickers, mergeCoverageRequests, scorePeerFundamentals } from "../lib/peer-coverage.js";
 import { selectEnrichmentBatch } from "../lib/universe.js";
 
 const row = (ticker, industry = "Payments", sector = "Financial Services") => ({
@@ -40,10 +40,14 @@ test("requested target and cohort preempt ordinary enrichment", () => {
   assert.deepEqual(selectEnrichmentBatch(catalog, { perRun: 3, priorityTickers: priority }), ["V", "MA", "PYPL"]);
 });
 
-test("Lab refuses a self-normalized score until its mandate snapshot is actionable", () => {
-  assert.deepEqual(resolveLabMandateScore(null, "V"), { ready: false, reason: "mandate_score_unavailable", score: null });
-  assert.equal(resolveLabMandateScore({ scores: [{ ticker: "V", actionable: false }] }, "V").reason, "mandate_score_not_actionable");
-  const result = resolveLabMandateScore({ scores: [{ ticker: "V", actionable: true, total: 72 }] }, "V");
-  assert.equal(result.ready, true);
-  assert.equal(result.score.total, 72);
+test("Lab scores a target against stored peer fundamentals rather than itself", () => {
+  const candidate = { ticker: "V", quant: { revenueGrowth: 0.2, earningsGrowth: 0.3, profitMargins: 0.5, returnOnEquity: 0.4, trailingPE: 20, debtToEquity: 1, pegRatio: 1 } };
+  const peers = Array.from({ length: 7 }, (_, index) => ({
+    ticker: `P${index}`,
+    quant: { revenueGrowth: 0.02 * index, earningsGrowth: 0.03 * index, profitMargins: 0.05 * index, returnOnEquity: 0.04 * index, trailingPE: 30 + index, debtToEquity: 10 + index, pegRatio: 2 + index },
+  }));
+  const result = scorePeerFundamentals({ candidate, peers });
+  assert.ok(result.quantScore > 90);
+  assert.ok(result.breakdown.revenueGrowth > 90);
+  assert.ok(result.breakdown.trailingPE > 90); // lower P/E ranks higher
 });

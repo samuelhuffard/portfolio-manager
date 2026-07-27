@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { extractMetricVector, peerMetricsRow, POPULATED_METRICS, DEFERRED_METRICS } from "../lib/mandate-metrics.js";
+import { extractMetricVector, extractPeerQuantVector, peerMetricsRow, POPULATED_METRICS, DEFERRED_METRICS } from "../lib/mandate-metrics.js";
 import { METRIC_IDS, AGENT_SCORING } from "../config/scoring/mandate-v2.js";
 import { buildIndustryDistributions } from "../lib/peer-source.js";
 import { scoreCategoriesPeerRelative } from "../lib/peer-scoring.js";
@@ -54,9 +54,19 @@ test("peerMetricsRow carries industry, vector and a zoned retrieval instant", ()
   const row = peerMetricsRow(fundamentals(), null, { now: () => new Date("2026-07-13T20:00:00.000Z") });
   assert.equal(row.industry, "Software—Application");
   assert.equal(row.metrics.revGrowth, 0.3);
+  assert.equal(row.quant.revenueGrowth, 0.3);
   assert.equal(row.ts, "2026-07-13T20:00:00.000Z");
   assert.equal(row.retrievedAt, "2026-07-13T20:00:00.000Z");
   assert.equal(row.src, "yfinance");
+});
+
+test("peer quant vector retains only sourced current fundamental fields", () => {
+  const vector = extractPeerQuantVector(fundamentals({
+    financialData: { earningsGrowth: 0.2, profitMargins: 0.4, returnOnEquity: 0.3, debtToEquity: 15 },
+    summaryDetail: { trailingPE: 18 },
+    defaultKeyStatistics: { pegRatio: 1.4 },
+  }));
+  assert.deepEqual(vector, { revenueGrowth: 0.3, earningsGrowth: 0.2, profitMargins: 0.4, returnOnEquity: 0.3, trailingPE: 18, debtToEquity: 15, pegRatio: 1.4 });
 });
 
 test("EDGAR companyfacts populate & override the EDGAR-sourced metrics", () => {
