@@ -35,6 +35,54 @@ export const AgentIdSchema = z.enum(AGENT_IDS);
 export const ProposalStatusSchema = z.enum(PROPOSAL_STATUSES);
 export const ProposalSideSchema = z.enum(PROPOSAL_SIDES);
 
+/**
+ * A readable, non-execution investment case attached to a generated BUY. It
+ * deliberately separates scenario ranges from the signed order terms: Sam can
+ * challenge the research without changing what an approved order authorizes.
+ */
+export const BuyDossierSchema = z.object({
+  version: z.literal(1),
+  businessType: z.string().min(3).max(120),
+  thesis: z.string().min(20).max(1400),
+  returnMechanism: z.string().min(20).max(700),
+  valuation: z.object({
+    method: z.string().min(8).max(240),
+    downsidePrice: z.number().finite().positive(),
+    basePrice: z.number().finite().positive(),
+    upsidePrice: z.number().finite().positive(),
+    assumptions: z.string().min(12).max(700),
+    evidenceIds: z.array(z.string().min(1)).min(1).max(8),
+  }).superRefine((valuation, ctx) => {
+    if (valuation.downsidePrice > valuation.basePrice || valuation.basePrice > valuation.upsidePrice) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Valuation range must be downside ≤ base ≤ upside." });
+    }
+  }),
+  bearCase: z.string().min(20).max(700),
+  killCriteria: z.array(z.string().min(8).max(360)).min(1).max(3),
+  horizon: z.string().min(3).max(120),
+  sizingRationale: z.string().min(12).max(500),
+  evidence: z.array(z.object({
+    claim: z.string().min(1).max(700),
+    evidenceIds: z.array(z.string().min(1)).min(1).max(8),
+  })).min(1).max(12),
+  owner: z.object({
+    agentId: AgentIdSchema,
+    label: z.string().min(1).max(120),
+  }),
+});
+
+export const SellDossierSchema = z.object({
+  version: z.literal(1),
+  exitTrigger: z.string().min(20).max(700),
+  urgency: z.enum(["routine", "elevated", "urgent"]),
+  remainingThesis: z.string().min(12).max(500),
+  stayInvestedIf: z.string().min(12).max(500),
+  killCriteria: z.array(z.string().min(8).max(360)).min(1).max(3),
+  evidence: z.array(z.object({ claim: z.string().min(1).max(700), evidenceIds: z.array(z.string().min(1)).min(1).max(8) })).min(1).max(12),
+  owner: z.object({ agentId: AgentIdSchema, label: z.string().min(1).max(120) }),
+  positionScope: z.string().min(8).max(240),
+});
+
 // ---------------------------------------------------------------------------
 // Canonical stored proposal
 // ---------------------------------------------------------------------------
@@ -59,6 +107,10 @@ export const ProposalSchema = z.object({
   sellOwnerShareLimit: z.number().finite().positive().nullable().optional(),
   rationale: z.string(),
   riskSummary: z.string(),
+  // Optional for historical/manual records. Every scan-generated BUY attaches
+  // this evidence-first dossier before it reaches Kairos or the human queue.
+  buyDossier: BuyDossierSchema.optional(),
+  sellDossier: SellDossierSchema.optional(),
   status: ProposalStatusSchema,
   createdAt: z.string(),
   updatedAt: z.string(),

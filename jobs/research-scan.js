@@ -604,6 +604,9 @@ async function reviewCandidateForAgent(agent, c, ctx) {
   let noProposalReason = null;
   let evaluatorState = "not_run";
   let proposalDisposition = "not_applicable";
+  let evaluatorRevisions = 0;
+  let kairosOutcome = "not_recorded";
+  let kairosExplanation = [];
 
   // Data-availability gate runs BEFORE the (expensive) AI overlay. Per the memo, missing
   // or stale required inputs are an automatic NO_TRADE — we never ask Claude to reason
@@ -919,6 +922,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
         ctx.evidenceFlags.push({ kind: `evaluator:${c.ticker}`, reasons: finalEval.suspectEvidence });
       }
       evaluatorCritique = finalEval.critique ?? [];
+      evaluatorRevisions = finalEval.revisions ?? 0;
       if (finalEval.verdict === "APPROVE") {
         evaluatorState = "approved";
         rec.overrideNotes = [
@@ -981,6 +985,16 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     .join("\n");
 
   const entryPrice = c.raw?.price?.regularMarketPrice ?? null;
+  // The analyst owns the thesis; Kairos governs portfolio fit and Sam remains
+  // the approving human. Preserve that accountability in the readable BUY
+  // dossier without adding it to the execution/signature surface.
+  if (rec.action === "BUY" && rec.buyDossier) {
+    rec.buyDossier = {
+      ...rec.buyDossier,
+      version: 1,
+      owner: { agentId: agent.id, label: agent.name },
+    };
+  }
 
   // Risk-gated BUY/SELL calls go straight into Sam's approval queue instead of
   // waiting for him to read the Sheet and re-type a proposal by hand. He still
@@ -1045,6 +1059,14 @@ async function reviewCandidateForAgent(agent, c, ctx) {
       }
 
       if (sized) {
+        if (rec.action === "SELL" && rec.sellDossier) {
+          rec.sellDossier = {
+            ...rec.sellDossier,
+            version: 1,
+            owner: { agentId: agent.id, label: agent.name },
+            positionScope: `Only the proposing specialist's verified ${c.ticker} lots, up to ${ctx.ownedPositionSharesByTicker[c.ticker] ?? 0} shares.`,
+          };
+        }
         if (sized.starterSized) {
           const slots = Math.max(1, riskLimits.starterPortfolioMaxPositions ?? 2);
           const currentPositions = ctx.heldAllocation.filter((h) => h.shares > 0).length;
@@ -1104,6 +1126,8 @@ async function reviewCandidateForAgent(agent, c, ctx) {
               : null,
             rationale,
             riskSummary,
+            buyDossier: rec.action === "BUY" ? rec.buyDossier : undefined,
+            sellDossier: rec.action === "SELL" ? rec.sellDossier : undefined,
           });
           if (created) {
             ctx.openProposals.push(created);
@@ -1123,6 +1147,8 @@ async function reviewCandidateForAgent(agent, c, ctx) {
                 context: { ...ctx, cashAvailableBeforeProposal },
               });
               if (shadow.status === "recorded") {
+                kairosOutcome = shadow.decision.outcome;
+                kairosExplanation = shadow.decision.explanation ?? [];
                 console.log(`[Kairos] SHADOW ${shadow.decision.outcome} ${created.side} ${created.ticker}: ${shadow.decision.reasonCodes.join(", ")}`);
               } else {
                 console.warn(`[Kairos] Shadow review not recorded for ${created.id}: ${shadow.status}.`);
@@ -1200,6 +1226,14 @@ async function reviewCandidateForAgent(agent, c, ctx) {
       proposalId: createdProposal?.id ?? null,
       reason: noProposalReason,
       ruleCheck: rec.overrideNotes ?? [],
+      generatorThesis: proposal.thesis ?? null,
+      finalThesis: rec.thesis ?? null,
+      rationale,
+      requestedTargetWeight: proposal.targetWeight ?? null,
+      finalTargetWeight: rec.targetWeight ?? null,
+      evaluatorRevisions,
+      kairosOutcome,
+      kairosExplanation,
     },
     outcomeFacts: {
       attempted: true,
@@ -1555,7 +1589,19 @@ async function runResearchScanForAgent(
       const outcomeKind = classifyRecommendationOutcome(outcomeFacts);
       summary.outcomeCounts = addOutcome(summary.outcomeCounts, outcomeKind);
       if (researchRecord) researchRecords.push(researchRecord);
-      if (decisionAudit) decisionAudits.push(decisionAudit);
+      decisionAudits.push(decisionAudit ?? {
+        runId,
+        agentId: agent.id,
+        ticker: c.ticker,
+        decidedAt: new Date().toISOString(),
+        quantScore: c.quantScore ?? null,
+        generatorAction: outcomeFacts?.generatorAction ?? null,
+        finalAction: outcomeFacts?.finalAction ?? recommendation?.action ?? "NO_TRADE",
+        evaluatorState: outcomeFacts?.evaluatorState ?? "not_run",
+        proposalDisposition: outcomeFacts?.proposalDisposition ?? "not_applicable",
+        reason: recommendation?.rationale ?? "review completed without a proposal",
+        rationale: recommendation?.rationale ?? null,
+      });
       if (createdProposal) {
         summary.proposalsCreated += 1;
         if (createdProposal.side === "BUY" || createdProposal.side === "SELL") {
@@ -1610,6 +1656,18 @@ async function runResearchScanForAgent(
       };
       recommendations.push(recommendation);
       summarizeRecommendation(summary, recommendation);
+      decisionAudits.push({
+        runId,
+        agentId: agent.id,
+        ticker: c.ticker,
+        decidedAt: new Date().toISOString(),
+        quantScore: c.quantScore ?? null,
+        finalAction: "ERROR",
+        evaluatorState: "not_run",
+        proposalDisposition: "not_applicable",
+        reason: `${failure.kind}: ${failure.message}`,
+        rationale: `${failure.kind}: ${failure.message}`,
+      });
     }
   }
 

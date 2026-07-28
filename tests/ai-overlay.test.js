@@ -42,6 +42,47 @@ test("parseRecommendation preserves normalized risks and kill criteria", () => {
   assert.deepEqual(recommendation.killCriteria, ["Fundamentals deteriorate"]);
 });
 
+test("BUY without the evidence-first decision dossier fails closed to HOLD", () => {
+  const recommendation = parseRecommendation(JSON.stringify({
+    action: "BUY",
+    target_weight_pct: 2,
+    thesis: "The supplied facts support a monitored entry.",
+    risks: ["Demand could weaken."],
+    kill_criteria: ["Exit if the next reported revenue declines year over year."],
+    confidence: 0.7,
+    claimed_business_family: "technology",
+    evidence_citations: [
+      { claim: "The supplied facts support a monitored entry.", evidence_ids: ["raw_current_price"] },
+      { claim: "Demand could weaken.", evidence_ids: ["raw_current_price"] },
+      { claim: "Exit if the next reported revenue declines year over year.", evidence_ids: ["raw_current_price"] },
+    ],
+  }), "TEST", [{ id: "raw_current_price", kind: "raw_fact" }]);
+  assert.equal(recommendation.action, "HOLD");
+  assert.match(recommendation.evidenceValidation.issues.join(" "), /decision dossier/);
+});
+
+test("BUY preserves a complete, cited decision dossier for human review", () => {
+  const thesis = "The supplied earnings input supports a monitored entry.";
+  const returnMechanism = "Improving earnings can support a higher value over the stated horizon.";
+  const assumptions = "The range uses the supplied current price and forward EPS as scenario inputs.";
+  const bearCase = "Forward earnings could fail to improve and invalidate the expected re-rating.";
+  const kill = "Exit if the next two reported quarters show declining revenue year over year.";
+  const recommendation = parseRecommendation(JSON.stringify({
+    action: "BUY", target_weight_pct: 2, thesis, return_mechanism: returnMechanism,
+    valuation: { method: "Forward-EPS scenario", downside_price: 80, base_price: 100, upside_price: 120, assumptions, evidence_ids: ["raw_current_price", "raw_forward_eps"] },
+    bear_case: bearCase, horizon: "12 to 24 months", sizing_rationale: "A small initial weight preserves room for error while the thesis is tested.",
+    risks: ["Execution risk could delay earnings improvement."], kill_criteria: [kill], confidence: 0.7, claimed_business_family: "technology",
+    evidence_citations: [
+      { claim: thesis, evidence_ids: ["raw_forward_eps"] }, { claim: returnMechanism, evidence_ids: ["raw_forward_eps"] },
+      { claim: assumptions, evidence_ids: ["raw_current_price", "raw_forward_eps"] }, { claim: bearCase, evidence_ids: ["raw_forward_eps"] },
+      { claim: "Execution risk could delay earnings improvement.", evidence_ids: ["raw_forward_eps"] }, { claim: kill, evidence_ids: ["raw_forward_eps"] },
+    ],
+  }), "TEST", [{ id: "raw_current_price", kind: "raw_fact" }, { id: "raw_forward_eps", kind: "raw_fact" }]);
+  assert.equal(recommendation.action, "BUY");
+  assert.equal(recommendation.buyDossier.valuation.basePrice, 100);
+  assert.equal(recommendation.buyDossier.horizon, "12 to 24 months");
+});
+
 test("two bounded format retries recover a malformed model response", async () => {
   let calls = 0;
   const reply = (text) => ({
