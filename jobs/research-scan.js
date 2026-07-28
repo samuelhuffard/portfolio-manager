@@ -1718,6 +1718,7 @@ async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = 
   const runId = randomUUID();
   const startedAt = new Date().toISOString();
   const agentSummaries = [];
+  let terminalStatusPersisted = false;
   const persistFinalStatus = async (status, error = null) => {
     const completedAt = new Date().toISOString();
     const terminalStatus = {
@@ -1754,6 +1755,7 @@ async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = 
       error,
     };
     await setResearchScanStatus(terminalStatus);
+    terminalStatusPersisted = true;
     if (source === "scheduled") {
       try {
         await setAgentParityRuntimeSummary(buildAgentParityRuntimeSummary(terminalStatus));
@@ -1881,7 +1883,12 @@ async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = 
     return { status, agents: agentSummaries };
   } catch (err) {
     console.error("[Research] Scan failed before completion:", err.message);
-    await persistFinalStatus("failed", err.message);
+    // A failed terminal status is intentionally followed by a throw so the
+    // scheduler receipt cannot count the invocation as green. Do not append a
+    // second, differently fingerprinted terminal record for the same run.
+    if (!terminalStatusPersisted) {
+      await persistFinalStatus("failed", err.message);
+    }
     throw err;
   }
 }
