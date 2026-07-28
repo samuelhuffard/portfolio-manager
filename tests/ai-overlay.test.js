@@ -85,6 +85,7 @@ test("BUY preserves a complete, cited decision dossier for human review", () => 
 
 test("two bounded format retries recover a malformed model response", async () => {
   let calls = 0;
+  const requests = [];
   const reply = (text) => ({
     stop_reason: "end_turn",
     usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
@@ -92,7 +93,8 @@ test("two bounded format retries recover a malformed model response", async () =
   });
   const anthropicClient = {
     messages: {
-      create: async () => {
+      create: async (request) => {
+        requests.push(request);
         calls += 1;
         if (calls < 3) return reply('{"action":"HOLD"');
         return reply(JSON.stringify({ action: "HOLD", target_weight_pct: 0, thesis: "Valid recovery.", risks: [], kill_criteria: [], confidence: 0.5 }));
@@ -110,6 +112,9 @@ test("two bounded format retries recover a malformed model response", async () =
   assert.equal(calls, 3);
   assert.equal(recommendation.outputInvalid, false);
   assert.equal(recommendation.formatRecoveryAttempts, 2);
+  assert.equal(requests[0].max_tokens, 1400);
+  assert.equal(requests[1].max_tokens, 2000);
+  assert.equal(requests[2].max_tokens, 2000);
 });
 
 test("the actual model request carries the fractional-share policy", async () => {
@@ -138,4 +143,44 @@ test("the actual model request carries the fractional-share policy", async () =>
 
   assert.match(request.system[0].text, /fractional-share market orders/i);
   assert.match(request.system[0].text, /not whole-share-based/i);
+});
+
+test("model responses use a forced strict decision tool and parse its typed payload", async () => {
+  let request;
+  const anthropicClient = {
+    messages: {
+      create: async (input) => {
+        request = input;
+        return {
+          stop_reason: "tool_use",
+          usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          content: [{
+            type: "tool_use",
+            name: "submit_research_decision",
+            input: {
+              action: "HOLD", target_weight_pct: 0, thesis: "Wait for complete evidence.", return_mechanism: "",
+              valuation: { method: "", downside_price: 0, base_price: 0, upside_price: 0, assumptions: "", evidence_ids: [] },
+              bear_case: "", horizon: "", sizing_rationale: "",
+              sell_context: { exit_trigger: "", urgency: "", remaining_thesis: "", stay_invested_if: "" },
+              risks: [], kill_criteria: [], confidence: 0.5, claimed_business_family: "", evidence_citations: [], suspect_evidence: [],
+            },
+          }],
+        };
+      },
+    },
+  };
+
+  const recommendation = await getAIRecommendation({
+    ticker: "TEST", name: "Test Company", quantScore: 70, breakdown: {}, news: [], strategyNotes: "",
+    isHeld: false, nextEarningsDate: null, analystTrend: null, insiderActivity: null,
+    recentFilings: [], marketScanSignals: [], athenaEvidence: [], macro: null, personality: null,
+    persistentMemory: null, proposalPolicy: "", researchHistory: null, boundaryToken: null,
+    evaluatorCritique: null, previousProposal: null, agentId: "agent-1", anthropicClient,
+    recordUsage: async () => ({ persisted: false }),
+  });
+
+  assert.equal(request.tool_choice.name, "submit_research_decision");
+  assert.equal(request.tools[0].strict, true);
+  assert.equal(recommendation.outputInvalid, false);
+  assert.equal(recommendation.action, "HOLD");
 });
