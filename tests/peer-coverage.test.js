@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { assessPeerCoverage, coveragePriorityTickers, mergeCoverageRequests, scorePeerFundamentals } from "../lib/peer-coverage.js";
+import { assessPeerCoverage, coveragePriorityTickers, mergeCoverageRequests, scorePeerFundamentals, selectPeerCoverageRefreshTargets, selectPeerReadyCandidates } from "../lib/peer-coverage.js";
 import { queuePeerCoverageForCandidates } from "../jobs/research-scan.js";
 import { selectEnrichmentBatch } from "../lib/universe.js";
 
@@ -56,6 +56,36 @@ test("thin industries widen collection to the sector so eight peers can be built
   const priority = coveragePriorityTickers(catalog, { AAA: { ticker: "AAA", industry: "Niche Payments", sector: "Financial Services", lastRequestedAt: "2026-07-27T12:00:00.000Z" } });
   assert.equal(priority.length, 9);
   assert.deepEqual(priority.slice(0, 3), ["AAA", "BBB", "CCC"]);
+});
+
+test("refresh planning skips satisfied cohorts and fetches only missing peer rows", () => {
+  const catalog = Object.fromEntries(["V", "A", "B", "C", "D", "E", "F", "MISSING"].map((ticker) => [ticker, { t: ticker, i: "Payments", s: "Financial Services" }]));
+  const peerMetrics = Object.fromEntries(["V", "A", "B", "C", "D", "E", "F"].map((ticker) => [ticker, row(ticker)]));
+  const plan = selectPeerCoverageRefreshTargets(catalog, {
+    V: { ticker: "V", industry: "Payments", sector: "Financial Services" },
+    MISSING: { ticker: "MISSING", industry: "Payments", sector: "Financial Services" },
+  }, peerMetrics);
+  assert.equal(plan.unresolvedRequests, 1);
+  assert.deepEqual(plan.targets, ["MISSING"]);
+});
+
+test("peer-ready slate candidates backfill deferred priority slots without expanding the budget", () => {
+  const peerMetrics = Object.fromEntries(["READY", "P1", "P2", "P3", "P4", "P5", "P6", "BACKFILL"].map((ticker) => [ticker, row(ticker)]));
+  const result = selectPeerReadyCandidates({
+    primary: [
+      { ticker: "MISSING", industry: "Payments", sector: "Financial Services" },
+      { ticker: "READY", industry: "Payments", sector: "Financial Services" },
+    ],
+    fallback: [
+      { ticker: "READY", industry: "Payments", sector: "Financial Services" },
+      { ticker: "BACKFILL", industry: "Payments", sector: "Financial Services" },
+    ],
+    peerMetrics,
+    limit: 2,
+  });
+  assert.equal(result.deferredPrimary, 1);
+  assert.equal(result.backfilled, 1);
+  assert.deepEqual(result.selected.map((entry) => entry.candidate.ticker), ["READY", "BACKFILL"]);
 });
 
 test("Lab scores a target against stored peer fundamentals rather than itself", () => {

@@ -7,7 +7,7 @@ import { getUniverseCatalog, setUniverseCatalog, setUniverseStatus, getPeerMetri
 import { peerMetricsRow } from "../lib/mandate-metrics.js";
 import { fetchCompanyFacts } from "../lib/edgar.js";
 import { sendMessage as sendTelegram } from "../lib/telegram.js";
-import { coveragePriorityTickers } from "../lib/peer-coverage.js";
+import { selectPeerCoverageRefreshTargets } from "../lib/peer-coverage.js";
 
 const QUOTE_CHUNK_SIZE = 200;
 const QUOTE_CHUNK_DELAY_MS = 400;
@@ -57,7 +57,10 @@ export async function runUniverseRefresh({ strictPeerMetrics = false } = {}) {
     catalog = dropJunk(catalog);
 
     const coverageRequests = PEER_METRICS_ENABLED ? await getPeerCoverageRequests() : {};
-    const priorityTickers = coveragePriorityTickers(catalog, coverageRequests);
+    const existingPeer = PEER_METRICS_ENABLED ? await getPeerMetrics() : {};
+    const priorityTickers = PEER_METRICS_ENABLED
+      ? selectPeerCoverageRefreshTargets(catalog, coverageRequests, existingPeer).targets
+      : [];
     const toEnrich = selectEnrichmentBatch(catalog, { perRun: ENRICH_PER_RUN, priorityTickers });
     let enriched = 0;
     const peerRows = {}; // ticker → peerMetricsRow, when PEER_METRICS_ENABLED
@@ -86,7 +89,6 @@ export async function runUniverseRefresh({ strictPeerMetrics = false } = {}) {
     // a peer-metrics failure is logged but never fails the catalog refresh.
     if (PEER_METRICS_ENABLED && Object.keys(peerRows).length) {
       try {
-        const existingPeer = await getPeerMetrics();
         await setPeerMetrics({ ...existingPeer, ...peerRows });
         console.log(`[Universe] Peer metrics: cached ${Object.keys(peerRows).length} vectors this run.`);
       } catch (peerErr) {

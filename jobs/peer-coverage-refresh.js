@@ -4,7 +4,7 @@ import { fetchFundamentals } from "../lib/yahoo.js";
 import { fetchCompanyFacts } from "../lib/edgar.js";
 import { getPeerCoverageRequests, getPeerMetrics, getUniverseCatalog, setPeerMetrics } from "../lib/redis.js";
 import { peerMetricsRow } from "../lib/mandate-metrics.js";
-import { coveragePriorityTickers } from "../lib/peer-coverage.js";
+import { selectPeerCoverageRefreshTargets } from "../lib/peer-coverage.js";
 
 const DEFAULT_LIMIT = 40;
 const CHECKPOINT_SIZE = 5;
@@ -34,8 +34,18 @@ export async function runPeerCoverageRefresh({
   if (!configured(env)) return { state: "disabled", reason: "peer_metrics_not_enabled", attempted: 0, cached: 0, failed: 0 };
   const [catalog, requests, existing] = await Promise.all([getCatalog(), getRequests(), getMetrics()]);
   if (!catalog || !Object.keys(catalog).length) return { state: "not_configured", reason: "universe_catalog_unavailable", attempted: 0, cached: 0, failed: 0 };
-  const targets = coveragePriorityTickers(catalog, requests).slice(0, limit);
-  if (!targets.length) return { state: "idle", reason: "no_coverage_requests", attempted: 0, cached: 0, failed: 0 };
+  const plan = selectPeerCoverageRefreshTargets(catalog, requests, existing, { limit });
+  const targets = plan.targets;
+  if (!targets.length) {
+    return {
+      state: plan.unresolvedRequests ? "blocked" : "idle",
+      reason: plan.unresolvedRequests ? "unresolved_cohorts_have_no_refreshable_rows" : "no_coverage_requests",
+      attempted: 0,
+      cached: 0,
+      failed: 0,
+      unresolvedRequests: plan.unresolvedRequests,
+    };
+  }
 
   const merged = { ...(existing ?? {}) };
   const failures = [];
@@ -55,7 +65,7 @@ export async function runPeerCoverageRefresh({
     if ((index + 1) % CHECKPOINT_SIZE === 0 || index === targets.length - 1) await saveMetrics(merged);
     await sleep(250);
   }
-  const result = { state: "completed", attempted: targets.length, cached, failed: failures.length, targets, failures };
+  const result = { state: "completed", attempted: targets.length, cached, failed: failures.length, targets, failures, unresolvedRequests: plan.unresolvedRequests };
   console.log(`[PeerCoverage] completed ${cached}/${targets.length} requested cohort metric rows (${failures.length} failed).`);
   return result;
 }

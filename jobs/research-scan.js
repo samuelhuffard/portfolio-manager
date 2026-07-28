@@ -46,7 +46,7 @@ import {
   setResearchScanStatus,
   setAgentParityRuntimeSummary,
 } from "../lib/redis.js";
-import { assessPeerCoverage, scorePeerFundamentals } from "../lib/peer-coverage.js";
+import { assessPeerCoverage, scorePeerFundamentals, selectPeerReadyCandidates } from "../lib/peer-coverage.js";
 import { sizeProposalAmount, hasOpenProposal, hasRecentProposal } from "../lib/proposal-sizing.js";
 import { requestMcpMarketScan } from "./market-scan-requests.js";
 import { buildSlate, formatSlateCounts } from "../lib/candidate-slate.js";
@@ -1469,29 +1469,30 @@ async function runResearchScanForAgent(
   }
 
   // Coverage is a normal part of scheduled research, not a Lab-only escape
-  // hatch. This queues every selected candidate before any model call; the
-  // 17:30 targeted collector and nightly data refresh consume it durably.
+  // hatch. Queue the full already-fetched slate before model work so the
+  // collector can establish tomorrow's cohorts even when today's top picks lack
+  // a peer set.
   const storedPeerMetrics = await getPeerMetrics();
-  const peerCoverageQueue = await queuePeerCoverageForCandidates([...toReview.values()], {
+  const peerCoverageQueue = await queuePeerCoverageForCandidates(scored, {
     peerMetrics: storedPeerMetrics,
   });
   if (peerCoverageQueue.queued.length) {
-    console.log(`[Research] ${agent.id}: queued peer coverage for ${peerCoverageQueue.queued.length}/${toReview.size} review candidates.`);
+    console.log(`[Research] ${agent.id}: queued peer coverage for ${peerCoverageQueue.queued.length}/${scored.length} slate candidates.`);
   }
 
   // A scheduled scan is held to the same peer-relative standard as Lab. Do
   // not send a candidate through the model on its old mixed-slate score while
   // its requested cohort is still being collected; it will re-enter tomorrow
   // once the post-scan collector has made the cohort scoreable.
+  const peerSelection = selectPeerReadyCandidates({
+    primary: [...toReview.values()],
+    fallback: scored,
+    peerMetrics: storedPeerMetrics,
+    limit: toReview.size,
+    canUse: (candidate, coverage) => Boolean(scorePeerFundamentals({ candidate, peers: coverage.peers })),
+  });
   const peerScoredToReview = new Map();
-  for (const c of toReview.values()) {
-    const coverage = assessPeerCoverage({
-      ticker: c.ticker,
-      industry: c.industry ?? null,
-      sector: c.sector ?? null,
-      peerMetrics: storedPeerMetrics,
-    });
-    if (!coverage.ready) continue;
+  for (const { candidate: c, coverage } of peerSelection.selected) {
     const peerScore = scorePeerFundamentals({ candidate: c, peers: coverage.peers });
     if (!peerScore) continue;
     const peerCohortLabel = `${coverage.peerSetUsed.key ?? coverage.peerSetUsed.level} peer cohort (${coverage.peerCount + 1} names)`;
@@ -1513,9 +1514,8 @@ async function runResearchScanForAgent(
       ),
     });
   }
-  const deferredForPeerCoverage = toReview.size - peerScoredToReview.size;
-  if (deferredForPeerCoverage) {
-    console.log(`[Research] ${agent.id}: deferred ${deferredForPeerCoverage}/${toReview.size} selected candidates pending a scoreable peer cohort.`);
+  if (peerSelection.deferredPrimary) {
+    console.log(`[Research] ${agent.id}: deferred ${peerSelection.deferredPrimary}/${toReview.size} priority candidates pending a scoreable peer cohort; peer-ready backfill added ${peerSelection.backfilled}.`);
   }
   console.log(`[Research] ${agent.id}: running AI overlay for ${peerScoredToReview.size} peer-scored tickers (budget ${aiReviewBudget}, holdings exempt)...`);
   summary.attemptedReviews = peerScoredToReview.size;
