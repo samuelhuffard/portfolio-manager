@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildPeerBench, peerBenchCapacity } from "../jobs/peer-bench.js";
+import { buildPeerBench, peerBenchCapacity, runPeerBench } from "../jobs/peer-bench.js";
 
 const catalog = Object.fromEntries(["A", "B", "C", "D", "E", "F", "G"].map((ticker, index) => [ticker, { t: ticker, i: "Payments", s: "Financial Services", mc: 100 - index, advd: 10_000_000, p: 10, c52: index }]));
 const configs = Object.fromEntries(["agent-1", "agent-2", "agent-3"].map((id) => [id, { riskLimits: {} }]));
@@ -19,4 +19,18 @@ test("peer bench reports a per-agent ready-capacity buffer", () => {
   const capacity = peerBenchCapacity(bench, metrics);
   assert.equal(capacity.agents["agent-1"].ready, 7);
   assert.equal(capacity.sufficient, false);
+});
+
+test("capacity check can read the bench without re-queueing coverage work", async () => {
+  let requested = 0;
+  const result = await runPeerBench({
+    perAgent: 2,
+    getCatalog: async () => catalog,
+    getMetrics: async () => ({}),
+    requestCoverage: async () => { requested++; },
+    agentConfigs: configs,
+    refreshRequests: false,
+  });
+  assert.equal(requested, 0);
+  assert.equal(result.requested, 0);
 });

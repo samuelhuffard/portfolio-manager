@@ -190,6 +190,10 @@ cron.schedule("50 15 * * 1-5", wrapJob("intraday-monitor", "PreClose", () => run
 // deep peer-ready pool ahead of the 5:15 research run without touching AI/orders.
 cron.schedule("30 15 * * 1-5", wrapJob("peer-bench", "PeerBench", runPeerBench, MARKET_DAY_ONLY), TZ);
 cron.schedule("35 15 * * 1-5", wrapJob("peer-bench-refresh", "PeerBenchRefresh", () => runPeerCoverageRefresh({ limit: 120 }), MARKET_DAY_ONLY), TZ);
+cron.schedule("0 17 * * 1-5", wrapJob("peer-bench-capacity", "PeerBenchCapacity", () => runPeerBench({ refreshRequests: false }), {
+  ...MARKET_DAY_ONLY,
+  evidence: (result) => ({ peerBench: result?.capacity ?? null }),
+}), TZ);
 
 // ── Exit monitor (4:45 PM ET, Sun–Thu) ───────────────────────────────────────
 // Full ATR/fundamental/momentum exit signals with complete EOD bar data.

@@ -38,6 +38,7 @@ export function peerBenchCapacity(bench = {}, peerMetrics = {}) {
 /** Data-only pre-scan pool. It queues likely candidates and their cohorts before 5:15. */
 export async function runPeerBench({
   perAgent = Math.max(1, Number(process.env.PEER_BENCH_PER_AGENT) || DEFAULT_PER_AGENT),
+  refreshRequests = true,
   getCatalog = getUniverseCatalog,
   getMetrics = getPeerMetrics,
   requestCoverage = requestPeerCoverage,
@@ -47,10 +48,12 @@ export async function runPeerBench({
   if (!catalog || !Object.keys(catalog).length) throw new Error("Peer bench requires a universe catalog.");
   const bench = buildPeerBench({ catalog, agentConfigs, perAgent });
   let requested = 0;
-  for (const [agentId, candidates] of Object.entries(bench)) {
-    for (const candidate of candidates) {
-      await requestCoverage({ ticker: candidate.ticker, industry: candidate.industry, sector: candidate.sector, source: `peer_bench:${agentId}` });
-      requested++;
+  if (refreshRequests) {
+    for (const [agentId, candidates] of Object.entries(bench)) {
+      for (const candidate of candidates) {
+        await requestCoverage({ ticker: candidate.ticker, industry: candidate.industry, sector: candidate.sector, source: `peer_bench:${agentId}` });
+        requested++;
+      }
     }
   }
   const capacity = peerBenchCapacity(bench, peerMetrics);
