@@ -7,6 +7,7 @@
     "holdings:sync": "node scripts/sync-holdings-from-mcp.js",
     "holdings:sync:legacy": "node jobs/holdings-sync.js",
     "research:scan": "node jobs/research-scan.js",
+    "research:audit:backfill": "node scripts/backfill-research-decision-audit.js",
     "exit:monitor": "node jobs/monitor-positions.js",
     "performance:review": "node jobs/performance-review.js",
     "research:data-refresh": "node jobs/research-data-refresh.js",
