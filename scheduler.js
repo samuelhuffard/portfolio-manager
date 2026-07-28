@@ -11,6 +11,7 @@ import { runInvestorWeeklyUpdate } from "./jobs/investor-weekly-update.js";
 import { runSystemSentinel } from "./jobs/system-sentinel.js";
 import { runScheduledResearchDataRefresh } from "./jobs/research-data-refresh.js";
 import { runPeerCoverageRefresh } from "./jobs/peer-coverage-refresh.js";
+import { runPeerBench } from "./jobs/peer-bench.js";
 import { requestMcpHoldingsSync, requestMcpOrderReconciliation } from "./jobs/mcp-read-requests.js";
 import { runDailyDbParityCheck } from "./jobs/db-parity-check.js";
 import { refreshShadowPositions } from "./scripts/refresh-shadow-positions.js";
@@ -183,6 +184,12 @@ for (const slot of ["10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "13:00
 // ── Pre-close check (3:50 PM ET) ─────────────────────────────────────────────
 // Late momentum sweep — last chance to flag a stop breach before EOD.
 cron.schedule("50 15 * * 1-5", wrapJob("intraday-monitor", "PreClose", () => runIntradayMonitor({ context: "pre-close" }), holdingCoverageAt("15:50")), TZ);
+
+// ── Peer bench (3:30/3:35 PM ET) ───────────────────────────────────────────
+// Data-only prewarm of likely agent candidates and their cohorts. This keeps a
+// deep peer-ready pool ahead of the 5:15 research run without touching AI/orders.
+cron.schedule("30 15 * * 1-5", wrapJob("peer-bench", "PeerBench", runPeerBench, MARKET_DAY_ONLY), TZ);
+cron.schedule("35 15 * * 1-5", wrapJob("peer-bench-refresh", "PeerBenchRefresh", () => runPeerCoverageRefresh({ limit: 120 }), MARKET_DAY_ONLY), TZ);
 
 // ── Exit monitor (4:45 PM ET, Sun–Thu) ───────────────────────────────────────
 // Full ATR/fundamental/momentum exit signals with complete EOD bar data.

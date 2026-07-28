@@ -436,17 +436,14 @@ export async function queuePeerCoverageForCandidates(candidates = [], {
       sector: candidate.sector ?? null,
       peerMetrics,
     });
-    if (coverage.ready) {
-      covered.push(ticker);
-      continue;
-    }
+    if (coverage.ready) covered.push(ticker);
     await requestCoverage({
       ticker,
       industry: candidate.industry ?? null,
       sector: candidate.sector ?? null,
       source: "scheduled_research",
     });
-    queued.push(ticker);
+    if (!coverage.ready) queued.push(ticker);
   }
   return { queued, covered };
 }

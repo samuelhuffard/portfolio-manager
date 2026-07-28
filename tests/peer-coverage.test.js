@@ -60,11 +60,11 @@ test("thin industries widen collection to the sector so eight peers can be built
 
 test("refresh planning skips satisfied cohorts and fetches only missing peer rows", () => {
   const catalog = Object.fromEntries(["V", "A", "B", "C", "D", "E", "F", "MISSING"].map((ticker) => [ticker, { t: ticker, i: "Payments", s: "Financial Services" }]));
-  const peerMetrics = Object.fromEntries(["V", "A", "B", "C", "D", "E", "F"].map((ticker) => [ticker, row(ticker)]));
+  const peerMetrics = Object.fromEntries(["V", "A", "B", "C", "D", "E", "F"].map((ticker) => [ticker, { ...row(ticker), retrievedAt: "2026-07-28T12:00:00.000Z" }]));
   const plan = selectPeerCoverageRefreshTargets(catalog, {
     V: { ticker: "V", industry: "Payments", sector: "Financial Services" },
     MISSING: { ticker: "MISSING", industry: "Payments", sector: "Financial Services" },
-  }, peerMetrics);
+  }, peerMetrics, { now: new Date("2026-07-28T13:00:00.000Z") });
   assert.equal(plan.unresolvedRequests, 1);
   assert.deepEqual(plan.targets, ["MISSING"]);
 });
