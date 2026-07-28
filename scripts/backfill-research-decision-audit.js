@@ -4,6 +4,7 @@ import { AGENTS } from "../config/agents.js";
 import { getRedis } from "../lib/redis.js";
 import {
   RESEARCH_DECISION_AUDIT_SOURCES,
+  LEGACY_AUDIT_START_AT,
   legacyRecommendationToDecisionAudit,
 } from "../lib/research-decision-audit.js";
 
@@ -21,12 +22,30 @@ export function backfillableLegacyAudits(rowsByAgent, existing = []) {
   for (const [agentId, rows] of Object.entries(rowsByAgent)) {
     for (const row of rows) {
       const audit = legacyRecommendationToDecisionAudit(row, { agentId, sheetRow: row.sheetRow });
-      if (!audit.runId || !audit.ticker || !audit.decidedAt || seen.has(audit.runId)) continue;
+      if (!audit.runId || !audit.ticker || !audit.decidedAt || audit.decidedAt < LEGACY_AUDIT_START_AT || seen.has(audit.runId)) continue;
       seen.add(audit.runId);
       audits.push(audit);
     }
   }
   return audits.sort((left, right) => Date.parse(right.decidedAt) - Date.parse(left.decidedAt));
+}
+
+export function buildBackfilledAuditHistory(rowsByAgent, existing = []) {
+  const parsed = existing.map(parseRecord).filter(Boolean);
+  // Reproject the legacy slice from its source every time. This prevents an
+  // older migration shape from implying that a sheet recommendation was ever
+  // queued as a proposal, while preserving all current scan-native history.
+  const preserved = parsed.filter((record) => record.source !== RESEARCH_DECISION_AUDIT_SOURCES.LEGACY_SHEET);
+  const legacy = backfillableLegacyAudits(rowsByAgent, preserved);
+  const records = [...preserved, ...legacy]
+    .sort((left, right) => Date.parse(right.decidedAt) - Date.parse(left.decidedAt))
+    .slice(0, MAX_HISTORY_RECORDS);
+  return {
+    records,
+    preservedNonLegacy: preserved.length,
+    removedLegacy: parsed.length - preserved.length,
+    importedLegacy: legacy.length,
+  };
 }
 
 export async function runBackfill({ redis, sheets, spreadsheetId, apply = false } = {}) {
@@ -36,21 +55,27 @@ export async function runBackfill({ redis, sheets, spreadsheetId, apply = false 
     ...AGENTS.map((agent) => readAgentRecommendationAuditRows(sheets, spreadsheetId, agent.id)),
   ]);
   const rowsByAgent = Object.fromEntries(AGENTS.map((agent, index) => [agent.id, agentRows[index]]));
-  const capacity = Math.max(0, MAX_HISTORY_RECORDS - existing.length);
-  const audits = backfillableLegacyAudits(rowsByAgent, existing).slice(0, capacity);
-  if (apply && audits.length) {
-    // Existing scan records are newest-first (lpush). Backfilled rows are also
-    // newest-first, appended behind them, so no current audit can be displaced.
-    await redis.rpush(HISTORY_KEY, ...audits.map((audit) => JSON.stringify(audit)));
-    await redis.ltrim(HISTORY_KEY, 0, MAX_HISTORY_RECORDS - 1);
+  const rebuilt = buildBackfilledAuditHistory(rowsByAgent, existing);
+  if (apply) {
+    if (await redis.get("pm:workflow-lock:research")) {
+      throw new Error("Research scan is active; refusing to rewrite the historical audit slice.");
+    }
+    await redis.del(HISTORY_KEY);
+    if (rebuilt.records.length) {
+      await redis.rpush(HISTORY_KEY, ...rebuilt.records.map((audit) => JSON.stringify(audit)));
+      await redis.ltrim(HISTORY_KEY, 0, MAX_HISTORY_RECORDS - 1);
+    }
   }
   return {
     source: RESEARCH_DECISION_AUDIT_SOURCES.LEGACY_SHEET,
     existing: existing.length,
-    capacity,
+    legacyStartAt: LEGACY_AUDIT_START_AT,
     rowsRead: Object.fromEntries(Object.entries(rowsByAgent).map(([agentId, rows]) => [agentId, rows.length])),
-    eligible: audits.length,
-    applied: apply ? audits.length : 0,
+    preservedNonLegacy: rebuilt.preservedNonLegacy,
+    removedLegacy: rebuilt.removedLegacy,
+    importedLegacy: rebuilt.importedLegacy,
+    retained: rebuilt.records.length,
+    applied: apply,
   };
 }
 

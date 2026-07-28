@@ -5,7 +5,7 @@ import {
   legacyRecommendationToDecisionAudit,
   normalizeResearchDecisionAudit,
 } from "../lib/research-decision-audit.js";
-import { backfillableLegacyAudits } from "../scripts/backfill-research-decision-audit.js";
+import { backfillableLegacyAudits, buildBackfilledAuditHistory } from "../scripts/backfill-research-decision-audit.js";
 
 test("decision audit preserves the full evaluator critique and final disposition", () => {
   const audit = normalizeResearchDecisionAudit({
@@ -53,10 +53,23 @@ test("legacy recommendation audit preserves provenance and does not fabricate re
 
 test("legacy backfill is stable, deduplicated, and newest-first behind live records", () => {
   const audits = backfillableLegacyAudits({
-    "agent-1": [{ sheetRow: 14, date: "2026-07-18", ticker: "AAPL", action: "HOLD", rationale: "older" }],
-    "agent-2": [{ sheetRow: 15, date: "2026-07-20", ticker: "MSFT", action: "BUY", rationale: "newer" }],
-  }, [JSON.stringify({ runId: "legacy-sheet:agent-1:14" })]);
+    "agent-1": [{ sheetRow: 14, date: "2026-07-20", ticker: "AAPL", action: "HOLD", rationale: "older" }],
+    "agent-2": [{ sheetRow: 15, date: "2026-07-21", ticker: "MSFT", action: "BUY", rationale: "newer" }],
+  }, []);
   assert.equal(audits.length, 1);
   assert.equal(audits[0].ticker, "MSFT");
   assert.equal(audits[0].runId, "legacy-sheet:agent-2:15");
+});
+
+test("legacy backfill replaces the old legacy slice while preserving scan-native audit records", () => {
+  const rebuilt = buildBackfilledAuditHistory({
+    "agent-1": [{ sheetRow: 14, date: "2026-07-21", ticker: "AAPL", action: "HOLD", rationale: "kept" }],
+  }, [
+    JSON.stringify({ source: "legacy_recommendation_sheet", runId: "legacy-sheet:agent-1:13", decidedAt: "2026-07-20T12:00:00.000Z" }),
+    JSON.stringify({ source: "scheduled_scan", runId: "scan-1", decidedAt: "2026-07-28T18:00:00.000Z", ticker: "GS" }),
+  ]);
+  assert.equal(rebuilt.removedLegacy, 1);
+  assert.equal(rebuilt.preservedNonLegacy, 1);
+  assert.equal(rebuilt.importedLegacy, 1);
+  assert.deepEqual(rebuilt.records.map((record) => record.runId), ["scan-1", "legacy-sheet:agent-1:14"]);
 });
