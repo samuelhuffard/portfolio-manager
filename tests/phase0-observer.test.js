@@ -248,6 +248,21 @@ test("every scheduled invocation is required, with a recovered same-slot retry a
   assert.equal(buildPhase0Observation(missing).trustVerdict, "FAIL");
 });
 
+test("a Sam-approved operator capacity exception preserves the failed receipt but waives only its exact slot", () => {
+  const input = passingInput();
+  input.deployment.startedAt = "2026-07-14T14:00:00.000Z";
+  const holdings = input.scheduledInvocations.find((entry) => entry.name === "holdings-sync");
+  const failed = holdings.records.find((record) => record.invocationId.endsWith("/13:00"));
+  Object.assign(failed, { ok: false, outcome: "failed", error: "Claude CLI weekly limit" });
+  input.criticalJobs.push({ name: "holdings-sync", run: { dateET: DATE, invocationId: failed.invocationId, ok: false } });
+  input.operatorExceptions = [{ dateET: DATE, kind: "operator_managed_claude_cli_capacity", job: "holdings-sync", invocationId: failed.invocationId, approvedBy: "sam" }];
+  input.operatorPolicyRelease = { dateET: DATE, approvedBy: "sam", scope: "phase0_observer_only" };
+  const result = buildPhase0Observation(input);
+  assert.equal(result.trustVerdict, "PASS");
+  assert.equal(result.checks.find((row) => row.name === "operator_exceptions").status, "warning");
+  assert.equal(result.checks.find((row) => row.name === "deployment_eligibility").status, "pass");
+});
+
 test("MCP receipts must be current, successful, and account-policy bound", () => {
   for (const mutate of [
     (row) => { row.source = "jetson-queued"; },

@@ -25,6 +25,7 @@ const MAX_DAYS = 90;
 const SENTINEL_MAX_AGE_MS = 30 * 60 * 1000;
 const PERSISTENCE_CUTOFF_MINUTE_ET = 20 * 60 + 20;
 const DEFAULT_ARCHIVE_DIR = path.join(REPO_ROOT, "ops", "phase0-observations");
+const OPERATOR_EXCEPTION_FILE = path.join(REPO_ROOT, "config", "phase0-operator-exceptions.json");
 const ENSURE_OBSERVATION_INDEX_SCRIPT = `
 redis.call("LREM", KEYS[1], 0, ARGV[1])
 redis.call("LPUSH", KEYS[1], ARGV[1])
@@ -138,6 +139,20 @@ function localPolicyVersions() {
     researchSelection = null;
   }
   return { mandateVersions, researchSelection };
+}
+
+function operatorExceptionsForDate(dateET) {
+  try {
+    const policy = JSON.parse(fs.readFileSync(OPERATOR_EXCEPTION_FILE, "utf8"));
+    if (!Array.isArray(policy?.exceptions)) throw new Error("exceptions must be an array");
+    return {
+      exceptions: policy.exceptions.filter((entry) => entry?.dateET === dateET),
+      policyRelease: policy.policyOnlyRelease?.dateET === dateET ? policy.policyOnlyRelease : null,
+    };
+  } catch (error) {
+    if (error?.code === "ENOENT") return { exceptions: [], policyRelease: null };
+    throw new Error(`Phase 0 operator-exception policy is unreadable: ${error.message}`);
+  }
 }
 
 export function selectUnobservedScheduledResearch(statuses, consumedRunIds, now, { maxAgeHours = 72 } = {}) {
@@ -304,6 +319,7 @@ export async function gatherPhase0Evidence({
       coverage: jobs.find((job) => job.name === "exit-monitor")?.run?.evidence?.holdingMonitoring ?? null,
     });
   }
+  const operatorExceptionPolicy = operatorExceptionsForDate(observationDate);
   return {
     dateET: observationDate,
     observedAt: now.toISOString(),
@@ -327,6 +343,8 @@ export async function gatherPhase0Evidence({
     research,
     capacity: mapAnthropicBudgetReadiness(readiness, capacityEvidence, observationDate),
     proposalQueue: queueCounts,
+    operatorExceptions: operatorExceptionPolicy.exceptions,
+    operatorPolicyRelease: operatorExceptionPolicy.policyRelease,
     deployment: { ...revision, policies },
     // Used only by the in-memory verdict builder; it is never persisted.
     mcpReceiptSecret,

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "phase0-operator-exceptions-v1",
+  "policyOnlyRelease": {
+    "dateET": "2026-07-30",
+    "approvedBy": "sam",
+    "scope": "phase0_observer_only",
+    "rationale": "Sam explicitly approved this dated, observer-only policy release. It does not modify research, broker, ledger, or execution behavior."
+  },
+  "exceptions": [
+    { "dateET": "2026-07-30", "kind": "operator_managed_claude_cli_capacity", "job": "holdings-sync", "invocationId": "2026-07-30/13:00", "approvedBy": "sam", "rationale": "Sam exhausted the read-only broker companion's Claude CLI weekly limit. Retained failed receipts remain visible." },
+    { "dateET": "2026-07-30", "kind": "operator_managed_claude_cli_capacity", "job": "holdings-sync", "invocationId": "2026-07-30/15:00", "approvedBy": "sam", "rationale": "Same declared operator-capacity event." },
+    { "dateET": "2026-07-30", "kind": "operator_managed_claude_cli_capacity", "job": "holdings-sync", "invocationId": "2026-07-30/16:30", "approvedBy": "sam", "rationale": "Same declared operator-capacity event." },
+    { "dateET": "2026-07-30", "kind": "operator_managed_claude_cli_capacity", "job": "order-reconciliation", "invocationId": "2026-07-30/16:40", "approvedBy": "sam", "rationale": "Same declared operator-capacity event." }
+  ]
+}
