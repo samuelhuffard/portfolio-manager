@@ -263,6 +263,38 @@ test("a Sam-approved operator capacity exception preserves the failed receipt bu
   assert.equal(result.checks.find((row) => row.name === "deployment_eligibility").status, "pass");
 });
 
+test("an operator exception cannot waive another slot or an unrelated sentinel P1", () => {
+  const input = passingInput();
+  const holdings = input.scheduledInvocations.find((entry) => entry.name === "holdings-sync");
+  const waived = holdings.records.find((record) => record.invocationId.endsWith("/13:00"));
+  const unwaived = holdings.records.find((record) => record.invocationId.endsWith("/15:00"));
+  Object.assign(waived, { ok: false, outcome: "failed", error: "Claude CLI weekly limit" });
+  Object.assign(unwaived, { ok: false, outcome: "failed", error: "different failure" });
+  input.criticalJobs.push({ name: "holdings-sync", run: { dateET: DATE, invocationId: unwaived.invocationId, ok: false } });
+  input.operatorExceptions = [{ dateET: DATE, kind: "operator_managed_claude_cli_capacity", job: "holdings-sync", invocationId: waived.invocationId, approvedBy: "sam" }];
+  input.sentinel = { fresh: true, anomalies: [{ severity: "P1", check: "cron", fingerprint: "holdings-sync:failed" }] };
+  const result = buildPhase0Observation(input);
+  assert.equal(result.trustVerdict, "FAIL");
+  assert.equal(result.checks.find((row) => row.name === "scheduled_invocations").status, "fail");
+  assert.equal(result.checks.find((row) => row.name === "open_p0_p1").status, "fail");
+});
+
+test("the exact exception can waive its linked cron sentinel finding, but not another P1", () => {
+  const input = passingInput();
+  const holdings = input.scheduledInvocations.find((entry) => entry.name === "holdings-sync");
+  const failed = holdings.records.find((record) => record.invocationId.endsWith("/13:00"));
+  Object.assign(failed, { ok: false, outcome: "failed", error: "Claude CLI weekly limit", mcpReceipt: null });
+  input.criticalJobs.push({ name: "holdings-sync", run: { dateET: DATE, invocationId: failed.invocationId, ok: false } });
+  input.operatorExceptions = [{ dateET: DATE, kind: "operator_managed_claude_cli_capacity", job: "holdings-sync", invocationId: failed.invocationId, approvedBy: "sam" }];
+  input.sentinel = { fresh: true, anomalies: [{ severity: "P1", check: "cron", fingerprint: "holdings-sync:failed" }] };
+  const sentinel = input.scheduledInvocations.find((entry) => entry.name === "system-sentinel");
+  sentinel.records.forEach((record) => { record.evidence.blockingAnomalies = [{ severity: "P1", check: "cron", fingerprint: "holdings-sync:failed" }]; });
+  const result = buildPhase0Observation(input);
+  assert.equal(result.trustVerdict, "PASS");
+  assert.equal(result.checks.find((row) => row.name === "scheduled_invocations").status, "pass");
+  assert.equal(result.checks.find((row) => row.name === "open_p0_p1").status, "pass");
+});
+
 test("MCP receipts must be current, successful, and account-policy bound", () => {
   for (const mutate of [
     (row) => { row.source = "jetson-queued"; },
