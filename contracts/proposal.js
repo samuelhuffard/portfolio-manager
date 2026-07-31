@@ -14,7 +14,7 @@ import { z } from "zod";
 export const AGENT_IDS = ["agent-1", "agent-2", "agent-3"];
 
 /** Proposal lifecycle states. */
-export const PROPOSAL_STATUSES = ["Pending", "ApprovedForBrokerReview", "Rejected", "Expired"];
+export const PROPOSAL_STATUSES = ["Pending", "ApprovedForBrokerReview", "Rejected", "Expired", "ExecutionFailed"];
 
 /** Trade sides a proposal may request. */
 export const PROPOSAL_SIDES = ["BUY", "SELL"];
@@ -123,6 +123,11 @@ export const ProposalSchema = z.object({
   fulfilledAt: z.string().nullable(),
   fulfilledOrderId: z.string().nullable(),
   fulfilledShares: z.number().nullable(),
+  // A broker-confirmed rejection or an unconfirmed attempt with no matching
+  // broker order invalidates the approval. It is terminal: a fresh proposal
+  // and signed approval are required before another execution attempt.
+  executionFailedAt: z.string().nullable().optional(),
+  executionFailureReason: z.string().nullable().optional(),
   // HMAC over the trade-relevant fields, attached at approval. See
   // ./signature.js for the canonical payload; the executor verifies it.
   decisionHmac: z.string().nullable(),

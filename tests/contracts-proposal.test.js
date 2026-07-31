@@ -39,7 +39,7 @@ function baseStored() {
 
 test("enums match the historical hard-coded sets", () => {
   assert.deepEqual(AGENT_IDS, ["agent-1", "agent-2", "agent-3"]);
-  assert.deepEqual(PROPOSAL_STATUSES, ["Pending", "ApprovedForBrokerReview", "Rejected", "Expired"]);
+  assert.deepEqual(PROPOSAL_STATUSES, ["Pending", "ApprovedForBrokerReview", "Rejected", "Expired", "ExecutionFailed"]);
   assert.deepEqual(PROPOSAL_SIDES, ["BUY", "SELL"]);
 });
 

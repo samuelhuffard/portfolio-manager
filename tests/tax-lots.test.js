@@ -10,6 +10,12 @@ test("openLot creates an OPEN lot with sharesOpen === sharesOriginal", () => {
   assert.equal(lot.agentId, "agent-1");
 });
 
+test("openLot preserves fractional-share precision needed by broker sells", () => {
+  const lot = openLot({ ticker: "NVDA", shares: 0.075555, costPerShare: 198.53, date: "2026-06-30", agentId: "agent-1" });
+  assert.equal(lot.sharesOriginal, 0.075555);
+  assert.equal(lot.sharesOpen, 0.075555);
+});
+
 test("consumeLotsFIFO consumes the oldest lot first, partially", () => {
   const lots = [
     openLot({ ticker: "AAPL", shares: 10, costPerShare: 100, date: "2026-01-01", agentId: "agent-1", lotId: "lot-1" }),
