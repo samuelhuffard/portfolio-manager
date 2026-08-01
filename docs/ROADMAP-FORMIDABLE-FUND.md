@@ -112,13 +112,22 @@ They meet at four explicit gates:
 
 Agents 2/3 are already `supervised` in production even though earlier roadmap language calls them non-actionable. Their runtime proposal objects still use the legacy Redis proposal shape rather than the canonical `StrategyProposal` lineage contract.
 
-Decision D-003 preserves supervised proposals from their current static watchlists. Before Agents 2/3 expand beyond those watchlists, route them through the canonical compiler with mandate version, evidence snapshot, research intent, kill criteria, evaluator lineage, and owned-lot references. Any move back to paper-only or expansion of proposal authority is a new reviewed decision.
+The 2026-07-20 specialist-parity release supersedes the former static-watchlist
+boundary: Agents 1–3 now share broad catalog discovery and the same supervised
+research/proposal machinery. Preserve that equal workflow while adding mandate
+version, evidence snapshot, research intent, kill criteria, evaluator lineage, and
+owned-lot references through the later canonical compiler. Any move back to
+paper-only or expansion of proposal authority remains a new reviewed decision.
 
 Human approval reduces immediate execution risk, but it does not replace traceability.
 
 ---
 
 ## Delivery plan
+
+The [high-leverage execution plan](HIGH-LEVERAGE-EXECUTION-PLAN.md) coordinates
+this SKILL roadmap with mandate-policy, proposal-lineage, Agent 4, and TRUST work.
+It does not change the phases or gates below.
 
 ### Status vocabulary
 
@@ -187,7 +196,10 @@ Work:
 - Implement and test special-sector classification and approved bank/insurer/REIT substitutions; never pass raw Yahoo sectors as mandate substitution keys.
 - Build Agent 2 persistence and Agent 3 multi-year evidence adapters only from their approved v3 mandates.
 - Add consensus-snapshot and 13F pipelines only when their point-in-time storage and freshness semantics are defined.
-- Reconcile the sector-agnostic v3 mandates with the live Agent 1 technology-only screener and Agents 2/3 static watchlists. Treat this as a deliberate product decision, not an implicit config drift.
+- Preserve the released sector-agnostic, broad-catalog workflow for all three
+  specialists; detect any future universe/configuration drift rather than restoring
+  Agent 1's former technology-only screen or Agents 2/3's former static-watchlist
+  boundary. Mandate-specific evidence coverage remains the Phase 2 task.
 - Quarantine stale or structurally incomplete names from delta ranking while retaining them for coverage reporting.
 
 **Exit gate:** at least 95% of the eligible catalog is classified; at least 90% has a fresh score or an explicit stable reason it cannot be scored; no special-sector candidate is evaluated with standard-sector economics; coverage and freshness meet target for 10 consecutive trading days.
@@ -247,14 +259,20 @@ Work:
 
 ### Phase 5 — Expand all specialist strategies through one compiler
 
-**Status:** ADR/design is frozen, but no E5 implementation is accepted. Agents 2/3 remain intentionally supervised and watchlist-bound in production; catalog expansion is blocked on the exact signature-v2 payload, outstanding-v1 approval disposition, canonical compiler implementation, and the lineage evidence gate.
+**Status:** ADR/design is frozen, but no E5 implementation is accepted. Agents 1–3
+already share supervised catalog discovery. Immutable lineage remains blocked on
+the exact signature-v2 payload, outstanding-v1 approval disposition, canonical
+compiler implementation, and lineage evidence gate.
 
-**Objective:** let each specialist search the eligible catalog according to its own testable mandate without creating parallel proposal paths.
+**Objective:** preserve equal specialist discovery and trust while routing every
+proposal source through one immutable, explainable lineage.
 
 Work:
 
-- Preserve the accepted supervised/watchlist-bound production policy until catalog-wide evidence coverage and the Phase 5 lineage gate are complete; treat any authority expansion as a new reviewed decision.
-- Complete their deterministic universe screens and evidence adapters.
+- Preserve the accepted supervised broad-catalog policy and equal workflow power;
+  treat any authority expansion as a new reviewed decision.
+- Complete mandate-specific deterministic universe screens, ranking rules, and
+  evidence adapters only after their policy gates close.
 - Route scheduled discovery, Lab, alerts, exits, and manual requests through one `ResearchIntent → EvidenceSnapshot → StrategyProposal` compiler.
 - Require every production proposal to include mandate/version, evidence snapshot, intent, requested sizing, kill criteria, evaluator result, expiry, and owned-lot references for SELLs.
 - Keep each agent’s scores and outcomes separate even when they research the same ticker.
@@ -346,13 +364,14 @@ No single metric is a promotion gate. Sample size, data quality, risk, and opera
 
 ## Immediate next actions
 
-1. Complete Phase 0 runtime proof on the next post-fix scan.
-2. Commit only the adversarially reviewed roadmap scope; keep unrelated and policy-gated worktree edits out of those commits.
-3. Treat Postgres migration, runtime configuration, feature activation, and deployment as a separate reviewed rollout with health and rollback proof.
-4. Enable enrichment and durable observation collection only as an observed advisory rollout—not as immediate input to proposals or the live AI slate.
-5. Resolve Q-001–Q-005 before completing actionable evidence adapters or positive-canary selection, Q-006 before a cash challenger, and Q-007 before publishing net historical results.
-6. Add and review the outcome-maturation cadence, then accumulate point-in-time observations and matured forward outcomes; history that was never captured cannot be reconstructed later without bias.
-7. Keep the current candidate slate live until the shadow evidence-driven slate clears the Phase 3 and Phase 4 gates.
+1. Complete Phase 0 runtime proof under the specialist-parity release; use the signed observer rather than health alone.
+2. Resolve Q-001–Q-004 and compile the three deliberately different mandates while preserving identical workflow/trust power.
+3. Freeze Bench-30, the blind-grading rubric, and the 30-company golden-set T0 facts before tuning research or comparing sources.
+4. Complete the Phase 1 proposal-source, signature-v2, v1-disposition, ownership, and Agent 4 policy packets; implementation remains in the master plan's later phases.
+5. Treat Postgres migration, runtime configuration, feature activation, and deployment as separate reviewed rollouts with health and rollback proof.
+6. Resolve Q-005 before positive-canary selection, Q-006 before a cash challenger, and Q-007 before publishing net historical results.
+7. Add and review the outcome-maturation cadence, then accumulate point-in-time observations and mature forward outcomes; history that was never captured cannot be reconstructed later without bias.
+8. Keep new sources and Athena conclusions out of live proposal authority until the golden set, provenance, licensing, and evidence-only comparison gates pass.
 
 ---
 

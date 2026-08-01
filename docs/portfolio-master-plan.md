@@ -2,7 +2,7 @@
 
 **Authority:** canonical portfolio-wide sequence, gates, and current-status index
 
-**Status date:** 2026-07-14 ET
+**Status date:** 2026-07-21 ET
 
 **Human task:** Codex task **HUMAN NEEDED** (`019f625a-3f04-7813-ae8b-0b1b63d5b3a6`)
 
@@ -43,12 +43,15 @@ When documents conflict, use this order:
    definitions. Open questions block only their named work.
 4. **Narrow roadmaps** — [autonomy](AUTONOMY-ROADMAP.md) for TRUST detail and
    [research](ROADMAP-FORMIDABLE-FUND.md) for SKILL detail.
-5. **Execution guide** — [bounded engineering packets](RESEARCH-ROADMAP-EXECUTION-GUIDE.md),
+5. **Strategic execution overlay** — [high-leverage execution plan](HIGH-LEVERAGE-EXECUTION-PLAN.md),
+   which coordinates work across existing phases but cannot change their order,
+   gates, status, authority, or clock effects.
+6. **Execution guide** — [bounded engineering packets](RESEARCH-ROADMAP-EXECUTION-GUIDE.md),
    acceptance tests, and model assignment.
-6. **Evidence records** — [Phase 0 observation](PHASE-0-OBSERVATION.md), runtime
+7. **Evidence records** — [Phase 0 observation](PHASE-0-OBSERVATION.md), runtime
    logs, signed ledgers, Postgres, Sheets, Redis, broker receipts, and deployment
    records. Runtime evidence decides whether a stated status is true.
-7. Supporting plans, handoffs, FIXLIST entries, and vault notes.
+8. Supporting plans, handoffs, FIXLIST entries, and vault notes.
 
 If this plan claims a deployment or gate that current runtime evidence contradicts,
 the evidence wins and this plan must be corrected. If a subordinate document has
@@ -75,15 +78,15 @@ review updates it.
 The following is a conservative synthesis of repository and recorded production
 evidence. “Verified locally” is not “deployed,” and “deployed” is not “gate passed.”
 
-| Area | Label | Status supported on 2026-07-14 | Evidence / unresolved fact |
+| Area | Label | Status supported through the 2026-07-20 release proof | Evidence / unresolved fact |
 | --- | --- | --- | --- |
-| Live authority | TRUST | Human-supervised. Agent 4 is shadow-only. Agents 2/3 are supervised and static-watchlist-bound; they are not catalog-enabled. | [Decision D-003](RESEARCH-DECISION-REGISTER.md) and commit history supersede older “paper-only” wording. |
-| Live release | BOTH | Backend `mandate-v3` runtime is loaded at `e746bd5`: the gate-closing release, signed PM2 deploy-attestation control, and observer identity pinned to the code actually loaded by PM2. Migration `0007_position_quote_provenance.sql` is applied; PM2 is online and `/health` is 200. Dashboard companion contract `bbb5a5c` is loaded by local `portfolio-executor`, which is online with a fresh heartbeat. | Production proof on 2026-07-14. Sam approved the final repository alignment; `origin/mandate-v3` and `origin/main` now share the same current documentation/evidence head. The later documentation-only commits do not change the PM2-pinned runtime identity. |
+| Live authority | TRUST | Human-supervised. Agents 1–3 may produce proposals through the same supervised machinery; Sam remains the only live approver. Agent 4 is shadow-only and cannot originate or amend a proposal. | The specialist-parity release equalized workflow and trust boundaries without expanding approval, signature, broker, or execution authority. |
+| Live release | BOTH | Backend behavior release `51c78ca` and documentation proof `f36b388` were pushed to aligned `main` and `mandate-v3`; the Jetson completed controlled signed restart edge `59→60`. Recorded release verification passed 866/866 tests, health dependencies, and a sentinel run with no P0/P1. | This is release-time proof, not a claim about later runtime health. Current production status still requires sanitized health, logs, receipts, parity, ledgers, sentinel, and observer evidence. No dashboard deployment was part of this release. |
 | Phase 0 safety window | TRUST | **0/5 clean trading days.** No start may be inferred from service uptime or cleanup completion. | [Observation record](PHASE-0-OBSERVATION.md#exit-evidence-summary). Day 1 remains gated on the final gate-closing release and a clean next-trading-day observation. |
 | Historical production artifacts | TRUST | **Resolved.** Both smoke reconciliation artifacts have signed resolutions; the historic unsigned NVDA approval is rejected/closed. Live Redis has zero open reconciliation records and zero unsigned approved proposals. | Current live verification. Historical rows remain preserved rather than deleted. |
 | Restart investigation | TRUST | **Resolved for the observed count and automated going forward.** The first 40 restarts are manually attributable to controlled deploy/config changes; the immutable July 14 observer correctly retained the missing-marker failure. Restarts 41 and 42 were performed by the reviewed wrapper and accepted through dedicated-key signed exact `40→41` and `41→42` edges. PM2 remains `unstable_restarts=0`, `exit_code=0`, online, timestamped, and saved. | The sentinel atomically consumed each marker while advancing its baseline and then reported no PM2 anomaly. Any unsigned, forged, stale, incomplete, unstable, reset, or non-zero-exit edge remains P1. |
-| Current gate-closing state | BOTH | Transactional parity is an exact production `MATCH`; valuation remains honestly `NON_COMPARABLE` until a content-bound quote snapshot arrives. Restore, observer, cost controls, `$10` protected pool, companion restart, runtime release, and repository alignment are verified. The first scheduled signed observer record exists and correctly marks July 14 `FAIL_BOTH`, safety-day false, research-sample retained. | Phase 0 remains 0/5; the next ordinary trading day is the first candidate Day 1. No immediate repository-hygiene approval remains open. |
-| Research throughput | SKILL | A fresh 2026-07-14 scheduled run conserves all 36 outcomes (35 investment HOLD, 1 stale-data block, zero failures), but still produced zero genuine actionable proposals and zero evaluator approvals. | Outcome accounting is now proven; throughput/edge remains unproven. |
+| Current gate-closing state | BOTH | July 20 was the parity/evidence-quality deployment day and cannot count. The five-day clock can begin only with the next ordinary signed observer PASS under the released identity. | Phase 0 remains 0/5 until the observer records otherwise. Health alone cannot create Day 1. |
+| Research throughput | SKILL | The first equalized shared-snapshot run recorded 36 attempts: Agents 1 and 2 each produced 12 HOLDs; Agent 3 produced 8 HOLDs and 4 explicit stale-data outcomes. No BUY/SELL reached the evaluator. | Outcome accounting and equal workflow traversal are observed; organic proposal throughput and investment edge remain unproven. The honest standing count is zero organic evaluator-approved proposals. |
 | Research evidence spine | SKILL | Reviewed evidence-spine code and additive migrations are recorded as deployed at backend `79c778a` and dashboard `76d92b8`; promotion flags remain shadow/measurement-only. | [Jul 14 deployment record](PHASE-0-OBSERVATION.md#2026-07-14-et-reviewed-evidence-spine-deployment). |
 | Research packet implementation | SKILL | Several E1–E4 and E7 pieces are described as verified locally. Their runtime, evidence, and promotion gates remain separate. | [Execution ledger](RESEARCH-ROADMAP-EXECUTION-GUIDE.md#31-verified-local-implementation-ledger). |
 | Financial Postgres | TRUST | Neon is accepted and shadow/dual-write plumbing exists. Sheets/Redis remain canonical for money reads; no cutover gate has passed. | [ADR 0001](adr/0001-postgres-canonical-store.md) and autonomy Phase 2. |
@@ -373,7 +376,10 @@ new research cohort.
    expiry, and owned SELL-lot references for every actionable proposal.
 4. **[TRUST]** Mirror canonical contracts mechanically to dashboard and companion; prove drift
    guards and reject every bypass path.
-5. **[BOTH]** Expand Agents 2/3 from static watchlists only through a reviewed catalog canary.
+5. **[BOTH]** Preserve the released Agent 1–3 workflow parity while routing every
+   specialist proposal source through the compiler. Catalog discovery is already
+   live; Phase 5 must not reintroduce agent-specific evidence, evaluator, risk,
+   ownership, or proposal-power differences.
 6. **[TRUST]** Cut canonical money reads to Postgres only after Phase 2's 30-day parity and
    restore/crash gates; Sheets becomes reporting-only after cutover proof.
 
@@ -584,6 +590,9 @@ Do not during the freeze:
 | --- | --- |
 | [AUTONOMY-ROADMAP.md](AUTONOMY-ROADMAP.md) | TRUST architecture and detailed autonomy controls. |
 | [ROADMAP-FORMIDABLE-FUND.md](ROADMAP-FORMIDABLE-FUND.md) | SKILL research/edge design and detailed metrics. |
+| [HIGH-LEVERAGE-EXECUTION-PLAN.md](HIGH-LEVERAGE-EXECUTION-PLAN.md) | Cross-phase coordination for mandate differentiation, measurement, evidence, lineage, Agent 4, and trust hardening; no independent gate or promotion authority. |
+| [OBSERVATION-WEEK-RELEASE-PLAN.md](OBSERVATION-WEEK-RELEASE-PLAN.md) | Five-day offline release-train plan and candidate-branch acceptance checklist; no deployment, reset, or promotion authority. |
+| [SUBSTANTIVE-OFFLINE-EXECUTION-PLAN.md](SUBSTANTIVE-OFFLINE-EXECUTION-PLAN.md) | Higher-bar offline evidence packets for H2–H6; prepares Phase 1–5 work without changing phase order, authority, gates, or clocks. |
 | [RESEARCH-ROADMAP-EXECUTION-GUIDE.md](RESEARCH-ROADMAP-EXECUTION-GUIDE.md) | Bounded implementation packets and verification detail. |
 | [RESEARCH-DECISION-REGISTER.md](RESEARCH-DECISION-REGISTER.md) | Accepted/open investment-policy decisions. |
 | [PHASE-0-OBSERVATION.md](PHASE-0-OBSERVATION.md) | Append-only Phase 0 daily evidence and consecutive count. |

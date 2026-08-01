@@ -45,7 +45,11 @@ The existing safety invariants remain: downgrade-only risk controls, determinist
 
 ---
 
-## Status snapshot — 2026-07-11 (MCP migration deployed and smoked)
+## Historical status snapshot — 2026-07-11 (superseded)
+
+This section is retained as deployment history. The 2026-07-20 specialist-parity
+release supersedes its Agent 1–3 discovery boundary and release identifiers; use
+the master plan and current runtime evidence for present status.
 
 Work is gate-sequenced, not strictly code-sequenced: production remains in Phase 0 stabilization while the Phase 1 ownership/contracts foundation and Phase 2 shadow infrastructure now run in production without canonical-read cutover.
 
@@ -54,8 +58,20 @@ Work is gate-sequenced, not strictly code-sequenced: production remains in Phase
 - **Postgres shadow:** migration `0003_shadow_precision.sql` is applied, all 14 proposals/5 capital entries/1 lot/1 position were backfilled, and production parity is `MATCH` across all four domains. `PG_DUAL_WRITE=true` is enabled persistently, while Sheets/Redis remain canonical.
 - **Verified:** backend 371/371 tests; dashboard MCP policy tests pass; independent review returned **SHIP**. Production read-only smoke passed holdings and reconciliation with both durable requests consumed. Performance 40/40, Trade Ledger 1/1, Lots 1/1, Investors 5/5, and Audit 2,586 rows verify clean.
 - **Runtime evidence:** the legacy Jetson login is stale because Robinhood device approvals/SMS/passkeys do not provide a usable unattended TOTP path. Athena/Yahoo degradation and Mac sysloop history remain operational leads; adjudicate them from fresh logs after the migration smoke.
-- **Authority:** Sam still signs every live order. Agents 2/3 are supervised and
-  static-watchlist-bound; they are not catalog-enabled. Agent 4 has no runtime authority.
+- **Authority at that time:** Sam signed every live order. Agents 2/3 were
+  supervised and static-watchlist-bound; Agent 4 had no runtime authority.
+
+### Specialist parity released — 2026-07-20
+
+- Agents 1–3 now share broad catalog discovery, evidence handling, evaluator,
+  risk, sizing, approval-queue, ownership, and monitoring semantics while retaining
+  distinct versioned mandates, horizons, selection rules, and risk limits.
+- Authority remains human-supervised: Sam signs every live order and Agent 4 has
+  no origination, amendment, approval-key, broker, or execution authority.
+- Backend behavior `51c78ca` and documentation proof `f36b388` were released through
+  signed restart edge `59→60`; release-time evidence recorded 866/866 tests, healthy
+  dependencies, and no sentinel P0/P1. Later runtime claims still require fresh
+  sanitized evidence.
 
 ### Autonomy foundation deployed — observation now active
 
@@ -156,12 +172,21 @@ Execute in this order:
 
 1. Start the five-trading-day observation window on the next clean trading day; inspect fresh Jetson/companion logs and the scheduled parity report each day.
 2. Keep the MCP account-binding and exact read-only allowlists under regression watch; any failed receipt or ledger mismatch returns the system to human-supervised mode.
-3. Convert the Agent 2, Agent 3, and Agent 4 inputs into versioned mandate templates. Record ambiguities for Sam/his friend; do not invent investment rules. Keep Agents 2/3 supervised and static-watchlist-bound, and Agent 4 shadow-only.
-4. Finish Phase 1's `PortfolioDecision`/allocation contract, unified-compiler proof, ownership lineage, and manager UI before adding Agent 4 runtime behavior.
+3. Preserve the released Agent 1–3 workflow parity and convert the three specialist
+   mandates plus Agent 4 inputs into versioned, testable policy. Record ambiguities
+   for Sam/investing partner; do not invent investment rules. Agents 1–3 remain
+   supervised and Agent 4 remains shadow-only.
+4. Finish Phase 1's policy, source-inventory, signature-v2 freeze, ownership, and
+   `PortfolioDecision`/allocation contract work before adding Agent 4 runtime
+   behavior. Canonical compiler implementation remains a coordinated Phase 5 change.
 5. Keep Postgres shadow plumbing and daily parity evidence healthy without changing canonical reads. A read cutover remains a later, separately reviewed milestone.
 6. Rebuild the FIXLIST from fresh runtime evidence after the release, closing false positives only when logs/job state prove they are stale.
 
 The detailed multi-model execution guide lives in repo-root `handoff.md`. Do not implement autonomous execution, forced portfolio-wide sells, new outside-capital features, or fund structure work while Phase 0/1 gates remain open.
+
+The [high-leverage execution plan](HIGH-LEVERAGE-EXECUTION-PLAN.md) coordinates
+this TRUST roadmap with the research roadmap. It adds no authority and cannot
+override the master plan's promotion or demotion gates.
 
 ## Standing session protocol
 

@@ -94,6 +94,33 @@ Phase 1 still needs an auditable inventory of existing BUY lots and any outstand
 - **P1-B — mandate decision worksheet:** capture policy answers without encoding them in code until accepted.
 - **P1-C — v2 freeze packet:** write the payload, compatibility matrix, reader/writer ordering, rollback, and v1 disposition checklist for independent review. No implementation activation.
 - **P1-D — ownership audit packet:** enumerate the expected evidence and tests for BUY origin, SELL lot consumption, and legacy quarantine.
+- **P1-E — mandate differentiation packet:** compile accepted Q-001–Q-004 answers
+  into three versioned mandate specifications plus shared-workflow parity and
+  deliberate-divergence fixtures; do not activate scoring or selection.
+- **P1-F — measurement and source freeze packet:** freeze Bench-30, the blind-
+  grading rubric, golden-set T0 definitions, and chronology checks before tuning,
+  vendor comparison, or purchase.
+- **P1-G — Agent 4 policy packet:** freeze objective, virtual budgets, conflicts,
+  regime/freshness inputs, explanations, promotion evidence, and prohibitions with
+  no runtime authority.
+- **P1-H — trust release dossiers:** specify authenticated evidence sources,
+  operational-key retirement, quote freshness, capital-flow attribution, and
+  event-based Postgres cutover as separate S1/S2 candidates; do not implement or
+  merge them into an R1 research release.
+
+The sequencing and cross-phase acceptance criteria for P1-A through P1-H are in
+[`HIGH-LEVERAGE-EXECUTION-PLAN.md`](HIGH-LEVERAGE-EXECUTION-PLAN.md). That plan is
+an execution overlay only; the master plan owns all gates and phase status.
+
+The five-day offline delivery order, candidate-branch rules, and coherent-update
+definition of done are in
+[`OBSERVATION-WEEK-RELEASE-PLAN.md`](OBSERVATION-WEEK-RELEASE-PLAN.md). It does not
+authorize a deployment or replace the signed Phase 0 observer.
+The current allow-list and Day 5 review record are the
+[`OBSERVATION-WEEK-CANDIDATE-MANIFEST.md`](OBSERVATION-WEEK-CANDIDATE-MANIFEST.md)
+and [`OBSERVATION-WEEK-RELEASE-NOTES.md`](OBSERVATION-WEEK-RELEASE-NOTES.md).
+The executable, non-runtime W1 contract is documented in
+[`PHASE-1-COMPILED-MANDATE-SPECIFICATIONS.md`](PHASE-1-COMPILED-MANDATE-SPECIFICATIONS.md).
 
 ## Verification boundary
 

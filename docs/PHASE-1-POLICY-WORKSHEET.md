@@ -5,7 +5,23 @@
 
 ## How to use this worksheet
 
-For each question, record one exact rule, its source hierarchy, its exception path, and the person/date approving it. Then copy the accepted outcome into `docs/RESEARCH-DECISION-REGISTER.md`, version the affected mandate, and add tests before turning it on.
+For each question, record one exact rule, its source hierarchy, its exception path,
+the approving person/date, affected mandates, policy version, and a named regression
+fixture. Then copy the accepted outcome into `docs/RESEARCH-DECISION-REGISTER.md`
+and add the fixture before turning it on. A blank field remains
+`policy_unresolved`; it is never a default.
+
+**Decision-record template**
+
+| Field | Required value |
+| --- | --- |
+| Exact rule | Testable rule, unit, boundary, and actionability effect |
+| Source hierarchy | Ordered approved sources and receipt requirements |
+| Exception/fallback rule | Explicit unavailable/conflict/special-sector handling |
+| Owner / accepted date | Named policy owner and dated acceptance |
+| Policy version | Version that will bind the affected mandate(s) |
+| Affected mandates | One or more of Agents 1–3; do not imply all by default |
+| Regression fixture | Fixture/test name covering normal, boundary, and unavailable cases |
 
 ## Q-001 — Agent 1 balance-sheet definitions
 
@@ -22,7 +38,10 @@ Decide all of the following:
 **Accepted rule:** _pending_
 **Source hierarchy:** _pending_
 **Exception/fallback rule:** _pending_
-**Approved by/date/version:** _pending_
+**Owner / accepted date:** _pending_
+**Policy version:** _pending_
+**Affected mandates:** _pending_
+**Regression fixture:** _pending_
 
 ## Q-002 — Current-estimate freshness
 
@@ -37,7 +56,12 @@ Decide:
 4. durable receipt/time-zone requirements.
 
 **Accepted rule:** _pending_
-**Approved by/date/version:** _pending_
+**Source hierarchy:** _pending_
+**Exception/fallback rule:** _pending_
+**Owner / accepted date:** _pending_
+**Policy version:** _pending_
+**Affected mandates:** _pending_
+**Regression fixture:** _pending_
 
 ## Q-003 — Entry quote and relative-volume freshness
 
@@ -52,7 +76,12 @@ Decide:
 4. whether stale data blocks creation, blocks approval, or permits only a draft.
 
 **Accepted rule:** _pending_
-**Approved by/date/version:** _pending_
+**Source hierarchy:** _pending_
+**Exception/fallback rule:** _pending_
+**Owner / accepted date:** _pending_
+**Policy version:** _pending_
+**Affected mandates:** _pending_
+**Regression fixture:** _pending_
 
 ## Q-004 — Consensus and 13F completeness
 
@@ -67,7 +96,12 @@ Decide:
 4. what must be disclosed to the evaluator and Sam when an input is absent.
 
 **Accepted rule:** _pending_
-**Approved by/date/version:** _pending_
+**Source hierarchy:** _pending_
+**Exception/fallback rule:** _pending_
+**Owner / accepted date:** _pending_
+**Policy version:** _pending_
+**Affected mandates:** _pending_
+**Regression fixture:** _pending_
 
 ## Agent 4 policy packet
 

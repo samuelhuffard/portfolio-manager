@@ -30,3 +30,15 @@ test("inventory verification rejects an unrecognized shortcut source", () => {
   assert.equal(result.valid, false);
   assert.match(result.errors.join("\n"), /unsupported intent source/);
 });
+
+test("a declared intent source still fails without a compiler-routing plan", () => {
+  const result = verifyProposalSourceInventory([{
+    id: "new-declared-source",
+    intentSource: "manual",
+    entryPoint: "future",
+    writer: "future",
+    lineage: "legacy_allocation_only",
+  }]);
+  assert.equal(result.valid, false);
+  assert.match(result.errors.join("\n"), /lacks compiler-routing plan/);
+});

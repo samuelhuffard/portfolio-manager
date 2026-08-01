@@ -1,0 +1,22 @@
+{
+  "cases": [
+    {
+      "agentId": "agent-1",
+      "candidate": { "ticker": "BANK", "sector": "Financial Services", "industry": "Banks - Regional" },
+      "proposal": { "action": "BUY", "thesis": "BANK is a technology company trading at a 94.6 P/E.", "claimedBusinessFamily": "technology", "evidenceCitations": [{ "claim": "BANK is a technology company trading at a 94.6 P/E.", "evidence_ids": ["rank_trailingPE"] }] },
+      "enriched": { "breakdown": { "trailingPE": 94.6 }, "primaryFacts": [{ "id": "raw_pe", "value": 28.25, "source": "local filing excerpt" }] }
+    },
+    {
+      "agentId": "agent-2",
+      "candidate": { "ticker": "CHIP", "sector": "Technology", "industry": "Semiconductors" },
+      "proposal": { "action": "BUY", "thesis": "CHIP had a 91% return because its momentum rank is 91.", "claimedBusinessFamily": "technology", "evidenceCitations": [{ "claim": "CHIP had a 91% return because its momentum rank is 91.", "evidence_ids": ["rank_momentum"] }] },
+      "enriched": { "breakdown": { "momentum": 91 }, "primaryFacts": [{ "id": "raw_return", "value": -0.04, "source": "local exchange snapshot" }] }
+    },
+    {
+      "agentId": "agent-3",
+      "candidate": { "ticker": "FILINGS", "sector": "Technology", "industry": "Semiconductors" },
+      "proposal": { "action": "BUY", "thesis": "FILINGS reported revenue growth of 18%.", "claimedBusinessFamily": "technology", "evidenceCitations": [{ "claim": "FILINGS reported revenue growth of 18%.", "evidence_ids": ["raw_revenue_growth"] }] },
+      "enriched": { "primaryFacts": [{ "id": "raw_revenue_growth", "value": 0.18, "source": "local company filing excerpt" }] }
+    }
+  ]
+}

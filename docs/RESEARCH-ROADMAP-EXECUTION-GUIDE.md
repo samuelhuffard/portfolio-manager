@@ -127,6 +127,11 @@ Open questions / risks:
 
 ## 3. Change sequencing
 
+The [high-leverage execution plan](HIGH-LEVERAGE-EXECUTION-PLAN.md) groups these
+packets into six cross-phase initiatives and execution waves. It is an overlay,
+not a substitute for the packet ownership, acceptance tests, stop conditions, or
+master-plan gates in this guide.
+
 ```text
 Phase 0 runtime proof
   ├─ E0.1 canonical Holdings-row classifier
@@ -499,9 +504,9 @@ Do not modify existing money/accounting tables. Research tables are additive and
 
 | agent | mandateId | mandateVersion | canonicalSourcePath | targetUniversePolicyVersion | productionUniversePolicyVersion |
 |---|---|---|---|---|---|
-| agent-1 | agent_one | 3.0 | agent_mandates/Agent_One_Mandate_v3.md | eligible-us-operating-common-equities-v3 | catalog-technology-subverticals-v1 |
-| agent-2 | agent_two | 3.0 | agent_mandates/Agent_Two_Mandate_v3.md | eligible-us-operating-common-equities-v3 | static-watchlist-v1 |
-| agent-3 | agent_three | 3.0 | agent_mandates/Agent_Three_Mandate_v3.md | eligible-us-operating-common-equities-v3 | static-watchlist-v1 |
+| agent-1 | agent_one | 3.0 | agent_mandates/Agent_One_Mandate_v3.md | eligible-us-operating-common-equities-v3 | agent-1-sector-agnostic-velocity-catalog-v1 |
+| agent-2 | agent_two | 3.0 | agent_mandates/Agent_Two_Mandate_v3.md | eligible-us-operating-common-equities-v3 | agent-2-medium-momentum-catalog-v1 |
+| agent-3 | agent_three | 3.0 | agent_mandates/Agent_Three_Mandate_v3.md | eligible-us-operating-common-equities-v3 | agent-3-compounder-catalog-v1 |
 
 Each object has exactly those five fields plus `agentId`; no description or current timestamp enters the object.
 
@@ -664,7 +669,9 @@ withWorkflowLock("research-data-refresh", ttl >= worst observed duration)
 The Decision Register and ADR 0003 now freeze two architecture-level choices:
 
 1. v3 is the canonical target mandate family.
-2. Agent 1's target architecture is sector-agnostic, while the current production technology-subvertical restriction remains in force until the Phase 2 gate. Agents 2/3 remain supervised and watchlist-bound in production.
+2. The released production universe is sector-agnostic and catalog-backed for all
+   three specialists. Equal discovery and workflow power is now a regression
+   invariant; mandate-specific economics remain gated by the accepted policy inputs.
 
 The following investment-policy inputs remain open and must be supplied before the affected packets begin:
 
@@ -899,14 +906,21 @@ Route separately and review after each:
 
 After each route, search for direct `createProposal(` calls. At phase completion, only the compiler/persistence boundary may call the low-level writer.
 
-### E5.4 — Agents 2/3 catalog activation
+### E5.4 — Specialist compiler parity and lineage cutover
 
-Only after E2 adapters, E4 evidence selection, and E5 compiler are live in supervised mode:
+Catalog activation is complete and is not Phase 5 work. After E2 adapters, E4
+evidence selection, and E5 compiler are ready in supervised mode:
 
-- Add mandate-specific screen functions to a pure module; do not reuse Agent 1’s tech screen.
-- Update `config/agents/agent-2/universe.json` and `agent-3/universe.json` from `watchlist` to `catalog` in separate commits.
-- Canary research sourcing before permitting catalog-sourced proposals.
-- Dashboard must show mandate version, evidence time, selection reason, evaluator verdict, and owned SELL lots.
+- Preserve all three mandate-specific screen functions and the shared catalog,
+  rotation, evidence, evaluator, risk, ownership, and proposal semantics.
+- Route each specialist through the compiler with the same required lineage fields
+  and fail-closed behavior; vary only the accepted mandate rules and limits.
+- Canary compiler-backed proposal writing one source at a time without changing
+  catalog discovery or human approval authority.
+- Dashboard must show mandate version, evidence time, selection reason, evaluator
+  verdict, strategy-proposal fingerprint, and owned SELL lots.
+- Add a regression test proving no specialist can bypass the compiler or receive
+  weaker evidence/evaluator/ownership requirements.
 
 ---
 
@@ -1076,7 +1090,8 @@ Do not delegate these decisions to a smaller executor:
 - Metric source hierarchy, unit conventions, freshness, and completeness rules.
 - Score-change materiality thresholds.
 - Any amendment to the frozen backtest methodology or promotion criteria.
-- Any expansion beyond the accepted Agent 2/3 supervised/watchlist-bound authority policy.
+- Any expansion beyond the accepted human-supervised Agent 1–3 authority policy or
+  any regression from equal workflow/trust power.
 - Any amendment to ADR 0004's proposal-lineage and signature architecture.
 - Cash-pressure thresholds and regime exceptions.
 - Shadow→canary→live promotion and rollback decisions.
