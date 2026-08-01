@@ -70,9 +70,23 @@ This register prevents executor models from inventing rules. Accepted decisions 
 
 ### Q-001 — Agent 1 balance-sheet definitions
 
-- Define `isProfitable`, `isPreProfit`, `netCash`, and `netDebtEbitda` from approved EDGAR concepts.
-- Specify EBITDA fallback order, treatment of negative EBITDA, zero debt, financial companies, and cash restricted by operations.
-- **Blocks:** E2.3 balance-sheet completion and Agent 1 proposal-actionable scoring.
+- **Status: PROVISIONALLY ACCEPTED (Sam, 2026-08-01) — PENDING INVESTING-PARTNER REVIEW.**
+  Implemented so downstream work could proceed; see `todo/TODO.md` for the review item
+  and `docs/human-inputs/Q-001-balance-sheet-definitions-DRAFT.md` for full rationale.
+- Accepted definitions, implemented in `lib/edgar-metrics.js` and bound in `lib/mandate-evidence.js`:
+  - `isProfitable` = TTM `OperatingIncomeLoss` > 0 (operating, not net, income); `isPreProfit` is its complement.
+  - `netCash` = (unrestricted cash + short-term investments) − total debt > 0. Restricted
+    cash is excluded; operating leases are NOT counted as debt.
+  - EBITDA = operating income + D&A, with a concept fallback chain; a missing D&A tag
+    yields `null` rather than an approximation.
+  - `netDebtEbitda` = (total debt − liquid assets) / EBITDA, and is **null** whenever
+    EBITDA ≤ 0, so a negative denominator can never sort as excellent.
+  - Financial companies (banks/insurers/REITs) remain out of scope and fail closed.
+- Band thresholds were already transcribed in `config/scoring/absolute-thresholds.js`
+  and were used unchanged; only the definitions above were added.
+- **Effect:** Agent 1 and Agent 2 max available points move 53/51 → 63, and → 85 with
+  consensus bound, clearing the 80-point actionability bar for the first time.
+- **Reset:** this is a material scoring change and opens a new research cohort.
 
 ### Q-002 — Current-estimate freshness
 

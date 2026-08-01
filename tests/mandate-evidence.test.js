@@ -17,6 +17,13 @@ const derived = {
   grossMarginTrendYoY: 0.025, // +2.5pp = 250bps
   interestCoverage: 12,
   cashRunwayQuarters: 999,
+  // Q-001 balance-sheet economics (owner sign-off 2026-08-01, pending partner review).
+  ttmOperatingIncome: 5_000_000_000,
+  isProfitable: true,
+  ebitda: 6_000_000_000,
+  totalDebt: 1_000_000_000,
+  netCash: true,
+  netDebtEbitda: 0.5,
   _asOf: "2026-03-31",
 };
 const metrics = { revGrowth: 0.22, epsTrajectory: 0.25, marginTrend: 0.025, balanceSheet: 12, peerValuation: 14 };
@@ -31,16 +38,56 @@ test("assembler binds the EDGAR-derivable inputs with correct units", () => {
   assert.equal(out.absoluteEvidence.marginTrend.documentedInvestmentExplanation, false);
   assert.equal(out.valuationEvidence.value, 14);
   assert.deepEqual(out.boundMetrics.sort(), [...BOUND_METRICS].sort());
-  assert.equal(out.metricVector.balanceSheet, null);
-  assert.equal(out.absoluteEvidence.balanceSheet, undefined);
-  assert.equal(UNBOUND_METRICS.includes("balanceSheet"), true);
+  assert.equal(UNBOUND_METRICS.includes("balanceSheet"), false);
 });
 
-test("Q-001 masks numeric legacy balance-sheet and derived interest coverage inputs", () => {
+test("Q-001 accepted: balance sheet binds the approved named inputs", () => {
   const out = assembleMandateInputs({ agentId: "agent-1", metrics, derived, sector: null });
-  assert.equal(out.metricVector.balanceSheet, null);
+  assert.equal(out.absoluteEvidence.balanceSheet.isProfitable, true);
+  assert.equal(out.absoluteEvidence.balanceSheet.isPreProfit, false);
+  assert.equal(out.absoluteEvidence.balanceSheet.netCash, true);
+  assert.equal(out.absoluteEvidence.balanceSheet.netDebtEbitda, 0.5);
+  assert.equal(out.absoluteEvidence.balanceSheet.interestCoverage, 12);
+  assert.equal(out.metricVector.balanceSheet, 12);
+  assert.equal(out.boundMetrics.includes("balanceSheet"), true);
+});
+
+test("balance sheet still fails closed when profitability cannot be established", () => {
+  // A bundle predating the Q-001 derivations (no isProfitable) must not score from
+  // the legacy interest-coverage number alone.
+  const { isProfitable, netCash, netDebtEbitda, ...legacy } = derived;
+  const out = assembleMandateInputs({ agentId: "agent-1", metrics, derived: legacy, sector: null });
   assert.equal(out.absoluteEvidence.balanceSheet, undefined);
+  assert.equal(out.metricVector.balanceSheet, null);
   assert.equal(out.boundMetrics.includes("balanceSheet"), false);
+});
+
+test("consensus binds revBeat and estimateRevisions when history clears the activation gate", () => {
+  const snap = { revenueAvg: 1_000_000, epsAvg: 2.2, vendorEpsRevisions: { up30: 8, down30: 2 } };
+  const history = [
+    { retrievedAt: "2026-06-25T00:00:00Z", epsAvg: 2.0, vendorEpsRevisions: {} },
+    { retrievedAt: "2026-07-10T00:00:00Z", epsAvg: 2.1, vendorEpsRevisions: {} },
+    { retrievedAt: "2026-07-31T00:00:00Z", epsAvg: 2.2, vendorEpsRevisions: { up30: 8, down30: 2 } },
+  ];
+  const out = assembleMandateInputs({
+    agentId: "agent-1",
+    metrics,
+    derived,
+    sector: null,
+    consensus: { snapshot: snap, history, actualRevenue: 1_100_000 },
+  });
+  assert.equal(out.absoluteEvidence.revBeat.beatPct, 10);
+  assert.equal(out.absoluteEvidence.estimateRevisions.consensusChangePct, 10);
+  assert.equal(out.absoluteEvidence.estimateRevisions.positiveRevisionBreadth, 0.8);
+  assert.ok(out.boundMetrics.includes("revBeat"));
+  assert.ok(out.boundMetrics.includes("estimateRevisions"));
+});
+
+test("no consensus supplied leaves revBeat and estimateRevisions exactly as before", () => {
+  const out = assembleMandateInputs({ agentId: "agent-1", metrics, derived, sector: null });
+  assert.equal(out.absoluteEvidence.revBeat, undefined);
+  assert.equal(out.absoluteEvidence.estimateRevisions, undefined);
+  assert.equal(out.boundMetrics.includes("revBeat"), false);
 });
 
 test("missing acceleration (too few quarters) leaves the field null, not zero", () => {
