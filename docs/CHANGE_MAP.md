@@ -154,6 +154,33 @@ Gotchas:
 - Peer distributions are advisory discovery data (like the universe catalog): money
   paths never read them, and `pm:peer-*` keys stay out of any signed/ledger path.
 
+## Changing consensus-estimate ingestion (Mandate v3 Category A/B, inert)
+
+Supplies the two metrics the `maxAvailable >= 80` actionability bar in
+`lib/mandate-score.js` cannot be reached without: `revBeat` (Category A) and
+`estimateRevisions` (Category B) — 22 points for Agent 1, 22 for Agent 2. Files:
+`lib/consensus-snapshot.js` (pure extraction + derivations), the `earningsTrend` entry
+in `FUNDAMENTALS_MODULES` (`lib/yahoo.js`). Tests: `tests/consensus-snapshot.test.js`.
+
+Gotchas:
+- `earningsTrend` rides the EXISTING `quoteSummary` call — Yahoo takes a comma-separated
+  module list in one request. Adding a module costs zero extra requests; fetching it
+  separately would cost one request per name per night. Never split it out.
+- Field shapes are verified against the installed yahoo-finance2 v3 `EarningsTrendTrend`
+  interface. Verify against the package's own `.d.ts` before adding fields — do not guess
+  v3 shapes from v2 memory.
+- Two DIFFERENT revision histories exist and must not be merged: Yahoo's vendor-asserted
+  trailing fields (`epsTrend.30daysAgo`, `epsRevisions.upLast30days`) are available from a
+  single snapshot; locally-observed history requires ≥3 stored snapshots spanning ≥30 days.
+  ADR 0003 prefers locally-observed. Which may SCORE is open (Q-002/Q-004) — the extractor
+  keeps both so that decision stays reversible without re-collecting data.
+- `revBeat` compares an EDGAR actual against a consensus snapshot that **pre-dates the
+  filing**. Differencing against a post-report snapshot is leakage.
+- Derived percentages are rounded (6dp) at the derivation boundary so float dust cannot
+  surface later as a phantom score change in `lib/score-delta.js`.
+- A row with neither an EPS nor a revenue estimate returns null rather than storing an
+  empty row that would inflate apparent coverage.
+
 ## Changing EDGAR/XBRL fundamentals ingestion (Mandate v2.1, inert)
 
 The mandated primary fundamentals source (free). Files: `lib/edgar.js` (I/O — CIK
