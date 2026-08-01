@@ -1,5 +1,7 @@
 # Portfolio Manager — Agent Onboarding
 
+For a shared, Git-tracked orientation and the collaboration/documentation rules, start with [`AGENT-CONTEXT.md`](AGENT-CONTEXT.md). This onboarding guide then provides the system mental models.
+
 You are a fresh agent about to work on this system. This doc exists because the codebase's complexity is not in any single file — it's in how three runtimes, two hand-mirrored schema copies, and one irreversible action (placing a real-money order) interact. Read this before anything else; it tells you what to load next and which mental models prevent the bugs that have actually happened here.
 
 ## What this system is, in one paragraph
