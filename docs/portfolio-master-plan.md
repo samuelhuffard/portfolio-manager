@@ -2,7 +2,7 @@
 
 **Authority:** canonical portfolio-wide sequence, gates, and current-status index
 
-**Status date:** 2026-07-14 ET
+**Status date:** 2026-07-15 ET
 
 **Human task:** Codex task **HUMAN NEEDED** (`019f625a-3f04-7813-ae8b-0b1b63d5b3a6`)
 
@@ -43,12 +43,16 @@ When documents conflict, use this order:
    definitions. Open questions block only their named work.
 4. **Narrow roadmaps** — [autonomy](AUTONOMY-ROADMAP.md) for TRUST detail and
    [research](ROADMAP-FORMIDABLE-FUND.md) for SKILL detail.
-5. **Execution guide** — [bounded engineering packets](RESEARCH-ROADMAP-EXECUTION-GUIDE.md),
+5. **Supporting research plans** — including the
+   [Athena integration and agent-parity plan](ATHENA-INTEGRATION-AND-AGENT-PARITY-PLAN.md),
+   which refines a research-roadmap direction but cannot change this plan's phase
+   order, promotion gates, or authority model.
+6. **Execution guide** — [bounded engineering packets](RESEARCH-ROADMAP-EXECUTION-GUIDE.md),
    acceptance tests, and model assignment.
-6. **Evidence records** — [Phase 0 observation](PHASE-0-OBSERVATION.md), runtime
+7. **Evidence records** — [Phase 0 observation](PHASE-0-OBSERVATION.md), runtime
    logs, signed ledgers, Postgres, Sheets, Redis, broker receipts, and deployment
    records. Runtime evidence decides whether a stated status is true.
-7. Supporting plans, handoffs, FIXLIST entries, and vault notes.
+8. Supporting plans, handoffs, FIXLIST entries, and vault notes.
 
 If this plan claims a deployment or gate that current runtime evidence contradicts,
 the evidence wins and this plan must be corrected. If a subordinate document has
@@ -86,6 +90,7 @@ evidence. “Verified locally” is not “deployed,” and “deployed” is no
 | Research throughput | SKILL | A fresh 2026-07-14 scheduled run conserves all 36 outcomes (35 investment HOLD, 1 stale-data block, zero failures), but still produced zero genuine actionable proposals and zero evaluator approvals. | Outcome accounting is now proven; throughput/edge remains unproven. |
 | Research evidence spine | SKILL | Reviewed evidence-spine code and additive migrations are recorded as deployed at backend `79c778a` and dashboard `76d92b8`; promotion flags remain shadow/measurement-only. | [Jul 14 deployment record](PHASE-0-OBSERVATION.md#2026-07-14-et-reviewed-evidence-spine-deployment). |
 | Research packet implementation | SKILL | Several E1–E4 and E7 pieces are described as verified locally. Their runtime, evidence, and promotion gates remain separate. | [Execution ledger](RESEARCH-ROADMAP-EXECUTION-GUIDE.md#31-verified-local-implementation-ledger). |
+| Athena research integration | SKILL | Production consumption remains disabled. Source review of `Cubanso24/stock-llm@483a68b` shows Athena is a broad research and accountability platform, while Portfolio Manager's existing adapter consumes only a small conclusion-first partner dossier and truncates it further for the generator prompt. | [Athena integration and agent-parity plan](ATHENA-INTEGRATION-AND-AGENT-PARITY-PLAN.md). This is a future planning direction, not runtime proof or activation authority. |
 | Financial Postgres | TRUST | Neon is accepted and shadow/dual-write plumbing exists. Sheets/Redis remain canonical for money reads; no cutover gate has passed. | [ADR 0001](adr/0001-postgres-canonical-store.md) and autonomy Phase 2. |
 | Outside capital | TRUST | Software support for investor accounting does **not** establish legal permission to pool or manage outside money. Sam has explicitly chosen to accept interim manual legal risk while continuing to seek counsel; that choice is not a compliance finding. | The legal/tax warning and autonomy restrictions in section 8 remain active. |
 
@@ -173,17 +178,38 @@ freeze” rules permit it, but no phase is promoted out of order.
 | 7 — Cash/edge | No authority expansion by itself | Research Phases 6–7 / E6–E7 |
 | 8 — Exit/full mandate autonomy | Autonomy Phase 4 steps 3–4 | Ongoing current-version skill evidence |
 
+### Athena analytical-depth crosswalk
+
+The [Athena integration and agent-parity plan](ATHENA-INTEGRATION-AND-AGENT-PARITY-PLAN.md)
+does not create a new master phase. It refines existing SKILL work as follows:
+
+| Master phase | Athena/depth-plan role |
+| --- | --- |
+| **0 — Supervised baseline** | Source/runtime review, permission discussion, and contract design only. Keep Portfolio Manager consumption disabled; no live research-policy change. |
+| **1 — Mandates/contracts** | Freeze a read-only versioned Athena evidence contract and define equal workflow/evidence access across Agents 1–3 while preserving mandate-specific judgment. |
+| **2 — Durable truth** | Store full Athena evidence packages point-in-time in shadow with fingerprints, provenance, freshness, conflicts, completeness, and restore proof. |
+| **3 — Coverage/score meaning** | Validate Athena's sources and analytical outputs across a golden company set; add paid data only for measured gaps; prove equal catalog/evidence coverage for all specialists. |
+| **4 — Attention/Agent 4 shadow** | Compare current, compact-Athena, and full-package research in shadow/canary; use one shared candidate bus with mandate-specific ranking. |
+| **5 — Compiler/financial truth** | Bind the accepted Athena package fingerprint into the canonical proposal lineage and expand Agents 2/3 beyond static watchlists only through the existing reviewed canary. |
+| **6–8 — Skill/autonomy evidence** | Grade each mandate separately at its correct horizon while holding all three to the same process, evidence, evaluator, lineage, and authority standards. |
+
+Athena remains a read-only research dependency. Portfolio Manager retains mandate,
+portfolio, risk, evaluator, approval, execution, accounting, and reconciliation
+authority. Athena source sophistication never substitutes for runtime evidence,
+agent-specific skill samples, or the master plan's promotion gates.
+
 ### Phase 0 — Prove the supervised baseline
 
-**Label: BOTH · Status: active at 0/10; G0 complete**
+**Label: BOTH · Status: Phase 0-TRUST active at 0/10; first R1 throughput cohort unproven; G0 complete**
 
 1. **[TRUST]** Freeze S1/S2 behavior after the gate-closing release.
 2. **[TRUST]** Run the daily checklist for 10 consecutive trading days.
 3. **[TRUST]** Maintain 100% holding monitoring even when Athena/Yahoo/FRED or other evidence
    sources degrade; degraded inputs must visibly block or downgrade action.
 4. **[SKILL]** Accumulate at least three genuine actionable specialist proposals and at least
-   one evaluator approval under current versions. Do not lower thresholds or force
-   trades to obtain them.
+   one evaluator approval under one declared current-version R1 cohort. Do not lower
+   thresholds or force trades to obtain them. This is the first organic research-throughput
+   gate, separate from completion of the Phase 0-TRUST safety window.
 5. **[SKILL]** Prove every attempted research review has one explicit outcome.
 6. **[TRUST]** Keep live authority human-supervised and Postgres money reads shadow-only.
 
@@ -191,15 +217,26 @@ freeze” rules permit it, but no phase is promoted out of order.
 transactional parity, valuation freshness, timestamped logs, proposal/evaluator
 lineage, deployment/policy versions.
 
-**Exit gate [BOTH]:** safety clock 10/10; zero unresolved critical incidents or manual
-ledger repairs; research baseline and proposal throughput proven; health, logs,
-dashboard, ledgers, broker receipts, and parity agree.
+**Phase 0-TRUST completion [TRUST]:** safety clock 10/10; zero unresolved critical
+incidents or manual ledger repairs; health, logs, dashboard, ledgers, valid broker
+receipts, holding coverage, companion availability, reconciliation, deployment
+identity, observer integrity, and parity agree. The independent R1 throughput gate
+does not block Phase 1 policy work or inert Phase 2 shadow plumbing, but neither
+TRUST completion nor that preparation authorizes a positive research canary,
+expanded proposal authority, or autonomous execution.
 
-**Reset/demotion [BOTH]:** any S1/S2 anomaly resets the safety clock. A material R1 change
-starts a new research cohort but does not erase already-clean safety days. If
-throughput is still zero, remain in Phase 0, diagnose locally, make one declared
-research release, and restart only the research cohort unless safety behavior also
-changed.
+**First current-version R1 throughput gate [SKILL]:** at least three organic,
+genuine actionable specialist proposals and at least one evaluator approval under
+one declared current-version R1 cohort, with conserved research outcomes and
+current lineage. Forced, manual, legacy, or synthetic proposals never satisfy this
+gate. Until it passes, positive research canaries and later authority promotion
+remain blocked even after Phase 0-TRUST is complete.
+
+**Reset/demotion:** any S1/S2 anomaly resets the TRUST safety clock. A material R1
+change starts a new SKILL cohort but does not erase already-clean TRUST days unless
+the release also changes S1/S2 behavior. If organic throughput remains insufficient,
+diagnose locally and make one declared research release; restart only the affected
+research cohort unless safety behavior also changed.
 
 ### Phase 1 — Freeze mandates, ownership, and decision contracts
 
@@ -488,6 +525,8 @@ During the Phase 0 safety freeze, the following may proceed without resetting th
 safety clock only while it remains behaviorally isolated from the live backend:
 
 - Q-001–Q-007 meetings, mandate drafting, legal/tax consultation, and policy review;
+- Athena source/runtime review, owner/licensing discussion, evidence-contract
+  design, and offline vendor comparison with no live adapter activation;
 - local-only research packets, data adapters, backtest scaffold, tests, docs, and
   dashboard work with no authority or scheduled-job effect;
 - read-only evidence review, restore rehearsal in non-production, and cost analysis;
@@ -526,6 +565,9 @@ Do not during the freeze:
 | --- | --- |
 | [AUTONOMY-ROADMAP.md](AUTONOMY-ROADMAP.md) | TRUST architecture and detailed autonomy controls. |
 | [ROADMAP-FORMIDABLE-FUND.md](ROADMAP-FORMIDABLE-FUND.md) | SKILL research/edge design and detailed metrics. |
+| [FUND-MANAGER-READINESS-SCORECARD.md](FUND-MANAGER-READINESS-SCORECARD.md) | Dated 1–10 whole-system progress ratings; summarizes maturity but cannot change gates, authority, or evidence. |
+| [ATHENA-INTEGRATION-AND-AGENT-PARITY-PLAN.md](ATHENA-INTEGRATION-AND-AGENT-PARITY-PLAN.md) | Supporting SKILL plan for using Athena as the shared research substrate, equalizing Agents 1–3, and improving evidence depth; no implementation or activation authority. |
+| [PROPOSAL-QUALITY-FINDINGS.md](PROPOSAL-QUALITY-FINDINGS.md) | Current proposal-path strengths, confidence limits, and evidence-gated improvement candidates; no implementation authority. |
 | [RESEARCH-ROADMAP-EXECUTION-GUIDE.md](RESEARCH-ROADMAP-EXECUTION-GUIDE.md) | Bounded implementation packets and verification detail. |
 | [RESEARCH-DECISION-REGISTER.md](RESEARCH-DECISION-REGISTER.md) | Accepted/open investment-policy decisions. |
 | [PHASE-0-OBSERVATION.md](PHASE-0-OBSERVATION.md) | Append-only Phase 0 daily evidence and consecutive count. |
@@ -538,5 +580,7 @@ Do not during the freeze:
 | [CHANGE_MAP.md](CHANGE_MAP.md) | Code ownership/copy map, not roadmap status. |
 
 The next action is the first eligible Phase 0 trading-day observation. The next
-promotion is Phase 0 exit. Later-phase code
-may exist or be prepared, but it does not change that ordering.
+TRUST promotion is Phase 0-TRUST completion; the first R1 organic-throughput gate
+continues on its independent current-version cohort and must pass before positive
+research canaries or later authority promotion. Later-phase code may exist or be
+prepared, but it does not change that ordering.

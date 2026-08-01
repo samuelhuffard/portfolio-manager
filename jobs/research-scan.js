@@ -450,7 +450,35 @@ async function buildAgentReviewContext(sheets, spreadsheetId, { candidates, risk
  * evaluatorVerdict/noProposalReason are advisory strings for the lab endpoint
  * and never feed back into any money decision.
  */
-async function reviewCandidateForAgent(agent, c, ctx) {
+export const RESEARCH_PIPELINE_DEFAULTS = Object.freeze({
+  getCachedNews,
+  setCachedNews,
+  tavilySearch,
+  sanitizeEvidenceItems,
+  getAthenaConfig,
+  fetchAthenaDossier,
+  athenaDossierToEvidence,
+  fetchRecentFilings,
+  getAIRecommendation,
+  applyRiskChecks,
+  applyConvictionClamp,
+  applyBreakerToProposal,
+  hasOpenProposal,
+  hasRecentProposal,
+  evaluateProposal,
+  resolveFinalVerdict,
+  canCreateActionableProposal,
+  sizeProposalAmount,
+  createProposal,
+  // Intentionally absent from production behavior. Offline contract tests may
+  // inject a future contradiction-admission policy without activating O2A.
+  evaluatorAdmissionPolicy: null,
+});
+
+export async function reviewCandidateForAgent(agent, c, ctx, dependencyOverrides = null) {
+  const dependencies = dependencyOverrides
+    ? { ...RESEARCH_PIPELINE_DEFAULTS, ...dependencyOverrides }
+    : RESEARCH_PIPELINE_DEFAULTS;
   const { riskLimits } = ctx;
   let createdProposal = null;
   let evaluatorVerdict = null;
@@ -509,11 +537,11 @@ async function reviewCandidateForAgent(agent, c, ctx) {
   }
 
   // News is a market fact too — shared cache by ticker is fine and saves Tavily quota across agents.
-  let news = await getCachedNews(c.ticker);
+  let news = await dependencies.getCachedNews(c.ticker);
   if (!news) {
     try {
-      news = await tavilySearch(`${c.ticker} ${c.name} stock news`, { maxResults: 3, days: 7 });
-      await setCachedNews(c.ticker, news);
+      news = await dependencies.tavilySearch(`${c.ticker} ${c.name} stock news`, { maxResults: 3, days: 7 });
+      await dependencies.setCachedNews(c.ticker, news);
     } catch (err) {
       console.warn(`[Research] ${agent.id}: Tavily search failed for ${c.ticker}:`, err.message);
       news = []; // don't cache — let the next ticker/run retry instead of masking an outage for 12h
@@ -522,8 +550,8 @@ async function reviewCandidateForAgent(agent, c, ctx) {
 
   // Fence-and-scan untrusted internet text before any model sees it (lib/evidence.js).
   // Cache keeps the ORIGINAL text; sanitization runs on every use so pattern updates apply to cached items too.
-  const newsScan = sanitizeEvidenceItems(news, { kind: `news:${c.ticker}`, textFields: ["title", "content"] });
-  const scanSignalScan = sanitizeEvidenceItems(scanSignalsForTicker(ctx.marketScans, c.ticker), {
+  const newsScan = dependencies.sanitizeEvidenceItems(news, { kind: `news:${c.ticker}`, textFields: ["title", "content"] });
+  const scanSignalScan = dependencies.sanitizeEvidenceItems(scanSignalsForTicker(ctx.marketScans, c.ticker), {
     kind: `scan:${c.ticker}`,
     textFields: ["signal", "notes"],
   });
@@ -538,16 +566,16 @@ async function reviewCandidateForAgent(agent, c, ctx) {
   // system's read on this ticker. Config-gated off by default; fetched fresh
   // (local + free), then fenced and sanitized like every other external source.
   let safeAthenaEvidence = [];
-  if (getAthenaConfig()) {
-    const dossier = await fetchAthenaDossier(c.ticker, { circuit: ctx.athenaCircuit });
-    const { items: athenaItems, flags: implausibleFlags } = athenaDossierToEvidence(dossier, {
+  if (dependencies.getAthenaConfig()) {
+    const dossier = await dependencies.fetchAthenaDossier(c.ticker, { circuit: ctx.athenaCircuit });
+    const { items: athenaItems, flags: implausibleFlags } = dependencies.athenaDossierToEvidence(dossier, {
       livePrice: c.raw?.price?.regularMarketPrice ?? null,
     });
     for (const flag of implausibleFlags) {
       ctx.evidenceFlags.push({ kind: `athena:${c.ticker}`, reasons: flag.reasons });
       console.error(`[Evidence] ${agent.id}: dropped implausible Athena valuation in ${c.ticker}.${flag.section}: ${flag.reasons.join(", ")}`);
     }
-    const athenaScan = sanitizeEvidenceItems(athenaItems, {
+    const athenaScan = dependencies.sanitizeEvidenceItems(athenaItems, {
       kind: `athena:${c.ticker}`,
       textFields: ["content"],
     });
@@ -558,7 +586,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     safeAthenaEvidence = athenaScan.items;
   }
 
-  const recentFilings = await fetchRecentFilings(c.ticker, { limit: 3 });
+  const recentFilings = await dependencies.fetchRecentFilings(c.ticker, { limit: 3 });
   const proposalPolicy = [
     `Available cash for new BUY proposals before this ticker: $${ctx.availableCashForBuys.toFixed(2)} after accepted, unfilled BUY reserves.`,
     ctx.availableCashForBuys > 0
@@ -592,7 +620,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     researchHistory: formatResearchHistoryForPrompt(ctx.researchLedger[c.ticker]),
     boundaryToken: ctx.boundaryToken,
   };
-  const proposal = await getAIRecommendation({ ...overlayInput, budget: ctx.budget });
+  const proposal = await dependencies.getAIRecommendation({ ...overlayInput, budget: ctx.budget });
   const generatorAction = proposal.action;
   if (proposal.suspectEvidence?.length) {
     ctx.evidenceFlags.push({ kind: `model:${c.ticker}`, reasons: proposal.suspectEvidence });
@@ -612,13 +640,18 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     analystTrend: c.analystTrend ?? null,
     insiderActivity: c.insiderActivity ?? null,
   };
-  let rec = applyConvictionClamp(applyRiskChecks(proposal, riskContext, riskLimits), agent, c, riskLimits);
+  let rec = dependencies.applyConvictionClamp(
+    dependencies.applyRiskChecks(proposal, riskContext, riskLimits),
+    agent,
+    c,
+    riskLimits
+  );
   let riskOverridden = generatorAction !== "HOLD" && rec.action === "HOLD";
 
   // Circuit-breaker pre-gate: don't spend evaluator tokens on an action the
   // breaker tier can't admit anyway (BUYs at ≥12% drawdown, everything at HALT).
   if (rec.action !== "HOLD") {
-    const breakerGate = applyBreakerToProposal(ctx.breaker.tier, rec.action, 1);
+    const breakerGate = dependencies.applyBreakerToProposal(ctx.breaker.tier, rec.action, 1);
     if (!breakerGate.allowed) {
       rec = { ...rec, action: "HOLD", targetWeight: 0, overrideNotes: [...(rec.overrideNotes ?? []), breakerGate.note] };
       riskOverridden = true;
@@ -630,7 +663,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
   // Duplicate pre-check: an identical open proposal means this one can never
   // queue, so skip the evaluator spend and note why.
   const isDuplicateOpen =
-    rec.action !== "HOLD" && hasOpenProposal(ctx.openProposals, { agentId: agent.id, ticker: c.ticker, side: rec.action });
+    rec.action !== "HOLD" && dependencies.hasOpenProposal(ctx.openProposals, { agentId: agent.id, ticker: c.ticker, side: rec.action });
   if (isDuplicateOpen) {
     rec.overrideNotes = [...(rec.overrideNotes ?? []), "duplicate_open_proposal: evaluator skipped, will not re-queue"];
     evaluatorVerdict = "skipped (duplicate open proposal)";
@@ -675,22 +708,41 @@ async function reviewCandidateForAgent(agent, c, ctx) {
       };
 
       let finalEval;
-      const first = await evaluateProposal({ ...evalContext, proposal: rec, budget: ctx.budget });
+      const first = await dependencies.evaluateProposal({ ...evalContext, proposal: rec, budget: ctx.budget });
       if (first.verdict === "REVISE") {
         console.log(`[Evaluator] ${agent.id}: ${c.ticker} sent back for revision — ${first.critique.join("; ")}`);
-        const revisedRaw = await getAIRecommendation({ ...overlayInput, evaluatorCritique: first.critique, previousProposal: rec, budget: ctx.budget });
-        const revised = applyConvictionClamp(applyRiskChecks(revisedRaw, riskContext, riskLimits), agent, c, riskLimits);
+        const revisedRaw = await dependencies.getAIRecommendation({ ...overlayInput, evaluatorCritique: first.critique, previousProposal: rec, budget: ctx.budget });
+        const revised = dependencies.applyConvictionClamp(
+          dependencies.applyRiskChecks(revisedRaw, riskContext, riskLimits),
+          agent,
+          c,
+          riskLimits
+        );
         if (revised.action === "HOLD") {
           // Generator conceded (or the risk engine downgraded the revision) — final HOLD.
           finalEval = { ...first, verdict: "REJECT", revisions: 1, critique: [...first.critique, "generator conceded on revision"] };
           rec = revised;
         } else {
-          const second = await evaluateProposal({ ...evalContext, proposal: revised, budget: ctx.budget });
-          finalEval = resolveFinalVerdict(first, second);
+          const second = await dependencies.evaluateProposal({ ...evalContext, proposal: revised, budget: ctx.budget });
+          finalEval = dependencies.resolveFinalVerdict(first, second);
           if (finalEval.verdict === "APPROVE") rec = revised;
         }
       } else {
-        finalEval = resolveFinalVerdict(first);
+        finalEval = dependencies.resolveFinalVerdict(first);
+      }
+
+      if (finalEval.verdict === "APPROVE" && dependencies.evaluatorAdmissionPolicy) {
+        const admission = dependencies.evaluatorAdmissionPolicy(finalEval);
+        if (!admission?.admitted) {
+          finalEval = {
+            ...finalEval,
+            verdict: "REJECT",
+            critique: [
+              ...(finalEval.critique ?? []),
+              `future evaluator admission denied: ${(admission?.reasonCodes ?? ["invalid_evaluator_result"]).join(", ")}`,
+            ],
+          };
+        }
       }
 
       if (finalEval.suspectEvidence?.length) {
@@ -762,15 +814,15 @@ async function reviewCandidateForAgent(agent, c, ctx) {
   // Risk-gated BUY/SELL calls go straight into Sam's approval queue instead of
   // waiting for him to read the Sheet and re-type a proposal by hand. He still
   // approves or rejects every one in the dashboard before anything is placed.
-  if (rec.action !== "HOLD" && !canCreateActionableProposal(agent)) {
+  if (rec.action !== "HOLD" && !dependencies.canCreateActionableProposal(agent)) {
     const note = `${agent.id} is paper-only; actionable recommendation recorded without creating an approval proposal`;
     rec.overrideNotes = [...(rec.overrideNotes ?? []), `paper_only: ${note}`];
     noProposalReason = note;
     proposalDisposition = "paper_only";
-  } else if (rec.action !== "HOLD" && !hasOpenProposal(ctx.openProposals, { agentId: agent.id, ticker: c.ticker, side: rec.action })) {
+  } else if (rec.action !== "HOLD" && !dependencies.hasOpenProposal(ctx.openProposals, { agentId: agent.id, ticker: c.ticker, side: rec.action })) {
     if (
       rec.action === "SELL" &&
-      hasRecentProposal(ctx.openProposals, {
+      dependencies.hasRecentProposal(ctx.openProposals, {
         agentId: agent.id,
         ticker: c.ticker,
         side: "SELL",
@@ -787,7 +839,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
       noProposalReason = `ordinary SELL cooldown: this position had a SELL review within ${ctx.ordinarySellCooldownDays} days`;
       proposalDisposition = "blocked";
     } else {
-      let sized = sizeProposalAmount({
+      let sized = dependencies.sizeProposalAmount({
         action: rec.action,
         targetWeightPct: rec.targetWeight,
         totalPortfolioValue: ctx.totalPortfolioValue,
@@ -805,7 +857,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
       // Circuit-breaker sizing pass: REDUCE tier halves BUY dollars; blocked tiers
       // were already downgraded pre-evaluator — this is a belt-and-braces recheck.
       if (sized) {
-        const breakerGate = applyBreakerToProposal(ctx.breaker.tier, rec.action, sized.amountDollars);
+        const breakerGate = dependencies.applyBreakerToProposal(ctx.breaker.tier, rec.action, sized.amountDollars);
         if (!breakerGate.allowed) {
           console.error(`[Breaker] ${agent.id}: ${rec.action} ${c.ticker} blocked at queue time — ${breakerGate.note}`);
           rec.overrideNotes = [...(rec.overrideNotes ?? []), breakerGate.note];
@@ -866,7 +918,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
         }`;
 
         try {
-          const created = await createProposal({
+          const created = await dependencies.createProposal({
             agentId: agent.id,
             ticker: c.ticker,
             side: rec.action,

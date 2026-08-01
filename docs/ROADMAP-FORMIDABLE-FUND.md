@@ -16,6 +16,20 @@ This is a roadmap for improving research quality and learning whether an edge ex
 
 Implementation companion: `docs/RESEARCH-ROADMAP-EXECUTION-GUIDE.md` translates each phase into bounded executor packets, exact file surfaces, verification commands, stop conditions, and reviewer-owned decisions.
 
+Progress companion: `docs/FUND-MANAGER-READINESS-SCORECARD.md` is the dated,
+eleven-category 1–10 view of whole-system maturity. It supersedes the coarse
+three-axis estimates below for current progress reporting, but it cannot change
+this roadmap's evidence requirements or the master plan's gates.
+
+Analytical-depth companion:
+`docs/ATHENA-INTEGRATION-AND-AGENT-PARITY-PLAN.md` records the plan to evaluate
+Athena as the shared research substrate for all three specialists, replace the
+current lossy conclusion-only adapter with a versioned point-in-time evidence
+package, validate paid/free sources through a golden-set bakeoff, and preserve
+Portfolio Manager's mandate, evaluator, proposal, approval, and execution
+authority. It is a supporting plan only; it does not activate Athena, change the
+phase order, or authorize an implementation packet.
+
 Frozen implementation authorities:
 
 - `docs/RESEARCH-DECISION-REGISTER.md` — accepted architecture/policy choices and the remaining investment-policy questions.
@@ -108,6 +122,23 @@ They meet at four explicit gates:
 3. **Coordinator evidence:** versioned outcomes by strategy, mandate, and regime become inputs to Agent 4 shadow evaluation and later promotion decisions.
 4. **No authority leakage:** idle-cash challenges, scores, backtests, and Agent 4 opinions can recommend or reject; none may create a trade or bypass the current human signature.
 
+### Phase 0-TRUST versus first R1 throughput
+
+The supervised baseline has two independent completions. **Phase 0-TRUST** requires
+10/10 consecutive clean trading days plus zero unresolved critical incidents under
+the pinned safety release. Separately, the first declared current-version **R1
+throughput cohort** requires at least three organic, genuine actionable specialist
+proposals and one evaluator approval. Forced, manual, legacy, and synthetic proposals
+never count toward that cohort.
+
+The R1 gate remains mandatory before positive research canaries or later authority
+promotion, but it does not block Phase 0-TRUST completion, Phase 1 policy work, or
+inert Phase 2 shadow plumbing. A material R1 change starts a new SKILL cohort without
+resetting already-clean TRUST days unless it also changes S1/S2 behavior. This split
+does not weaken companion availability, MCP receipts, critical schedules, holding
+monitoring, parity, signed ledgers, reconciliation, deployment identity, observer
+integrity, or any S1/S2 reset rule.
+
 ### Current authority and lineage gate
 
 Agents 2/3 are already `supervised` in production even though earlier roadmap language calls them non-actionable. Their runtime proposal objects still use the legacy Redis proposal shape rather than the canonical `StrategyProposal` lineage contract.
@@ -145,6 +176,12 @@ Work:
 - Record the baseline: candidates reviewed, data-gate failures, generator actions, evaluator verdicts, proposals, costs, latency, and missing-data causes by agent.
 
 **Exit gate:** one clean post-fix run with 36/36 attempts accounted for; zero fabricated unsupported figures; zero status rows treated as securities; no silently dropped output; budget and action counts agree across logs, Redis status, Sheets, and the dashboard.
+
+**First current-version R1 throughput gate:** retain at least three organic, genuine
+actionable specialist proposals and one evaluator approval under one declared R1
+cohort. This is a downstream research-promotion gate, not part of the 10-day
+Phase 0-TRUST completion. It remains unpassed until runtime evidence satisfies it;
+local fixtures and forced/manual/legacy proposals cannot substitute.
 
 ---
 

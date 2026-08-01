@@ -82,7 +82,20 @@ the evidence-spine transition. Its controlled promotion to `main` is governed
 by [ADR-0005](adr/0005-production-branch-policy.md); every deploy must prove
 the exact branch and commit, and no branch policy changes execution authority.
 
-**Exit gate:** 10 consecutive trading days after deployment with no missed critical job, ambiguous fill, manual ledger repair, hidden failure, or unsafe client exposure; at least three genuine actionable proposals and one evaluator approval; every holding monitored despite quote failures; health, dashboard, logs, and reconciliation agree.
+**Phase 0-TRUST exit gate:** 10 consecutive trading days after deployment with no
+missed critical job, ambiguous fill, manual ledger repair, hidden failure, unsafe
+client exposure, companion outage, invalid MCP receipt, holding-coverage loss, or
+unresolved critical incident; every holding remains monitored despite quote failures;
+health, dashboard, logs, signed ledgers, reconciliation, deployment identity,
+observer integrity, and parity agree.
+
+**Separate first R1 throughput gate:** at least three organic, genuine actionable
+specialist proposals and one evaluator approval under one declared current-version
+R1 cohort. This gate is not waived: it blocks positive research canaries and later
+authority promotion, but it does not block declaring Phase 0-TRUST complete, Phase 1
+policy work, or inert Phase 2 shadow plumbing. Forced, manual, legacy, and synthetic
+proposals do not count. A material R1 change opens a new SKILL cohort without
+resetting clean TRUST days unless it also changes S1/S2 behavior.
 
 ---
 

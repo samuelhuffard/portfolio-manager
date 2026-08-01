@@ -7,8 +7,10 @@
 
 **Owner:** Codex, with Sam as final authority  
 **Purpose:** the authoritative human-readable record for the 10 consecutive clean
-trading-day Phase 0 exit gate in `AUTONOMY-ROADMAP.md`. This is evidence tracking,
-not a substitute for the Jetson system sentinel or signed ledgers.
+trading-day Phase 0-TRUST exit gate in `AUTONOMY-ROADMAP.md`, plus a separate
+read-only progress summary for the first current-version R1 organic-throughput
+cohort. This is evidence tracking, not a substitute for the Jetson system sentinel
+or signed ledgers.
 
 ## Window rule
 
@@ -279,6 +281,30 @@ client responses; they do not expand trading authority.
   evidence. They must be visible in the daily record and must not silently create
   actionable proposals.
 
+## 2026-07-15 ET: formatted-cash research repair (S2; day invalid)
+
+The July 14 recommendation rationales exposed a live-path defect: multiple
+unheld candidates said available cash was `$0.00` even though the Holdings sheet
+contained `$85` and no approved, unfilled BUY reserved any of it. The Sheets API
+returned the currency-formatted string `$85.00`; `readCashBalance()` called
+`Number()` on that string, producing `NaN`, and the fail-closed research helper
+converted the invalid value to zero. The same formatted-value mistake made held
+market values and return percentages unreadable to concentration, sizing, and
+loss-state checks.
+
+Commit `9517be1` makes every affected Holdings numeric reader request
+`UNFORMATTED_VALUE` and adds a regression fixture reproducing the formatted-cash
+failure. The full backend suite passed 750/750. The commit was pushed to aligned
+`main` and `mandate-v3`, then deployed through the signed restart wrapper as edge
+`52→53`. Post-deploy `/health` returned 200 with every dependency true, PM2 was
+online at the exact commit, and an independent production read proved `$85` cash,
+`$0` approved-BUY reserve, `$85` available cash, and finite market values for all
+current positions.
+
+This repair changes research admission and risk inputs, so it is S2. July 15 was
+already invalid because of earlier credential-rotation Redis failures and cannot
+count; the 5:15 PM run is a post-repair dress-rehearsal sample, not Day 1.
+
 ## Daily evidence checklist
 
 After the market close, record the evidence rather than a subjective status.
@@ -305,8 +331,12 @@ consecutive safety-day decision.
    with zero failed, overflow, or silent skips. Log aggregate Athena/Yahoo/FRED
    degradation and prove it blocked or downgraded action; do not put private
    tickers in the automated ops record.
-7. Update proposal throughput: cumulative genuine actionable proposals, evaluator
-   approvals, filled trades, and any owner/lot reconciliation requirement.
+7. Update the separate R1 proposal-throughput cohort: cumulative organic, genuine
+   actionable proposals, evaluator approvals, filled trades, and any owner/lot
+   reconciliation requirement. Forced, manual, legacy, or synthetic proposals do
+   not count. Throughput insufficiency does not invalidate an otherwise clean TRUST
+   day, and a TRUST failure does not discard an otherwise valid versioned research
+   sample.
 
 ## Consecutive-day ledger
 
@@ -314,7 +344,7 @@ consecutive safety-day decision.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Jul 13 | **Invalid — does not count** | Pass: MCP sync + reconciliation jobs recorded `ok` | Pass: 7/7 Investors, 43/43 Performance, 1/1 Trade, 1/1 Lots, 3,371 Audit | **Fail:** NVDA market value `$15.37` vs `$15.39` | Critical jobs ran, but 3 active P1s + PM2 restart/marker/Athena noise; scan accounting unproven | 36 reviews reported as HOLD, 0 proposals; usage-limit log contradiction | Alerting worked; exact parity and clean-P1 gate did not |
 | Jul 14 | **Observed `FAIL_BOTH` — does not count** | Pre-release invocation receipts cannot be recreated; companion is now restarted with a fresh heartbeat for future days | Prior signed-ledger proof clean | Transactional `MATCH`; valuation `NON_COMPARABLE` warning | Signed v2 observer: critical-job summaries pass, but scheduled-invocation and holding-coverage histories fail; its retained 8:10 snapshot contains one untrusted-restart P1 | 36 conserved outcomes, 0 actionable proposals; research sample retained, throughput insufficient | `$40` ceiling plus `$10` protected pool now enforced. Later `40→41` signed deploy proof clears the future restart path but cannot rewrite the immutable failed day |
-| Jul 15 | Pending — cannot count while `F-2026-095` is active | — | — | — | — | — | Credential rotation and verification are a Trust prerequisite |
+| Jul 15 | **Invalid — does not count** | Earlier credential-rotation Redis failures prevent a clean day | Post-close evidence pending | Post-close evidence pending | S2 cash-reader repair deployed at 4:38 PM ET | 5:15 PM post-repair dress rehearsal pending | Live proof: `$85` available, not `$0`; signed restart `52→53` |
 | Jul 16 | Pending | — | — | — | — | — | |
 | Jul 17 | Pending | — | — | — | — | — | |
 | Jul 20 | Pending | — | — | — | — | — | |
@@ -323,10 +353,23 @@ consecutive safety-day decision.
 | Jul 23 | Pending | — | — | — | — | — | |
 | Jul 24 | Pending | — | — | — | — | — | |
 
-## Exit evidence summary
+## Completion evidence summary
+
+### Phase 0-TRUST completion
 
 - Consecutive clean trading days: **0 / 10**
-- Genuine actionable proposals: **0 / 3 required during the window**
-- Evaluator approvals: **0 / 1 required during the window**
+- Unresolved critical incidents: see the current daily evidence and sentinel state;
+  Phase 0-TRUST cannot complete until this is zero.
+
+### First current-version R1 organic-throughput cohort
+
+- Organic genuine actionable proposals: **0 / 3 required before positive research canaries or later authority promotion**
+- Evaluator approvals: **0 / 1 required before positive research canaries or later authority promotion**
+- Forced, manual, legacy, and synthetic proposals are ineligible.
 - Filled trades during this observation window: **0**
 - Autonomy level: **human-supervised; Agents 2/3 supervised and static-watchlist-bound; Agent 4 shadow-only**
+
+The R1 cohort does not prevent Phase 0-TRUST completion, Phase 1 policy work, or
+inert Phase 2 shadow plumbing. A material R1 release opens a new SKILL cohort; it
+does not erase clean TRUST days unless it also changes S1/S2 behavior. Historical
+daily rows above remain unchanged evidence of the releases and verdicts observed.

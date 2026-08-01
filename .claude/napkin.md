@@ -13,8 +13,8 @@
    Do instead: keep `ROBINHOOD_TOTP_SECRET` nonempty and `ROBINHOOD_STORE_SESSION=false`; restore MFA directly on the Jetson, then prove freshness with read-only reconciliation and holdings sync.
 3. **[2026-07-12] Holdings status rows are not positions**
    Do instead: keep every Holdings reader/parity projection filtering `Last synced`, `Synced via Robinhood Agentic MCP`, cash, and sample-marker rows; regression-test any new marker format.
-4. **[2026-07-13] Research outcomes require decision-time facts**
-   Do instead: classify outcomes from structured scan facts and persist versioned aggregates; treat legacy Sheet/Redis rows as non-classifiable instead of parsing rationale text.
+4. **[2026-07-13] Research outcomes and evidence packages require decision-time facts**
+   Do instead: classify outcomes from structured scan facts, persist versioned aggregates, and enforce one package-wide cutoff across every source, retrieval, fact, and derived record; treat legacy Sheet/Redis rows as non-classifiable instead of parsing rationale text.
 5. **[2026-07-13] Observation days need clean parity and sentinel state**
    Do instead: count a Phase 0 day only after the scheduled jobs complete with no active P1s and live Sheets/Postgres parity is `MATCH`; local commits and basic `/health` cannot substitute for that evidence.
 6. **[2026-07-13] API-key presence is not research availability**
@@ -43,3 +43,7 @@
    Do instead: let all agents create pending proposals against the shared cash pool; only accepted, unfilled BUY proposals reserve cash.
 7. **[2026-06-29] Backend reads durable agent memories**
    Do instead: pull global `pm:agent-memory:<agentId>:global` memories into `research-scan.js` so proposal generation reflects Sam's durable feedback.
+
+## User Directives
+1. **[2026-07-16] Maintain the fund-manager readiness ratings**
+   Do instead: after material implementation, deployment, incident, gate, or matured outcome evidence, update `docs/FUND-MANAGER-READINESS-SCORECARD.md` with candid category deltas and the weighted overall score; do not award full credit for plans or undeployed code.

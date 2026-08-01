@@ -31,6 +31,7 @@ function facts(overrides = {}) {
 test("classifies every research outcome category from explicit facts", () => {
   const cases = {
     investment_hold: facts(),
+    generator_degraded: facts({ generatorAction: null, finalAction: null, generatorDegradation: "parse" }),
     data_gate: facts({ dataGateBlocked: true, generatorAction: null }),
     stale_data: facts({ dataGateBlocked: true, dataGateStale: true, generatorAction: null }),
     budget_exhausted: facts({ failureKind: "budget_exhausted" }),
@@ -49,6 +50,9 @@ test("classifies every research outcome category from explicit facts", () => {
 });
 
 test("classification precedence keeps infrastructure outcomes out of investment HOLD", () => {
+  for (const generatorDegradation of ["parse", "truncation", "schema", "missing_required_field"]) {
+    assert.equal(classifyRecommendationOutcome(facts({ generatorAction: null, finalAction: null, generatorDegradation })), "generator_degraded", generatorDegradation);
+  }
   assert.equal(classifyRecommendationOutcome(facts({ generatorAction: "BUY", finalAction: "BUY", evaluatorState: "approved", proposalDisposition: "created", failureKind: null })), "proposal_created");
   assert.equal(classifyRecommendationOutcome(facts({ dataGateBlocked: true, dataGateStale: true, generatorAction: null })), "stale_data");
   assert.equal(classifyRecommendationOutcome(facts({ generatorAction: "BUY", finalAction: "HOLD", evaluatorState: "rejected" })), "evaluator_reject");
@@ -61,6 +65,8 @@ test("contradictory, missing, and unattempted facts are unknown", () => {
   assert.equal(classifyRecommendationOutcome(facts({ dataGateStale: true, dataGateBlocked: false })), "unknown");
   assert.equal(classifyRecommendationOutcome(facts({ generatorAction: "BUY", finalAction: "HOLD", riskOverridden: true, proposalDisposition: "created" })), "unknown");
   assert.equal(classifyRecommendationOutcome(facts({ generatorAction: "BUY", finalAction: "HOLD", evaluatorState: "approved" })), "unknown");
+  assert.equal(classifyRecommendationOutcome(facts({ generatorAction: "HOLD", finalAction: "HOLD", generatorDegradation: "parse" })), "unknown");
+  assert.equal(classifyRecommendationOutcome(facts({ generatorAction: null, finalAction: null, generatorDegradation: "ambiguous" })), "unknown");
 });
 
 test("outcome aggregation conserves attempted reviews", () => {
@@ -98,6 +104,23 @@ test("versioned status reports aggregate counts without private text", () => {
   assert.equal(report.totals.outcomeCounts.proposal_created, 1);
   assert.equal("rationale" in report, false);
   assert.match(formatResearchRunReport(report), /2 attempted/);
+});
+
+test("explicit generator degradation is reported separately from investment HOLD", () => {
+  const report = buildResearchRunReport({
+    runId: "degraded-run",
+    status: "completed",
+    agents: [{
+      agentId: "agent-1",
+      attemptedReviews: 1,
+      classificationVersion: RESEARCH_OUTCOME_VERSION,
+      outcomeCounts: { ...blankOutcomeCounts(), generator_degraded: 1 },
+    }],
+  });
+  assert.equal(report.classificationAvailable, true);
+  assert.equal(report.totals.outcomeCounts.investment_hold, 0);
+  assert.equal(report.totals.outcomeCounts.generator_degraded, 1);
+  assert.match(formatResearchRunReport(report), /1 generator degraded/);
 });
 
 test("mismatched persisted counts fail closed", () => {

@@ -10,16 +10,22 @@
 - MCP read-sync replaced the unsupported unattended Robinhood login. The 2026-07-11 read-only smoke passed holdings and reconciliation.
 - Ownership/contracts are live. Unattributed legacy lots are quarantined; `ENFORCE_OWNERSHIP=false` is the explicit emergency rollback.
 - **Neon Postgres migration is active:** `PG_DUAL_WRITE=true`, migrations and financial backfill are in place, and daily fail-closed parity governs the shadow-read period. Sheets/Redis remain the authoritative operational path only until the explicit canonical-read cutover gate; the target state is Postgres canonical accounting with Sheets as a read-only reporting projection.
-- The 10-trading-day Phase 0 observation window begins with the next clean trading day. It needs at least three genuine actionable proposals and one evaluator approval, not merely quiet uptime.
+- The 10-trading-day Phase 0-TRUST observation window begins with the next clean trading day and completes only at 10/10 plus zero unresolved critical incidents. Separately, the first current-version R1 organic-throughput cohort needs at least three genuine actionable proposals and one evaluator approval before positive research canaries or later authority promotion.
 
 ## This window’s proof targets
 
 | Signal | Required evidence |
 | --- | --- |
 | Operational stability | 10 consecutive trading days without a missed critical job, ambiguous fill, manual ledger repair, hidden failure, or unsafe client exposure |
-| Throughput | At least 3 genuine actionable proposals and 1 evaluator APPROVE |
+| R1 organic throughput (separate from Phase 0-TRUST completion) | At least 3 organic genuine actionable proposals and 1 evaluator APPROVE under one declared current-version cohort; forced/manual/legacy/synthetic proposals do not count |
 | Monitoring | Every holding monitored even if quote sources fail |
 | Truth agreement | Dashboard, health, logs, and reconciliation agree |
+
+Phase 1 policy work and inert Phase 2 shadow plumbing are not blocked by an open R1
+throughput cohort; production promotion remains dependency-ordered. Material R1
+changes open a new SKILL cohort without resetting clean TRUST days unless the release
+also changes S1/S2 behavior. Nothing in this split weakens the operational-stability,
+monitoring, receipt, ledger, reconciliation, companion, parity, or observer gates.
 
 ## Current blockers and decisions
 
