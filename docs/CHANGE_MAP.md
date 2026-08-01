@@ -154,6 +154,31 @@ Gotchas:
 - Peer distributions are advisory discovery data (like the universe catalog): money
   paths never read them, and `pm:peer-*` keys stay out of any signed/ledger path.
 
+## Making the mandate score drive proposal sizing (flag-gated, default off)
+
+The wire between the deterministic conviction score and the proposal pipeline. Files:
+`lib/mandate-proposal-clamp.js` (`applyMandateScoreClamp`, `mandateGateSummary`), built
+on the already-complete `lib/mandate-policy.js` (`evaluateMandateSizing` → tier
+resolution, macro tier cap, position/sector/cash ceilings) over the canonical tables in
+`config/agents/mandate-policy.js`. Tests: `tests/mandate-proposal-clamp.test.js`.
+Flag: `MANDATE_SCORE_GATES_PROPOSALS=1` (default off).
+
+Gotchas:
+- DOWNGRADE-ONLY. `jobs/research-scan.js` requires that nothing in the proposal pipeline
+  ever upgrades an action. A tier is a CEILING: a 3% request under tier 1 (10–15%) stays
+  3%. Never "fill the band" — that would be an upgrade.
+- NEVER GATE A SELL. Entry tiers are entry economics. If thin score coverage could block
+  an exit, degraded data would make positions unsellable — strictly more dangerous than
+  declining to size an entry. Mirrors the Agent 4 asymmetry rule. Only BUY is gated.
+- FAIL CLOSED once enabled: missing/invalid/stale/identity-mismatched score ⇒ HOLD. A BUY
+  must never proceed because the score could not be read.
+- The Redis latest-view cache row (`cacheView` in `jobs/mandate-scoring.js`) is NOT a
+  valid `scoreObservation` — it omits the identity fields (`mandateId`, `mandateVersion`,
+  `observedAt`) that `evaluateMandateScore` validates. Read the durable Postgres
+  observation instead.
+- Per-agent floors differ: agent-1/2 `minimumEntryScore` 45, agent-3 65 with no
+  speculative tier. Do not assume one threshold across agents.
+
 ## Changing consensus-estimate ingestion (Mandate v3 Category A/B, inert)
 
 Supplies the two metrics the `maxAvailable >= 80` actionability bar in
