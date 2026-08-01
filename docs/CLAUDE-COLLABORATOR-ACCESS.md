@@ -17,13 +17,17 @@ being able to approve, sign, execute, deploy, or mutate financial records.
 
 ## Provisioning checklist for Sam
 
-1. Run Claude in an isolated macOS account, VM, or remote workspace. Do not let
-   that workspace read this checkout's `.env`, SSH keys, or macOS keychain.
-2. In Upstash, create an ACL user limited to read commands and these key
+1. Claude runs on a separate computer, so do not copy this checkout's `.env`,
+   SSH keys, or any production credential to that machine. Its dedicated review
+   credential is the only Redis secret it needs.
+2. Portfolio Manager and Jordan currently share one Upstash database. In that
+   database, create an ACL user limited to read commands and these Portfolio
+   Manager key
    patterns: `pm:research-decision-audit:*`, `pm:approval_proposals`,
    `pm:approval_proposal:*`, and `pm:audit:*`. Generate a REST token for that
-   ACL user. A database-wide Upstash Read-Only Token is an acceptable temporary
-   alternative, but it can read more than this review scope.
+   ACL user. This must not include `jordan:*` (or any other) patterns. A
+   database-wide Upstash Read-Only Token is not appropriate here because it
+   would expose the shared Jordan database as well.
 3. Place only the URL and ACL REST token in Claude's isolated environment as
    `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`. Never commit them.
 4. Share the production Google Sheet with Claude's dedicated Google account as
