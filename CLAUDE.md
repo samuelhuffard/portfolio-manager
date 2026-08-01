@@ -10,6 +10,8 @@ AI portfolio research + execution backend. **Real money flows through this repo.
 - Before ANY change → find your change type in `docs/CHANGE_MAP.md` (exact files + gotchas).
 - Touching proposals/execution/ledgers/NAV → `docs/INVARIANTS.md` is non-negotiable.
 - Ops (deploy, env, failure modes) → `docs/RUNBOOK.md`.
+- Cross-cutting investigation, an unfamiliar subsystem, dependency tracing, or a broad refactor → query the local Graphify map first: `graphify query "..."`, `graphify path "A" "B"`, or `graphify explain "X"`. Use it to locate likely code and relationships, then verify every relevant claim in the source, tests, invariants, and runtime evidence. Skip it for a clearly local, single-file change.
+- Graph freshness → local post-commit/post-checkout hooks refresh code structure. After substantial documentation or architectural work, run the full Graphify update workflow before relying on a graph query. `graphify-out/` is a navigation aid, not a source of authority.
 
 ## Hard rules
 

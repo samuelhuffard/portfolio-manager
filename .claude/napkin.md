@@ -7,6 +7,10 @@
 - Each item includes date + "Do instead".
 
 ## Execution & Validation (Highest Priority)
+1. **[2026-07-31] Broker execution failures invalidate approval**
+   Do instead: after any unconfirmed attempt with no matching broker order, or a broker terminal rejection, set the proposal to `ExecutionFailed`; never clear `Executing` and retry a stale signed order. Require a fresh position snapshot, proposal, and approval.
+1. **[2026-07-28] Use Graphify for cross-cutting orientation, not proof**
+   Do instead: before an unfamiliar subsystem, dependency trace, or broad refactor, query `graphify-out/` to find the likely path, then verify every result against source, tests, invariants, and runtime evidence; skip it for a clearly local edit.
 1. **[2026-07-14] Capital events require unitized, daily NAV controls**
    Do instead: run money-math tests after contribution, withdrawal, NAV, unit, investor-ID, or ledger-signing changes; derive breaker high-water from the final signed row per date so a cash-before-unit transition cannot create a false drawdown.
 2. **[2026-07-17] Scheduled Robinhood MCP reads belong to the always-on Jetson**
