@@ -188,9 +188,13 @@ Supplies the two metrics the `maxAvailable >= 80` actionability bar in
 in `FUNDAMENTALS_MODULES` (`lib/yahoo.js`). Tests: `tests/consensus-snapshot.test.js`.
 
 Gotchas:
-- `earningsTrend` rides the EXISTING `quoteSummary` call — Yahoo takes a comma-separated
-  module list in one request. Adding a module costs zero extra requests; fetching it
-  separately would cost one request per name per night. Never split it out.
+- `earningsTrend` is fetched by a DEDICATED `fetchConsensusTrend()`, deliberately NOT
+  folded into `FUNDAMENTALS_MODULES`. Yahoo would accept it in the same request for free,
+  and that is precisely the trap: this client keeps provider schema validation failing
+  closed, and validation throws for the WHOLE call. One schema drift in `earningsTrend`
+  on the shared list would take out price, fundamentals and technicals for every ticker.
+  Losing consensus must degrade `revBeat`/`estimateRevisions` to `missing` (rescaled out),
+  never break the scan. Do not "optimize" it back into the shared module list.
 - Field shapes are verified against the installed yahoo-finance2 v3 `EarningsTrendTrend`
   interface. Verify against the package's own `.d.ts` before adding fields — do not guess
   v3 shapes from v2 memory.
