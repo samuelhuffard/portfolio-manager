@@ -46,6 +46,12 @@ async function seedRepresentativeState(db) {
     ["FIX", "Restore Fixture", "9999999999.12345678", "100.0000", "125.00", "126.25"]
   );
   await db.query(
+    `INSERT INTO lots
+       (lot_id, ticker, owner_agent_id, open_date, cost_per_share, shares_original, shares_open, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    ["lot-fixture", "FIX", "agent-1", "2026-07-14", "100.0000", "0.07560000", "0.00011500", "OPEN"]
+  );
+  await db.query(
     `INSERT INTO job_runs (job, status, started_at, ended_at, detail)
      VALUES ($1,$2,$3,$4,$5)`,
     ["restore-fixture", "ok", "2026-07-14T16:00:00Z", "2026-07-14T16:00:01Z", { fixture: true }]
@@ -95,6 +101,12 @@ test("real migrations + encrypted logical snapshot restore cleanly into disposab
     assert.equal(restoredPosition.shares, "9999999999.12345678");
     assert.equal(decrypted.tables.positions.rows[0].shares, "9999999999.12345678");
     assert.equal(decrypted.tables.positions.columns.find(({ name }) => name === "shares")?.udtName, "numeric");
+    const restoredLot = (await target.db.query(
+      "SELECT shares_original::text AS original, shares_open::text AS open FROM lots WHERE lot_id = $1",
+      ["lot-fixture"]
+    )).rows[0];
+    assert.equal(restoredLot.original, "0.07560000");
+    assert.equal(restoredLot.open, "0.00011500");
 
     // A post-restore serial insert must not collide with restored IDs.
     const next = (await target.db.query(
