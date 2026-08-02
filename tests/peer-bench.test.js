@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildPeerBench, peerBenchCapacity, runPeerBench } from "../jobs/peer-bench.js";
 
-const catalog = Object.fromEntries(["A", "B", "C", "D", "E", "F", "G"].map((ticker, index) => [ticker, { t: ticker, i: "Payments", s: "Financial Services", mc: 100 - index, advd: 10_000_000, p: 10, c52: index }]));
+const catalog = Object.fromEntries(["A", "B", "C", "D", "E", "F", "G"].map((ticker, index) => [ticker, { t: ticker, i: "Payments", s: "Financial Services", mc: 100 - index, advd: 10_000_000, p: 10, c52: index, ftd: Date.now() - 10 * 365.25 * 86400000 }]));
 const configs = Object.fromEntries(["agent-1", "agent-2", "agent-3"].map((id) => [id, { riskLimits: {} }]));
 const row = (ticker) => ({ ticker, industry: "Payments", sector: "Financial Services", metrics: { revGrowth: 0.1, peerValuation: 20 }, quant: { revenueGrowth: 0.1, earningsGrowth: 0.1, profitMargins: 0.1, returnOnEquity: 0.1, trailingPE: 20, debtToEquity: 1, pegRatio: 1 } });
 

@@ -210,6 +210,63 @@ Gotchas:
 - A row with neither an EPS nor a revenue estimate returns null rather than storing an
   empty row that would inflate apparent coverage.
 
+## Changing 13F / institutional-ownership ingestion (Mandate v3 Category D)
+
+- Pure derivation of the named rule inputs: `lib/thirteen-f.js`.
+- Quarterly SEC data-set parse + aggregate: `lib/thirteen-f-dataset.js` (pure, text in).
+- ticker→CUSIP resolution: `lib/cusip-map.js` (OpenFIGI, cached indefinitely).
+- Share-count denominator concept: `CONCEPTS.sharesOutstanding` in `lib/edgar-facts.js`.
+- Binding: `assembleMandateInputs({ thirteenF })` in `lib/mandate-evidence.js`.
+- Decisions + rationale: `docs/RESEARCH-DECISION-REGISTER.md` Q-004 (resolved 2026-08-02).
+
+**GOTCHAS**
+
+- **This is a per-QUARTER ingest of one file, not a per-ticker fetch.** Institutional
+  ownership is a sum across every holder, so no per-name filing answers it. Do not
+  "optimize" it into a per-ticker call — that shape does not exist.
+- **`ownershipChangePoints` and the `thirteenF` `*ChangePct` fields are different
+  quantities** (percentage points of shares outstanding vs percent change in shares
+  held). Collapsing them puts routine quarters in the top band.
+- **The share count must be date-matched to the holdings period end.** Borrowing a
+  neighbouring quarter's count makes a buyback read as institutional accumulation.
+  `sharesOutstandingAt` enforces a ±10-day tolerance and yields null otherwise.
+- **Usability keys off dataset publication, not the 45-day due date.** The SEC runs
+  these after the Feb/May/Aug/Nov month-ends, so a quarter is routinely past due before
+  it is readable.
+- Amended filings (13F-HR/A) must supersede the original or positions double-count;
+  `resolveLatestSubmissions` handles this. Options rows (`PUTCALL`) and principal
+  amounts (`SSHPRNAMTTYPE != "SH"`) are not share ownership.
+- **`lib/thirteen-f-dataset.js` has never been run against a real download** — sec.gov
+  is unreachable from the sandbox it was written in. The header parse fails closed on an
+  unexpected shape; verify against a real quarterly ZIP before trusting it.
+
+## Changing Agent 3 long-horizon evidence (Mandate v3, Agent Three)
+
+- Derivation: `lib/agent3-history.js`. TTM window primitives: `ttmWindows`,
+  `ttmWindowMeans`, `alignWindows`, `windowGrowthSeries` in `lib/edgar-metrics.js`.
+- Binding: `assembleMandateInputs({ agentId: "agent-3", companyfacts | history })`.
+- Eligibility gate (3+ years public): `screenAgentThree` in `lib/mandate-catalog-screen.js`,
+  reading the catalog's `ftd` field populated by `applyQuotes` in `lib/universe.js`.
+- Decisions + rationale: `docs/RESEARCH-DECISION-REGISTER.md` Q-008.
+
+**GOTCHAS**
+
+- **Windows are NON-OVERLAPPING at 4-quarter strides.** Do not switch to 1-quarter
+  strides for "more data": adjacent windows would share three of four quarters, so one
+  bad quarter contaminates four comparisons and `maxAnnualGrowthSpreadPoints` reads far
+  smoother than reality.
+- **`cagrFromSeries` is not reusable for windows.** It searches for a point at-or-before
+  `end - years`, and four windows span almost exactly three years, so the oldest lands a
+  fraction of a day past the target and the result is null on nearly every company. Use
+  `windowCagr`.
+- Agent 1/2's short-window scalars are **never** substituted for Agent 3's multi-year
+  inputs. Fewer than 4 windows means the metric reports missing and rescales out.
+- The 3-years-public gate is looser than the data requirement (~4 years of filings), so
+  a name can pass the screen and still score partial. That is intended.
+- Adding a required candidate fact to a screen breaks every fixture that predates it —
+  `firstTradeDate` was one, and an absent value fails closed, so a catalog refresh must
+  land before Agent 3 will screen anything.
+
 ## Changing EDGAR/XBRL fundamentals ingestion (Mandate v2.1, inert)
 
 The mandated primary fundamentals source (free). Files: `lib/edgar.js` (I/O — CIK

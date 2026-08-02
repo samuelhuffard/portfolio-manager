@@ -14,6 +14,9 @@ function candidate(overrides = {}) {
     marketCap: 5_000_000_000,
     avgDollarVolume: 25_000_000,
     fiftyTwoWeekChangePct: 20,
+    // Agent Three cannot invest in a company public for under 3 years, so every shared
+    // fixture carries a listing date; the gate is exercised explicitly below.
+    firstTradeDate: Date.now() - 10 * 365.25 * 86400000,
     ...overrides,
   };
 }

@@ -7,9 +7,9 @@ import {
 } from "../lib/research-candidate-bus.js";
 
 const catalog = {
-  FAST: { t: "FAST", n: "Fast Co", x: "NASDAQ", mc: 2e9, advd: 20e6, p: 20, c52: 80, qa: "2026-07-20" },
-  GIANT: { t: "GIANT", n: "Giant Co", x: "NYSE", mc: 500e9, advd: 500e6, p: 200, c52: 20, qa: "2026-07-20" },
-  THIN: { t: "THIN", n: "Thin Co", x: "NYSE", mc: 1e9, advd: 2e6, p: 5, c52: 100, qa: "2026-07-20" },
+  FAST: { t: "FAST", n: "Fast Co", x: "NASDAQ", mc: 2e9, advd: 20e6, p: 20, c52: 80, qa: "2026-07-20", ftd: Date.parse("2010-01-04") },
+  GIANT: { t: "GIANT", n: "Giant Co", x: "NYSE", mc: 500e9, advd: 500e6, p: 200, c52: 20, qa: "2026-07-20", ftd: Date.parse("2010-01-04") },
+  THIN: { t: "THIN", n: "Thin Co", x: "NYSE", mc: 1e9, advd: 2e6, p: 5, c52: 100, qa: "2026-07-20", ftd: Date.parse("2010-01-04") },
 };
 
 function configs() {

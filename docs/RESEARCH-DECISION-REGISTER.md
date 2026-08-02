@@ -100,8 +100,78 @@ This register prevents executor models from inventing rules. Accepted decisions 
 
 ### Q-004 — Consensus and 13F completeness policy
 
-- Confirm whether these remain temporarily optional under the v3 ≥80-point rescale rule or whether either is thesis-critical for any agent/sector.
-- **Blocks:** full completeness/actionability policy for E2.3/E2.4.
+- **Status: RESOLVED (Sam, 2026-08-02).** Supersedes the prior "temporarily optional,
+  not thesis-critical" reading.
+- **Decision:** 13F/institutional ownership is **required for full coverage but never
+  blocking**. Absence degrades the score (metric reports missing, rescaled out) rather
+  than vetoing the candidate — a dataset published ~45–75 days after quarter end must
+  not hold a veto over a trade.
+- **Sourcing:** SEC quarterly [Form 13F Data Sets](https://www.sec.gov/data-research/sec-markets-data/form-13f-data-sets)
+  — one structured ZIP per quarter covering all ~3–4k filers. Ingest is per-QUARTER, not
+  per-ticker: ownership is a sum across every holder, so there is no per-name filing to
+  read, but the data only changes 4x a year.
+- **Filer universe:** all 13F filers. A curated "smart money" subset was rejected — it is
+  an unbacktested thesis requiring ongoing maintenance, and would change what
+  `clearMultiQuarterAccumulation` means relative to the mandate text.
+- **`ownershipChangePoints` = percentage points of shares outstanding.** The band table
+  (≥5 full, ≥2 strong, −2..2 neutral) only coheres under this reading. The `thirteenF`
+  table's `*ChangePct` fields are a *different* quantity — percent change in aggregate
+  shares held. Do not collapse them.
+- **Denominator:** `us-gaap:CommonStockSharesOutstanding` at period end.
+  `dei:EntityCommonStockSharesOutstanding` was rejected: it is a cover-page figure
+  measured at *filing* date, and that skew makes a buyback read as accumulation.
+- **Retention:** two quarters of change plus the publication lag; usability keys off
+  actual dataset publication, not the statutory due date.
+- **CUSIP join:** 13F identifies holdings by CUSIP and the CUSIP master file is licensed.
+  Resolved by inverting the direction — map our own candidate universe ticker→CUSIP once
+  via OpenFIGI (`lib/cusip-map.js`) and use it to filter the quarterly file. Unmapped
+  tickers contribute no rows and rescale out.
+- **Effect:** Agents 1 and 3 reach the full 100-point ceiling. Agent 2 does not — see
+  Q-009.
+- **Reset:** material scoring change; opens a new research cohort.
+
+### Q-008 — Agent 3 long-horizon definitions
+
+- **Status: ACCEPTED (Sam, 2026-08-02).** Implemented in `lib/agent3-history.js`.
+- **Period basis:** rolling TTM from quarterly facts, in **non-overlapping 4-quarter
+  windows**. Overlapping windows share three of four quarters, so one bad quarter
+  contaminates four comparisons and any consistency test reads smoother than reality.
+  Note this is *stricter* than the 3-years-public rule: three year-over-year comparisons
+  need 4 windows ≈ 16 clean quarters ≈ 4 years of filings. TTM is the binding constraint.
+- **Normalized EPS** = operating income per diluted share, consistent with Q-001's
+  profitability decision. CAGR is endpoint-to-endpoint; a trimmed/regression trend was
+  considered and **not** adopted, so a depressed base window can still flatter the
+  result — the volatility fields are what surface that.
+- **`marginChangeBps3y`** uses gross margin, matching Agents 1 and 2.
+- **Q-001 extends unchanged to the 3-year medians**, applied per window *before* the
+  median, so a negative-EBITDA year drops out instead of sorting as excellent.
+- **"Material" booleans** (`materiallyErraticGrowth`, `volatileYears`,
+  `materialDeterioration`, `materialMultiYearDeterioration`, `persistentDeterioration`)
+  all derive from the mandate's one stated number — `maxAnnualGrowthSpreadPoints ≤ 15`.
+  A year is volatile when its growth rate swings >15pp from the year before it; two
+  consecutive bad years is "persistent". Deviation-from-median was rejected: a
+  +60/−25/+60 path is plainly erratic yet only one of its years deviates from the median.
+- **Eligibility:** Agent 3 cannot invest in a company public for under 3 years. Enforced
+  upstream in `lib/mandate-catalog-screen.js`, not as a scoring outcome, so the rejection
+  reason stays legible. Requires the catalog's new `ftd` (first trade date) field.
+- **Effect:** Agent 3 max available points move 10 → 100.
+
+### Q-009 — Agent 2 multi-quarter persistence inputs (OPEN)
+
+- Agent 2's rule tables read `beatsInLatestThree`, `minimumBeatPct`,
+  `missesInLatestThree`, `positiveQuartersInLatestFour`,
+  `positiveMultiQuarterPersistence`, `consecutiveMaterialDecelerations`,
+  `consecutiveQualifyingQuarters`, `consecutiveDeterioratingQuarters`. **Nothing derives
+  any of them.** `lib/mandate-evidence.js` sets them null by design — it will not infer
+  four-quarter persistence from one scalar.
+- Because `evaluateCondition` short-circuits `all` on `false` but returns `null` on a
+  missing input, this bites hardest on the *strongest* names: a company growing >20%
+  reaches the top band, hits the null, and reports missing, while a mediocre one scores.
+- **Effect:** Agent 2 caps at **59** available points — below the 80-point actionability
+  bar — so it cannot produce an actionable candidate at all. Pinned by
+  `tests/mandate-coverage-ceiling.test.js`.
+- **Blocks:** Agent 2 actionability entirely. Needs a multi-quarter beat/persistence
+  derivation pass over the same EDGAR quarterly series Agent 3 now uses.
 
 ### Q-005 — Score-event materiality thresholds
 
