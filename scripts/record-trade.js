@@ -65,7 +65,7 @@ const { trade, newLots, updatedLots, alreadyRecorded, needsReconciliation } = aw
   if (recorded.needsReconciliation) {
     console.error(`[record-trade] ${ticker} recorded but LOT LEDGER NOT UPDATED — proposal ${proposalId} left unfulfilled, reconciliation record persisted. Repair lots before it can close.`);
   } else {
-    await markProposalFulfilled(proposalId, orderId);
+    await markProposalFulfilled(proposalId, orderId, undefined, recorded.trade.shares);
   }
   return recorded;
 }, { ttlSeconds: 5 * 60 });

@@ -18,6 +18,7 @@ import { shadowWriteCapitalEntry, shadowWriteProposal } from "./lib/pg/dual-writ
 import { getPortfolioManagerShadowState } from "./lib/portfolio-manager-shadow-store.js";
 import { researchStoreConfigured } from "./lib/pg/research-observations.js";
 import { resolveResearchCodeRevision } from "./lib/mandate-observation.js";
+import { validateCompanionProposalStatePatch } from "./lib/companion-proposal-state.js";
 
 const PORT = process.env.PORTFOLIO_SERVER_PORT ?? 3200;
 const SECRET = process.env.PORTFOLIO_WEBHOOK_SECRET?.trim();
@@ -249,6 +250,33 @@ async function handleRequest(req, res) {
     return;
   }
 
+  // The Mac companion may report only its bounded execution state. It must not
+  // write Redis proposal records directly: Jetson owns all lifecycle writes so
+  // the Neon shadow sees the same state transition.
+  if (req.method === "POST" && url.pathname === "/companion/proposal-state") {
+    try {
+      const body = await readBody(req);
+      const proposalId = String(body?.proposalId ?? "").trim();
+      if (!proposalId) throw new Error("proposalId is required");
+      const redis = getRedis();
+      if (!redis) throw new Error("Redis is not configured");
+      const proposal = await getProposalById(proposalId);
+      if (!proposal) throw new Error("Proposal not found");
+      const patch = validateCompanionProposalStatePatch(body?.patch, proposal);
+      const updated = { ...proposal, ...patch, updatedAt: new Date().toISOString() };
+      await redis.set(`pm:approval_proposal:${proposalId}`, JSON.stringify(updated));
+      const shadow = await shadowWriteProposal(updated);
+      if (!shadow.ok) console.error(`[Server] companion proposal state shadow failed for ${proposalId}: ${shadow.error ?? "skipped"}`);
+      res.writeHead(200);
+      res.end(JSON.stringify({ ok: true, shadowed: shadow.ok }));
+    } catch (e) {
+      console.error("[Server] companion proposal-state error:", e.message);
+      res.writeHead(400);
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
   // Dashboard-authored capital entries are signed and appended to Sheets
   // first. This authenticated endpoint mirrors that immutable row to Neon;
   // entry_id uniqueness makes retrying it safe after a transient failure.
@@ -430,7 +458,7 @@ async function handleRequest(req, res) {
         // Do NOT mark fulfilled when the lot ledger couldn't be reconciled — the
         // trade is recorded and a durable reconciliation record persisted; the
         // proposal stays open until repaired (Codex MCP-path coverage).
-        if (!recorded.needsReconciliation) await markProposalFulfilled(proposalId, orderId);
+        if (!recorded.needsReconciliation) await markProposalFulfilled(proposalId, orderId, undefined, recorded.trade.shares);
         return recorded;
       }, { ttlSeconds: 5 * 60 });
       res.writeHead(200);
