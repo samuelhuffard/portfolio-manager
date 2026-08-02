@@ -89,6 +89,7 @@ import { createAnthropicMonthlyBudget } from "../lib/anthropic-monthly-budget.js
 import { buildAgentParityRuntimeSummary } from "../lib/agent-parity-runtime-summary.js";
 import { recordAgent4ShadowReview } from "../lib/agent4-shadow-adapter.js";
 import { appendResearchDecisionAudits } from "../lib/research-decision-audit.js";
+import { applyPersistedMandateScoreGate } from "../lib/mandate-proposal-gate.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_AGENT_IDS = AGENTS.map((agent) => agent.id);
@@ -834,6 +835,24 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     rec = { ...rec, overrideNotes: [...preflightNotes, ...(rec.overrideNotes ?? [])] };
   }
   let riskOverridden = generatorAction !== "HOLD" && rec.action === "HOLD";
+
+  // The mandate-score gate is intentionally default-off until the full
+  // decision-time evidence contract has earned activation. Once enabled it
+  // reads only an immutable observation at-or-before this decision and fails
+  // closed if either that score or any required entry evidence is absent.
+  // This stays before the evaluator so no spend is incurred for an entry that
+  // deterministic mandate policy cannot admit.
+  const mandateGate = await applyPersistedMandateScoreGate(rec, {
+    agentId: agent.id,
+    ticker: c.ticker,
+    asOf: new Date().toISOString(),
+    // `evaluateMandateSizing` requires typed decision-time evidence. The live
+    // scan does not yet retain the full contract, so an enabled gate correctly
+    // blocks rather than treating partial risk context as authoritative.
+    evidence: {},
+  });
+  rec = mandateGate.rec;
+  if (mandateGate.applied && rec.action === "HOLD") riskOverridden = true;
 
   // Circuit-breaker pre-gate: don't spend evaluator tokens on an action the
   // breaker tier can't admit anyway (BUYs at ≥12% drawdown, everything at HALT).
