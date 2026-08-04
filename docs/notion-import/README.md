@@ -19,7 +19,7 @@ Generated 2026-07-12 from the repository and project vault. This is a **read-onl
 
 ## Sources
 
-- `docs/AUTONOMY-ROADMAP.md`
+- `docs/roadmaps/AUTONOMY-ROADMAP.md`
 - `docs/ARCHITECTURE.md`, `docs/INVARIANTS.md`, `docs/ONBOARDING.md`
 - `docs/adr/0001-postgres-canonical-store.md`, `docs/adr/0002-service-identity.md`
 - `agent_mandates/Agent_{One,Two,Three,Four}_Mandate_v3.md`

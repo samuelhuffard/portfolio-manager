@@ -7,7 +7,7 @@ AI portfolio research + execution backend. **Real money flows through this repo.
 - **Open system-loop findings → `ops/FIXLIST.md`** (auto-generated). At session start, skim "Needs attention" and judge whether anything there should be fixed as part of (or before) the current task — verify against live state first, findings are point-in-time. When you fix one, follow the status/regenerate steps in the file header.
 - Collaborating with another human or coding agent → `docs/AGENT-CONTEXT.md` (the shared, redacted project context; do not rely on Sam's private local vault).
 - New to the system → `docs/ONBOARDING.md` (mental models, proposal lifecycle, vocabulary).
-- Planning significant work → `docs/portfolio-master-plan.md` is the single north star: find the current unified phase, TRUST/SKILL label, gate, and reset rule there. Use `docs/AUTONOMY-ROADMAP.md` only for narrower TRUST implementation detail; the master plan wins on conflict.
+- Planning significant work → `docs/roadmaps/portfolio-master-plan.md` is the single north star: find the current unified phase, TRUST/SKILL label, gate, and reset rule there. Use `docs/roadmaps/AUTONOMY-ROADMAP.md` only for narrower TRUST implementation detail; the master plan wins on conflict.
 - Before ANY change → find your change type in `docs/CHANGE_MAP.md` (exact files + gotchas).
 - Touching proposals/execution/ledgers/NAV → `docs/INVARIANTS.md` is non-negotiable.
 - Ops (deploy, env, failure modes) → `docs/RUNBOOK.md`.
@@ -25,7 +25,7 @@ AI portfolio research + execution backend. **Real money flows through this repo.
 ## Deploy
 
 Deploy only the exact reviewed release branch/commit named in
-`docs/portfolio-master-plan.md` (currently `mandate-v3`; do not assume `main`) →
+`docs/roadmaps/portfolio-master-plan.md` (currently `mandate-v3`; do not assume `main`) →
 `ssh sam@100.102.93.103`, fast-forward that branch, install dependencies/apply
 reviewed migrations when required, then
 `npm run deploy:restart`. That fail-closed helper observes exactly one PM2

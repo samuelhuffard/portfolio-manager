@@ -6,7 +6,7 @@ Use a strong small or standard coding model as a bounded implementation executor
 
 `/Users/samhuffard/All Claude Projects/portfolio-manager`
 
-Read `CLAUDE.md`, `.claude/napkin.md`, `docs/ROADMAP-FORMIDABLE-FUND.md`, `docs/RESEARCH-ROADMAP-EXECUTION-GUIDE.md` E0.2, `lib/research-run-health.js`, `jobs/research-scan.js` summary/rule-check behavior, existing Redis/Sheets readers, and related tests.
+Read `CLAUDE.md`, `.claude/napkin.md`, `docs/roadmaps/ROADMAP-FORMIDABLE-FUND.md`, `docs/roadmaps/RESEARCH-ROADMAP-EXECUTION-GUIDE.md` E0.2, `lib/research-run-health.js`, `jobs/research-scan.js` summary/rule-check behavior, existing Redis/Sheets readers, and related tests.
 
 ## Implement
 

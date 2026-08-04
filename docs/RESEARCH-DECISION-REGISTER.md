@@ -2,7 +2,7 @@
 
 > **Narrow authority: investment-policy decisions.** Accepted answers here bind
 > implementation inside their scope. The canonical phase order, current status,
-> and promotion/reset gates live in [the master plan](portfolio-master-plan.md).
+> and promotion/reset gates live in [the master plan](roadmaps/portfolio-master-plan.md).
 
 **Rev 2026-07-13 · primary-reviewer decisions and unresolved investment-policy inputs**
 

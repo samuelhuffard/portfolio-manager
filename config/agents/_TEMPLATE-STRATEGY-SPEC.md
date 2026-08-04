@@ -18,7 +18,7 @@ scope: "Agent N only"
 
 This file governs Agent N only. Its rules must not leak into other agents unless
 those agents adopt them in their own strategy files. The portfolio-wide meta
-architecture stays in `docs/portfolio-master-plan.md`.
+architecture stays in `docs/roadmaps/portfolio-master-plan.md`.
 
 ## Core Boundary
 

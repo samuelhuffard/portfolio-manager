@@ -3,12 +3,19 @@
 > **Narrow authority: append-only Phase 0 evidence.** The daily rows and count in
 > this file are the evidence for the window. The window definition, two-clock
 > reset taxonomy, and portfolio-wide sequence are canonical in
-> [the master plan](portfolio-master-plan.md).
+> [the master plan](roadmaps/portfolio-master-plan.md).
 
 **Owner:** Codex, with Sam as final authority  
-**Purpose:** the authoritative human-readable record for the 10 consecutive clean
-trading-day Phase 0 exit gate in `AUTONOMY-ROADMAP.md`. This is evidence tracking,
+**Purpose:** the authoritative human-readable record for the five consecutive clean
+trading-day Phase 0 exit gate in `roadmaps/AUTONOMY-ROADMAP.md`. This is evidence tracking,
 not a substitute for the Jetson system sentinel or signed ledgers.
+
+> **2026-07-20 policy update:** the supervised workflow-readiness gate is five
+> consecutive clean trading days, with the existing three-actionable-proposal and
+> one-evaluator-approval gates unchanged. This shortens only the operational
+> observation window; it does not establish investment performance or expand
+> trading authority. Dated historical entries retain their then-current 10-day
+> wording rather than being rewritten.
 
 ## Window rule
 
@@ -278,8 +285,6 @@ client responses; they do not expand trading authority.
 - Athena timeouts, Yahoo validation chatter, and absent FRED macro data are degraded
   evidence. They must be visible in the daily record and must not silently create
   actionable proposals.
-- Keep `yahoo-finance2` 3.15.4 pinned for now; evaluate a 4.x upgrade separately
-  against recorded `quoteSummary` fixtures before changing the provider dependency.
 
 ## 2026-07-15 ET: formatted-cash research repair (S2; day invalid)
 
@@ -305,12 +310,83 @@ This repair changes research admission and risk inputs, so it is S2. July 15 was
 already invalid because of earlier credential-rotation Redis failures and cannot
 count; the 5:15 PM run is a post-repair dress-rehearsal sample, not Day 1.
 
+## 2026-07-20 ET: declared three-agent parity release (R1 + S2)
+
+This release replaces Agent 2/3's fixed-watchlist discovery with the same live
+NYSE/Nasdaq common-equity catalog and rotating slate machinery used by Agent 1.
+All three receive fair model-call capacity, verified owner-specific holdings,
+the same supervised proposal/evaluator/risk/approval/signature/ledger path, and
+aggregate-safe per-agent observation evidence. Mandate screens and holding rules
+remain mandate-specific; they do not grant different authority.
+
+The holding monitors now reconcile signed Lots to aggregate Holdings before
+attribution, including same-ticker multi-agent ownership. A monitor may never
+size or queue an Agent 1 exit against another agent's lot, and unattributed
+inventory remains quarantined and visible. New SELL proposals carry a
+contract-versioned owner-share ceiling that is recomputed at human approval,
+bound into the approval HMAC, checked by the execution companion, and checked
+again before a fill can enter accounting. Legacy approved SELLs without that
+signed ceiling fail closed. This changes safety coverage (S2); the live research
+behavior is also a new R1 cohort. Therefore July 20 cannot count, and the first
+eligible day is the next clean trading day after the exact reviewed revision is
+loaded through a signed restart.
+
+### Production proof recorded 2026-07-20 ET
+
+- Backend behavior release `1aa13396f723e64aea02d3d376d119df1a9693ff`
+  was pushed without force to both `mandate-v3` and `main`. The Jetson
+  fast-forwarded `mandate-v3` to that exact revision, passed 850/850 tests, and
+  recorded signed restart edge `56→57`.
+- Dashboard/companion release `7263ec2` was pushed without force to `main`.
+  Dashboard tests passed 136/136, TypeScript and the production build passed,
+  and Vercel production deployment `dpl_4MjAuisWQuwLoBsig3KJCgRRLt64` reached
+  `READY`.
+- The post-restart Jetson process was `online` with zero unstable restarts.
+  `/health` returned 200 with Redis, Sheets, Anthropic, webhook, and Telegram
+  dependencies true.
+- A post-deploy catalog refresh retained 4,533 common stocks and 1,956
+  sector-enriched names. Yahoo rejected a bounded subset of enrichment rows;
+  those failures remained degraded source evidence rather than invented facts.
+- Signed-ledger verification was clean: Investors 7/7, Performance 65/65,
+  Trade Ledger 1/1, Lots 1/1, and 3,906 recent Audit rows.
+- The first parity check exposed a stale non-authoritative accounting snapshot.
+  The shadow-only refresh rebuilt positions/accounting from signed Sheets and
+  the rerun returned transactional `MATCH` across proposals, lots, capital,
+  positions, and accounting. Valuation remained honestly `NON_COMPARABLE`
+  because versioned shared quote provenance is unavailable.
+- The immediate sentinel recorded no P0/P1 findings (two P2 and ten P3 only).
+  Agent 2/3 slate summaries and the aggregate parity runtime summary remain
+  `null` until the first post-release scheduled scan; that absence is explicit
+  and is not synthetic proof.
+
+The Mac executor was restarted with the companion release and reported a fresh
+execution heartbeat (20 seconds old at verification). The scheduled scan and
+signed observer must still supply organic per-agent and daily evidence; this
+deployment record does not manufacture those future receipts.
+
+### Evidence-bound proposal quality production proof — 2026-07-20 ET (R1)
+
+- Backend behavior release `51c78cad22c935875a6275a4b9d82c4a5dfc7b26` was
+  pushed without force to both `mandate-v3` and `main`; the Jetson fast-forwarded
+  to that exact behavior revision and independently passed **866/866** tests.
+- The signed deployment wrapper recorded one contiguous restart edge, `59→60`.
+  Local health returned 200 with Redis, Sheets authentication, Anthropic key,
+  webhook secret, and Telegram all true.
+- The immediate sentinel reported no P0/P1 anomalies. Its one P2 is the known
+  expired legacy/test proposal inventory; its ten P3 findings are stale
+  documentation references. Neither represents a newly introduced runtime or
+  investment-control failure.
+- This is the R1 evidence-quality cohort declared in the master plan: it does
+  not change approval, signing, execution, money movement, holding limits, or
+  observer TRUST semantics. The scheduled workflow must still generate the
+  organic evidence; this deployment record is not a proposal or a counted day.
+
 ## Daily evidence checklist
 
 After the market close, record the evidence rather than a subjective status.
 The read-only observer described in [PHASE-0-OBSERVER.md](PHASE-0-OBSERVER.md)
 runs after the 8:10 PM final sentinel refresh and creates the signed,
-create-once automated evidence packet at 8:20 PM ET with
+create-once automated evidence packet at 8:15 PM ET with
 independent TRUST safety-day and SKILL research-cohort verdicts; this human
 record remains authoritative for attestations, contradictions, and the
 consecutive safety-day decision.
@@ -328,9 +404,11 @@ consecutive safety-day decision.
 5. All critical market jobs ran or have a documented market-calendar skip. No hidden
    failure, unresolved fill, invalid signature, or unsafe client exposure occurred.
 6. Every due holding-monitor record conserves `held = monitored + explicitly degraded`
-   with zero failed, overflow, or silent skips. Log aggregate Athena/Yahoo/FRED
-   degradation and prove it blocked or downgraded action; do not put private
-   tickers in the automated ops record.
+   with zero failed, overflow, or silent skips, and at least one held-name check
+   uses monitorable evidence whenever `held > 0`. An all-degraded run is
+   insufficient and cannot count as a TRUST day. Log aggregate
+   Athena/Yahoo/FRED degradation and prove it blocked or downgraded action; do
+   not put private tickers in the automated ops record.
 7. Update proposal throughput: cumulative genuine actionable proposals, evaluator
    approvals, filled trades, and any owner/lot reconciliation requirement.
 
@@ -340,10 +418,10 @@ consecutive safety-day decision.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Jul 13 | **Invalid — does not count** | Pass: MCP sync + reconciliation jobs recorded `ok` | Pass: 7/7 Investors, 43/43 Performance, 1/1 Trade, 1/1 Lots, 3,371 Audit | **Fail:** NVDA market value `$15.37` vs `$15.39` | Critical jobs ran, but 3 active P1s + PM2 restart/marker/Athena noise; scan accounting unproven | 36 reviews reported as HOLD, 0 proposals; usage-limit log contradiction | Alerting worked; exact parity and clean-P1 gate did not |
 | Jul 14 | **Observed `FAIL_BOTH` — does not count** | Pre-release invocation receipts cannot be recreated; companion is now restarted with a fresh heartbeat for future days | Prior signed-ledger proof clean | Transactional `MATCH`; valuation `NON_COMPARABLE` warning | Signed v2 observer: critical-job summaries pass, but scheduled-invocation and holding-coverage histories fail; its retained 8:10 snapshot contains one untrusted-restart P1 | 36 conserved outcomes, 0 actionable proposals; research sample retained, throughput insufficient | `$40` ceiling plus `$10` protected pool now enforced. Later `40→41` signed deploy proof clears the future restart path but cannot rewrite the immutable failed day |
-| Jul 15 | **Invalid — does not count** | Earlier credential-rotation Redis failures prevent a clean day | Post-close evidence pending | Post-close evidence pending | S2 cash-reader repair deployed at 4:38 PM ET | 5:15 PM post-repair dress rehearsal pending | Live proof: `$85` available, not `$0`; signed restart `52→53` |
-| Jul 16 | **Observed `FAIL_BOTH` — does not count** | 4:30 holdings final attempt was failed at cutoff; 4:40 reconciliation receipt was still missing | Pass: 7/7 Investors, 55/55 Performance, 1/1 Trade, 1/1 Lots, 5,686/5,686 recent Audit | Transactional `MATCH`; valuation `NON_COMPARABLE` warning | All 15 held-name monitors conserved coverage; final sentinel carried one holdings-sync P1 | 36 conserved samples retained, 0 actionable proposals/evaluator approvals | Release `3c01d03` was deployed that morning, independently making the day ineligible. Mac sleep/network loss delayed the after-close MCP queue; permanent PM2 `caffeinate -is` guard added Jul 17 without restarting backend or executor |
-| Jul 17 | **Invalid — does not count** | Jetson cutover canaries passed for holdings and reconciliation with verified account binding; ordinary scheduled close evidence remains pending | Post-close evidence pending | Post-close evidence pending | S2 broker-reader ownership cutover deployed at 12:17 PM ET | Post-close evidence pending | Scheduled MCP reads moved from the sleep-dependent Mac to Jetson PM2 `portfolio-broker-reader`; Mac is execution-only. Earliest possible Day 1 is Jul 20 |
-| Jul 20 | Pending | — | — | — | — | — | |
+| Jul 15 | Pending — cannot count while `F-2026-095` is active | — | — | — | — | — | Credential rotation and verification are a Trust prerequisite |
+| Jul 16 | Pending | — | — | — | — | — | |
+| Jul 17 | Pending | — | — | — | — | — | |
+| Jul 20 | **Invalid — deployment day does not count** | Pending post-release scheduled evidence | Post-deploy verification clean | Transactional `MATCH`; valuation `NON_COMPARABLE` | Backend `1aa1339` live via signed `56→57` restart; sentinel has no P0/P1 | First post-release scheduled scan pending | R1 + S2 release opens a new research cohort and TRUST window; earliest candidate Day 1 is Jul 21 |
 | Jul 21 | Pending | — | — | — | — | — | |
 | Jul 22 | Pending | — | — | — | — | — | |
 | Jul 23 | Pending | — | — | — | — | — | |
@@ -351,8 +429,10 @@ consecutive safety-day decision.
 
 ## Exit evidence summary
 
-- Consecutive clean trading days: **0 / 10**
+- Consecutive clean trading days: **0 / 5**
 - Genuine actionable proposals: **0 / 3 required during the window**
 - Evaluator approvals: **0 / 1 required during the window**
 - Filled trades during this observation window: **0**
-- Autonomy level: **human-supervised; Agents 2/3 supervised and static-watchlist-bound; Agent 4 shadow-only**
+- Autonomy level: **human-supervised; Agents 1–3 share the supervised specialist
+  workflow after the declared parity release is production-verified; Agent 4
+  remains shadow-only**

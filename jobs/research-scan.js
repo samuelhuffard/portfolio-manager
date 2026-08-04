@@ -12,7 +12,8 @@ import { assessEvidenceQuality, buildTechnicalFactPacket } from "../lib/evidence
 import { assembleEntrySignals, assessConviction } from "../lib/conviction.js";
 import { tavilySearch } from "../lib/tavily.js";
 import { fetchRecentFilings } from "../lib/edgar.js";
-import { fetchMacroSnapshot, formatMacroSnapshot } from "../lib/fred.js";
+import { fetchMacroSnapshot, formatMacroSnapshot, fetchTreasuryYieldObservations, computeTreasuryYieldChangeBps } from "../lib/fred.js";
+import { evaluateMacroRedFlags, formatMacroRedFlags } from "../lib/macro-regime.js";
 import { enforceFractionalShareHoldPolicy, getAIRecommendation } from "../lib/ai-overlay.js";
 import { applyRiskChecks } from "../lib/risk-engine.js";
 import { evaluateProposal, resolveFinalVerdict } from "../lib/evaluator.js";
@@ -31,6 +32,8 @@ import {
   setCachedNews,
   getCachedMacro,
   setCachedMacro,
+  getCachedTreasuryYieldChangeBps,
+  setCachedTreasuryYieldChangeBps,
   getCachedPortfolioTotalValue,
   listAllProposals,
   createProposal,
@@ -175,6 +178,24 @@ function summarizeRecommendation(summary, recommendation) {
 // silent no-op on the whole discovery funnel — keep the fallback, but loudly.
 const DEFAULT_UNIVERSE_CONFIG = { source: "watchlist", slateSize: 20, aiReviewBudget: 12, researchCooldownDays: 14, explorationSlots: 0 };
 
+// Split-mandate agents keep master.md (identity/philosophy/guardrails, shared
+// across every task) and buy-playbook.md (entry search/sizing — the only half
+// a research scan needs) side by side; both get concatenated into the same
+// "personality" slot the AI overlay has always received, so the model sees an
+// equivalent mandate either way. Agents not yet migrated keep one flat
+// personality.md — CHANGE_MAP "Onboarding a specialist mandate" documents both
+// forms until every agent moves to the split layout.
+function loadPersonality(dir) {
+  const masterPath = path.join(dir, "master.md");
+  const buyPlaybookPath = path.join(dir, "buy-playbook.md");
+  if (fs.existsSync(masterPath) && fs.existsSync(buyPlaybookPath)) {
+    const master = fs.readFileSync(masterPath, "utf8").trim();
+    const buyPlaybook = fs.readFileSync(buyPlaybookPath, "utf8").trim();
+    return `${master}\n\n${buyPlaybook}`;
+  }
+  return fs.readFileSync(path.join(dir, "personality.md"), "utf8").trim();
+}
+
 function loadAgentConfig(agentId) {
   const dir = path.join(__dirname, "..", "config", "agents", agentId);
   let universe = DEFAULT_UNIVERSE_CONFIG;
@@ -187,7 +208,7 @@ function loadAgentConfig(agentId) {
     watchlist: JSON.parse(fs.readFileSync(path.join(dir, "watchlist.json"), "utf8")),
     weights: JSON.parse(fs.readFileSync(path.join(dir, "weights.json"), "utf8")),
     riskLimits: JSON.parse(fs.readFileSync(path.join(dir, "risk-limits.json"), "utf8")),
-    personality: fs.readFileSync(path.join(dir, "personality.md"), "utf8").trim(),
+    personality: loadPersonality(dir),
     universe,
   };
 }
@@ -366,9 +387,16 @@ function makeDateWindow(now = new Date()) {
   threeMonthsAgo.setMonth(now.getMonth() - 3);
   const oneMonthAgo = new Date(now);
   oneMonthAgo.setMonth(now.getMonth() - 1);
-  const eightMonthsAgo = new Date(now);
-  eightMonthsAgo.setMonth(now.getMonth() - 8);
-  return { now, threeMonthsAgo, oneMonthAgo, eightMonthsAgo };
+  // The 52-week-high fallback (lib/evidence-quality-policy.js) needs 252 valid
+  // trading-day closes, which takes ~11.5 calendar months to accumulate. This
+  // was previously 8 months — structurally too short to ever satisfy that (or
+  // even the 200-day) requirement, regardless of ticker. 14 months leaves
+  // buffer for holidays/gaps. The primary source for sma50/sma200/high52Week
+  // is now Yahoo's own precomputed summaryDetail figures (free, no extra
+  // request) — this window only matters as their fallback.
+  const barsHistoryStart = new Date(now);
+  barsHistoryStart.setMonth(now.getMonth() - 14);
+  return { now, threeMonthsAgo, oneMonthAgo, barsHistoryStart };
 }
 
 function toIsoTimestamp(value) {
@@ -385,7 +413,7 @@ function sourcedFact(id, label, value, unit, source) {
   return { id, kind: "raw_fact", label, value, unit, source };
 }
 
-function buildCandidateFactEvidence(candidate) {
+function buildCandidateFactEvidence(candidate, macroRedFlags = null) {
   const raw = candidate.raw ?? {};
   const facts = [
     sourcedFact("raw_current_price", "Current price", raw.price?.regularMarketPrice, "USD", "Yahoo quote"),
@@ -404,14 +432,32 @@ function buildCandidateFactEvidence(candidate) {
     sourcedFact("raw_average_daily_dollar_volume", "Average daily dollar volume", candidate.avgDollarVolume, "USD", "Yahoo daily bars"),
   ];
   const technical = candidate.technicalFacts ?? {};
+  // technical.*.source is "yahoo_summary_detail" when it came from Yahoo's own
+  // precomputed figure, otherwise it was reconstructed from daily bars — label
+  // each fact with which one actually happened, not just where a value could
+  // theoretically come from.
+  const technicalSource = (fact) => (fact?.source === "yahoo_summary_detail" ? "Yahoo fundamentals (summaryDetail)" : "Yahoo daily bars");
   if (technical.currentPrice?.status === "available") {
     facts.push(sourcedFact("technical_current_price", "Timestamped current price", technical.currentPrice.value, "USD", "Yahoo quote"));
   }
+  if (technical.sma50?.status === "available") {
+    facts.push(sourcedFact("technical_sma_50", "50-session simple moving average", technical.sma50.value, "USD", technicalSource(technical.sma50)));
+  }
   if (technical.sma200?.status === "available") {
-    facts.push(sourcedFact("technical_sma_200", "200-session simple moving average", technical.sma200.value, "USD", "Yahoo daily bars"));
+    facts.push(sourcedFact("technical_sma_200", "200-session simple moving average", technical.sma200.value, "USD", technicalSource(technical.sma200)));
   }
   if (technical.high52Week?.status === "available") {
-    facts.push(sourcedFact("technical_high_52_week", "52-week high", technical.high52Week.value, "USD", "Yahoo daily bars"));
+    facts.push(sourcedFact("technical_high_52_week", "52-week high", technical.high52Week.value, "USD", technicalSource(technical.high52Week)));
+  }
+  // Deterministic dual-red macro gate (lib/macro-regime.js) as typed facts, so the
+  // model cites a stated boolean instead of computing "is SPY below its 200-day
+  // average" itself from raw numbers — the enforcement backstop is separate
+  // (applyMacroRedGate in the proposal pipeline), this is only the evidence.
+  if (macroRedFlags?.spyRed !== null && macroRedFlags?.spyRed !== undefined) {
+    facts.push(sourcedFact("macro_spy_below_200day", "SPY below its 200-day average", macroRedFlags.spyRed, "boolean", "Yahoo quote (SPY)"));
+  }
+  if (macroRedFlags?.rateRed !== null && macroRedFlags?.rateRed !== undefined) {
+    facts.push(sourcedFact("macro_rate_pressure", "10-year Treasury yield moved >50bps over the trailing 30 trading days", macroRedFlags.rateRed, "boolean", "FRED (DGS10)"));
   }
   if (candidate.peerFactEvidence) facts.push(candidate.peerFactEvidence);
   return facts.filter(Boolean);
@@ -456,8 +502,8 @@ export async function queuePeerCoverageForCandidates(candidates = [], {
  * the scan's candidate loop so the lab single-ticker path builds candidates through
  * the identical code.
  */
-async function buildCandidate(f, riskLimits, { now, threeMonthsAgo, oneMonthAgo, eightMonthsAgo }) {
-  const bars = await fetchDailyBars(f.ticker, { period1: eightMonthsAgo, period2: now });
+async function buildCandidate(f, riskLimits, { now, threeMonthsAgo, oneMonthAgo, barsHistoryStart }) {
+  const bars = await fetchDailyBars(f.ticker, { period1: barsHistoryStart, period2: now });
   const closes = bars.map((b) => b.close);
   const closesSince = (cutoff) => bars.filter((b) => new Date(b.date) >= cutoff).map((b) => ({ close: b.close }));
   const lastBarDate = bars.length ? bars[bars.length - 1].date : null;
@@ -469,6 +515,13 @@ async function buildCandidate(f, riskLimits, { now, threeMonthsAgo, oneMonthAgo,
     price: f.raw?.price?.regularMarketPrice ?? null,
     priceTimestamp: quoteTimestamp,
     asOf: lastBarDate,
+    // Yahoo's own summaryDetail already reports these — free, same fetchFundamentals
+    // call, no extra request. Only falls back to the from-bars reconstruction
+    // above when Yahoo doesn't report one for a given ticker.
+    providedSma50: f.raw?.summaryDetail?.fiftyDayAverage ?? null,
+    providedSma200: f.raw?.summaryDetail?.twoHundredDayAverage ?? null,
+    providedHigh52Week: f.raw?.summaryDetail?.fiftyTwoWeekHigh ?? null,
+    providedAsOf: quoteTimestamp,
   });
 
   const dataGate = evaluateDataGates(
@@ -519,6 +572,9 @@ async function buildCandidate(f, riskLimits, { now, threeMonthsAgo, oneMonthAgo,
 async function buildAgentReviewContext(sheets, spreadsheetId, { candidates, riskLimits, benchmark, heldAllocation = null }) {
   const benchmarkQuotes = await fetchQuotes([benchmark]);
   const spyEntryPrice = benchmarkQuotes[benchmark]?.regularMarketPrice ?? null;
+  // Yahoo's lightweight quote() already reports this — same call as spyEntryPrice
+  // above, no extra request. Feeds the deterministic dual-red macro gate below.
+  const spySma200 = benchmarkQuotes[benchmark]?.twoHundredDayAverage ?? null;
 
   const [resolvedHeldAllocation, cashBalance, lots] = await Promise.all([
     heldAllocation ? Promise.resolve(heldAllocation) : readHoldingsAllocation(sheets, spreadsheetId),
@@ -551,6 +607,16 @@ async function buildAgentReviewContext(sheets, spreadsheetId, { candidates, risk
   }
   const macroText = formatMacroSnapshot(macroSnapshot);
 
+  // Deterministic dual-red macro gate (lib/macro-regime.js): computed here, once
+  // per agent run, not left for the AI to derive from raw numbers in a prompt.
+  let treasuryYieldChangeBps = await getCachedTreasuryYieldChangeBps();
+  if (treasuryYieldChangeBps == null) {
+    const observations = await fetchTreasuryYieldObservations();
+    treasuryYieldChangeBps = computeTreasuryYieldChangeBps(observations);
+    if (treasuryYieldChangeBps != null) await setCachedTreasuryYieldChangeBps(treasuryYieldChangeBps);
+  }
+  const macroRedFlags = evaluateMacroRedFlags({ spyPrice: spyEntryPrice, spySma200, treasuryYieldChangeBps });
+
   const totalPortfolioValue = await getCachedPortfolioTotalValue();
   const openProposals = await listAllProposals();
   let availableCashForBuys =
@@ -563,6 +629,7 @@ async function buildAgentReviewContext(sheets, spreadsheetId, { candidates, risk
 
   return {
     spyEntryPrice,
+    macroRedFlags,
     heldAllocation,
     tickerWeightPct,
     sectorWeightPct,
@@ -743,7 +810,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     recentFilings,
     marketScanSignals: safeScanSignals,
     athenaEvidence: safeAthenaEvidence,
-    macro: ctx.macroText,
+    macro: [ctx.macroText, formatMacroRedFlags(ctx.macroRedFlags)].filter(Boolean).join("\n\n"),
     personality: ctx.personality,
     persistentMemory: ctx.persistentMemory,
     proposalPolicy,
@@ -751,7 +818,7 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     // so it belongs in the user message, never the cached system block.
     researchHistory: formatResearchHistoryForPrompt(ctx.researchLedger[c.ticker]),
     boundaryToken: ctx.boundaryToken,
-    factEvidence: buildCandidateFactEvidence(c),
+    factEvidence: buildCandidateFactEvidence(c, ctx.macroRedFlags),
     quantScoreContext: c.quantScoreContext,
   };
   let proposal = await callGeneratorForAgent(agent.id, overlayInput, ctx);
@@ -836,12 +903,40 @@ async function reviewCandidateForAgent(agent, c, ctx) {
   }
   let riskOverridden = generatorAction !== "HOLD" && rec.action === "HOLD";
 
+  // Deterministic dual-red macro gate (lib/macro-regime.js): per every agent's
+  // mandate, "both SPY-below-200-day and 10-year-rate-pressure red means
+  // NO_TRADE." This must not be left for the AI to self-certify from raw
+  // numbers in its prompt — it's enforced here, the same way a data gate or
+  // the risk engine enforces anything else. Agent 3's mandate explicitly
+  // treats macro as informational only at its horizon, so it's exempt.
+  const DUAL_RED_BLOCKS_AGENTS = new Set(["agent-1", "agent-2"]);
+  if (rec.action === "BUY" && DUAL_RED_BLOCKS_AGENTS.has(agent.id) && ctx.macroRedFlags?.dualRed) {
+    rec = {
+      ...rec,
+      action: "HOLD",
+      targetWeight: 0,
+      overrideNotes: [...(rec.overrideNotes ?? []), "macro_dual_red: SPY below 200-day average AND 10-year rate pressure — NO_TRADE per mandate"],
+    };
+    riskOverridden = true;
+  } else if (rec.action === "BUY" && DUAL_RED_BLOCKS_AGENTS.has(agent.id) && ctx.macroRedFlags?.redCount === 1) {
+    // Single red condition: mandate requires an explanation, not a block. A
+    // deterministic Tier-2 size cap isn't wired here yet — see
+    // config/agents/mandate-policy.js's macro.singleRedTierCap for the shadow
+    // system's intended value; this only guarantees the condition is flagged.
+    rec = {
+      ...rec,
+      overrideNotes: [...(rec.overrideNotes ?? []), "macro_single_red: one macro condition is red — mandate requires explicit explanation"],
+    };
+  }
+
   // The mandate-score gate is intentionally default-off until the full
   // decision-time evidence contract has earned activation. Once enabled it
   // reads only an immutable observation at-or-before this decision and fails
   // closed if either that score or any required entry evidence is absent.
   // This stays before the evaluator so no spend is incurred for an entry that
-  // deterministic mandate policy cannot admit.
+  // deterministic mandate policy cannot admit. It runs after the macro gate
+  // because both are downgrade-only and the macro check is pure in-memory: a
+  // BUY already blocked to HOLD above skips this gate's Postgres read.
   const mandateGate = await applyPersistedMandateScoreGate(rec, {
     agentId: agent.id,
     ticker: c.ticker,

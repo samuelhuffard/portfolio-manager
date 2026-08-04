@@ -10,6 +10,18 @@ async function readAgentFile(agentId, filename) {
   return readFile(new URL(`${agentId}/${filename}`, configRoot), "utf8");
 }
 
+// All three agents now use the split mandate layout (master.md + buy-playbook.md)
+// instead of one flat personality.md. This mirrors jobs/research-scan.js's
+// loadPersonality(), which concatenates the two into the same slot the AI
+// overlay has always read — see config/agents/MANDATE-SPLIT-PILOT.md.
+async function readPersonality(agentId) {
+  const [master, buyPlaybook] = await Promise.all([
+    readAgentFile(agentId, "master.md"),
+    readAgentFile(agentId, "buy-playbook.md"),
+  ]);
+  return `${master.trim()}\n\n${buyPlaybook.trim()}`;
+}
+
 test("Agents Two and Three retain supervised v3 mandate configuration", async () => {
   const expected = {
     "agent-2": { plan: "Agent Two Strategy Specification v3", minMarketCap: 300000000, minAvgDollarVolume: 10000000 },
@@ -22,7 +34,7 @@ test("Agents Two and Three retain supervised v3 mandate configuration", async ()
     assert.equal(canCreateActionableProposal(agent), true);
 
     const [personality, plan, riskLimitsText] = await Promise.all([
-      readAgentFile(agentId, "personality.md"),
+      readPersonality(agentId),
       readAgentFile(agentId, agentId === "agent-2" ? "AGENT-TWO-PLAN.md" : "AGENT-THREE-PLAN.md"),
       readAgentFile(agentId, "risk-limits.json"),
     ]);
@@ -37,7 +49,7 @@ test("Agents Two and Three retain supervised v3 mandate configuration", async ()
 
 test("Agent One runtime artifacts follow the authoritative sector-agnostic v3 mandate", async () => {
   const [personality, plan, riskLimitsText] = await Promise.all([
-    readAgentFile("agent-1", "personality.md"),
+    readPersonality("agent-1"),
     readAgentFile("agent-1", "AGENT-ONE-PLAN.md"),
     readAgentFile("agent-1", "risk-limits.json"),
   ]);

@@ -3,7 +3,7 @@
 - **Status:** ACCEPTED — provider = **Neon** (Sam, 2026-07-11). A non-authoritative dual-write/shadow foundation now exists, but canonical-read cutover remains prohibited until the master plan's contract, 30-day parity, restore, and crash gates pass.
 - **Date:** 2026-07-11
 - **Decision rationale:** we need exactly one thing — transactional Postgres. Auth stays with Clerk (dedicated auth beats a bundled one; RLS remains available on Neon if per-user row isolation is ever needed). Neon's branching directly serves the shadow-read migration. Auth and DB decisions are independent and were kept so.
-- **Context source:** roadmap Phase 2 ([[portfolio-manager-autonomy-roadmap]] / `docs/AUTONOMY-ROADMAP.md`).
+- **Context source:** roadmap Phase 2 ([[portfolio-manager-autonomy-roadmap]] / `docs/roadmaps/AUTONOMY-ROADMAP.md`).
 
 ## Context
 

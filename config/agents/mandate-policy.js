@@ -98,6 +98,13 @@ export const MANDATE_POLICIES = Object.freeze({
       maximumSectorWeightPct: 75,
       minimumAttributedCashReservePct: 5,
     }),
+    // ATR is distance below the 20-session high, in ATR units (see
+    // sell-playbook.md and lib/mandate-policy.js evaluateHoldingTriggers).
+    exit: Object.freeze({
+      atrFullExitThreshold: 2.5,
+      atrPartialExitThreshold: 2.0,
+      atrReviewThreshold: 1.5,
+    }),
     cadence: Object.freeze({
       ...COMMON.cadence,
       deadTradeReviewTradingDays: 20,
@@ -162,6 +169,14 @@ export const MANDATE_POLICIES = Object.freeze({
       minimumEstimateSnapshots: 3,
       minimumEstimateHistoryDays: 30,
     }),
+    // See sell-playbook.md and lib/mandate-policy.js evaluateHoldingTriggers.
+    exit: Object.freeze({
+      consecutiveClosesBelow50DayThreshold: 5,
+      relativeStrengthDecliningWeeksThreshold: 4,
+      revenueDecelerationQuartersThreshold: 2,
+      epsDecelerationQuartersThreshold: 2,
+      deadQuartersThreshold: 2,
+    }),
     cadence: COMMON.cadence,
     add: Object.freeze({
       averagingDown: "prohibited",
@@ -203,6 +218,12 @@ export const MANDATE_POLICIES = Object.freeze({
       maximumPositionWeightPct: 15,
       maximumSectorWeightPct: 60,
       minimumAttributedCashReservePct: null,
+    }),
+    // See sell-playbook.md and lib/mandate-policy.js evaluateHoldingTriggers.
+    exit: Object.freeze({
+      businessScoreFloor: 65,
+      positionDriftCeilingPct: 25,
+      valuationPercentileCeiling: 0.9,
     }),
     cadence: Object.freeze({
       ...COMMON.cadence,

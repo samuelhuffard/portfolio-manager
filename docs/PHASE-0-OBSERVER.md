@@ -1,7 +1,7 @@
 # Phase 0 Daily Observer
 
 The Phase 0 observer is a read-only evidence recorder for the independent TRUST
-safety window and SKILL research cohort defined in `docs/portfolio-master-plan.md`.
+safety window and SKILL research cohort defined in `docs/roadmaps/portfolio-master-plan.md`.
 It does not advance autonomy, repair
 records, mutate proposals or ledgers, contact the broker, or redefine investment
 performance.

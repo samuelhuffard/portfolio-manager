@@ -8,7 +8,7 @@ scope: "Agent Three only"
 
 # Agent Three Strategy Specification v3
 
-The full normative mandate is `agent_mandates/Agent_Three_Mandate_v3.md`. The runtime compact mandate is `personality.md`; it is deliberately a constrained summary, not a replacement for the source document.
+The full normative mandate is `agent_mandates/Agent_Three_Mandate_v3.md`. The runtime compact mandate is `master.md` + `buy-playbook.md` (split-mandate layout — see `config/agents/MANDATE-SPLIT-PILOT.md`); together they are deliberately a constrained summary, not a replacement for the source document.
 
 Agent Three is a long-term compounder specialist: it seeks durable, financially resilient businesses at sensible prices, tolerates ordinary price volatility, and exits only on structural business, stewardship, or valuation failure.
 

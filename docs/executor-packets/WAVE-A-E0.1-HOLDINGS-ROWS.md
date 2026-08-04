@@ -6,7 +6,7 @@ Use the model as a bounded implementation executor. Do not broaden scope.
 
 - Backend: `/Users/samhuffard/All Claude Projects/portfolio-manager`
 - Dashboard: `/Users/samhuffard/All Claude Projects/portfolio-dashboard`
-- Packet: E0.1 in `docs/RESEARCH-ROADMAP-EXECUTION-GUIDE.md`
+- Packet: E0.1 in `docs/roadmaps/RESEARCH-ROADMAP-EXECUTION-GUIDE.md`
 
 Read backend `CLAUDE.md`, `.claude/napkin.md`, `docs/CHANGE_MAP.md`, the E0.1 packet, and all target files/tests before editing. Run `git status --short --branch` in both repos and preserve unrelated changes.
 

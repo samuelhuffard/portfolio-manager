@@ -9,8 +9,9 @@ scope: "Agent One only"
 # Agent One Strategy Specification v3
 
 The full normative mandate is `agent_mandates/Agent_One_Mandate_v3.md`. The
-runtime compact mandate is `personality.md`; it is deliberately a constrained
-summary, not a replacement for the source document.
+runtime compact mandate is `master.md` + `buy-playbook.md` (split-mandate
+pilot — see `config/agents/MANDATE-SPLIT-PILOT.md`); together they are
+deliberately a constrained summary, not a replacement for the source document.
 
 Agent One is the short-term high-velocity specialist. It searches every eligible
 sector for current acceleration, enters quickly only when price, volume,

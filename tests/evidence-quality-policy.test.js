@@ -67,8 +67,43 @@ test("technical packet computes only from sufficient valid observations and a st
     asOf: "2026-07-20",
   });
   assert.deepEqual(packet.currentPrice, { status: "available", value: 252.5, reason: null, asOf: "2026-07-20T20:00:00Z" });
+  assert.equal(packet.sma50.status, "available");
   assert.equal(packet.sma200.status, "available");
   assert.equal(packet.sma200.value, 152.5);
   assert.equal(packet.high52Week.value, 252);
   assert.equal(technicalClaimStatus(packet, "52-week high").status, "available");
+});
+
+test("provided Yahoo summaryDetail averages are used even when bar history is insufficient", () => {
+  // This is the exact real-world case that was broken: fewer than 200/252 daily
+  // bars (e.g. from a too-short lookback window), but Yahoo's own summaryDetail
+  // already reports the moving averages for free in the same fundamentals call.
+  const packet = buildTechnicalFactPacket({
+    bars: Array.from({ length: 100 }, () => ({ close: 10 })),
+    price: 12,
+    priceTimestamp: "2026-07-20T20:00:00Z",
+    providedSma50: 11.5,
+    providedSma200: 10.75,
+    providedHigh52Week: 15,
+    providedAsOf: "2026-07-20T20:00:00Z",
+  });
+  assert.equal(packet.sma50.status, "available");
+  assert.equal(packet.sma50.value, 11.5);
+  assert.equal(packet.sma50.source, "yahoo_summary_detail");
+  assert.equal(packet.sma200.status, "available");
+  assert.equal(packet.sma200.value, 10.75);
+  assert.equal(packet.high52Week.status, "available");
+  assert.equal(packet.high52Week.value, 15);
+  assert.equal(technicalClaimStatus(packet, "sma_50").value, 11.5);
+
+  // Without a provided value, insufficient bars still correctly fall back to
+  // unavailable — 100 bars covers the 50-day reconstruction but not 200/252.
+  const noProvided = buildTechnicalFactPacket({
+    bars: Array.from({ length: 100 }, () => ({ close: 10 })),
+    price: 12,
+    priceTimestamp: "2026-07-20T20:00:00Z",
+  });
+  assert.equal(noProvided.sma50.status, "available");
+  assert.equal(noProvided.sma200.status, "unavailable");
+  assert.equal(noProvided.high52Week.status, "unavailable");
 });

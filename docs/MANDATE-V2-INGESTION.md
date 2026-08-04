@@ -2,12 +2,12 @@
 
 > **Historical ingestion plan.** Authority/status language in this file is not
 > current. The canonical phase sequence and current Agent 2/3/4 authority are in
-> [the master plan](portfolio-master-plan.md); accepted v3 mandate policy is in
+> [the master plan](roadmaps/portfolio-master-plan.md); accepted v3 mandate policy is in
 > [the decision register](RESEARCH-DECISION-REGISTER.md).
 
 Historical plan for ingesting the four **v2 agent mandates** authored by Sam's friend
 (`agent_mandates/Agent_{One,Two,Three,Four}_Mandate_v2.md`, merged to `main`
-2026-07-12). Read this with `docs/AUTONOMY-ROADMAP.md` (Phase 1 gates still apply)
+2026-07-12). Read this with `docs/roadmaps/AUTONOMY-ROADMAP.md` (Phase 1 gates still apply)
 and `docs/CHANGE_MAP.md` ("Onboarding a specialist mandate").
 
 **Historical status:** planning + Phase A scaffolding. This v2 work did not activate

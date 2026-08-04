@@ -17,7 +17,7 @@ fails closed.
 ## Scope reviewed
 
 - The canonical TRUST/SKILL clocks, S1/S2/R1/R2 reset taxonomy, Phase 0 entry and
-  exit gates, and freeze rules in `docs/portfolio-master-plan.md`.
+  exit gates, and freeze rules in `docs/roadmaps/portfolio-master-plan.md`.
 - Every scheduled backend workflow from 8:30 AM premarket through the 8:20 PM
   observer, including the Friday and Sunday exceptions.
 - Jetson-to-Mac broker-read transport, account binding, leases, retries,

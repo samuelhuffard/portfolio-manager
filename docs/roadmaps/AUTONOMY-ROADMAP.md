@@ -165,7 +165,7 @@ The detailed multi-model execution guide lives in repo-root `handoff.md`. Do not
 
 ## Standing session protocol
 
-Before meaningful Portfolio Manager work: read `docs/portfolio-master-plan.md`
+Before meaningful Portfolio Manager work: read `docs/roadmaps/portfolio-master-plan.md`
 first, then use this roadmap only for narrower TRUST detail alongside `CLAUDE.md`,
 `docs/INVARIANTS.md`, `docs/CHANGE_MAP.md`, and `ops/FIXLIST.md`; protect existing
 WIP; verify runtime evidence; state the master-plan phase and exit criterion
