@@ -37,7 +37,7 @@ import { getServiceAccountClients, getSheetIds, resolveSharedSpreadsheetId } fro
 import { runResearchScan } from "../jobs/research-scan.js";
 import { withWorkflowLock } from "../lib/workflow-lock.js";
 import { McpReadRequestSchema } from "../contracts/mcp-read-job.js";
-import { parseMcpHoldingsInput } from "../lib/mcp-holdings-input.js";
+import { buildMcpHoldingsQuoteSnapshot, parseMcpHoldingsInput } from "../lib/mcp-holdings-input.js";
 
 const shouldRunScan = process.argv.includes("--scan");
 const requestIdFlag = process.argv.indexOf("--request-id");
@@ -93,6 +93,7 @@ const snapshot = await withWorkflowLock("holdings-sync", async () => {
     spyPrice,
     timestamp,
     holdingsNote: "Synced via Robinhood Agentic MCP",
+    quoteSnapshot: buildMcpHoldingsQuoteSnapshot(timestamp),
     sourceRequestId,
   });
 }, { ttlSeconds: 5 * 60 });
