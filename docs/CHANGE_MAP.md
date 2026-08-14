@@ -179,15 +179,42 @@ Gotchas:
 - Per-agent floors differ: agent-1/2 `minimumEntryScore` 45, agent-3 65 with no
   speculative tier. Do not assume one threshold across agents.
 
-## Changing consensus-estimate ingestion (Mandate v3 Category A/B, inert)
+## Changing consensus-estimate ingestion (Mandate v3 Category A/B — LIVE)
 
 Supplies the two metrics the `maxAvailable >= 80` actionability bar in
 `lib/mandate-score.js` cannot be reached without: `revBeat` (Category A) and
 `estimateRevisions` (Category B) — 22 points for Agent 1, 22 for Agent 2. Files:
-`lib/consensus-snapshot.js` (pure extraction + derivations), the `earningsTrend` entry
-in `FUNDAMENTALS_MODULES` (`lib/yahoo.js`). Tests: `tests/consensus-snapshot.test.js`.
+`lib/consensus-snapshot.js` (pure extraction, derivations, and the point-in-time
+`selectRevenueBeatPair`), `fetchConsensusTrend()` (`lib/yahoo.js`),
+`lib/pg/consensus-snapshots.js` (durable store), `db/migrations/0008_consensus_snapshots.sql`,
+collection in `jobs/peer-coverage-refresh.js`, consumption in `jobs/mandate-scoring.js`
+(`buildConsensusBundles` → `scoreCohortForAgent`). Tests:
+`tests/consensus-snapshot.test.js`, `tests/consensus-beat-pairing.test.js`,
+`tests/consensus-snapshot-store.test.js`, `tests/consensus-wiring.test.js`.
 
 Gotchas:
+- **Collection is the whole game.** `estimateRevisions` is a change between instants this
+  system observed, so it does not exist until history has accumulated: every collection
+  pass that is skipped is a permanently missing data point that cannot be backfilled.
+  `revBeat` binds on the first pass; `estimateRevisions` needs ≥3 snapshots spanning ≥30
+  days, so expect it to stay `missing` for roughly a month after first deploy. That is
+  correct behavior, not a bug.
+- Snapshots live in **Postgres, not Redis**. Redis peer metrics are a TTL cache, and an
+  expiry there would silently reset the revision window and read as "no signal" —
+  indistinguishable from a genuinely flat consensus. New research tables must also be
+  added to `RESTORE_TABLES` in `lib/pg/restore-drill.js` or the backup-coverage drill
+  fails closed (it does this on purpose — do not weaken the check to make it pass).
+- The store's identity hash covers ticker + period + retrieval instant and deliberately
+  **excludes the estimate values**. Hashing values would let a re-run of the same pass
+  insert a second row whenever an estimate happened to tick, inflating the snapshot count
+  that gates activation.
+- Pairing an actual to a pre-report consensus is `selectRevenueBeatPair`, not caller
+  discretion. It requires `retrievedAt < filed` and takes the LATEST qualifying snapshot.
+  This needs each quarter's FILING date, which is why `_revenueQuarterSeries` (end/val/filed)
+  is carried in the EDGAR derived bundle — the scalar `_asOf` cannot express it.
+- Collection rides `peer-coverage-refresh` because that job already visits each name on a
+  paced, gated schedule. It is a SEPARATE try/catch from the peer-metrics fetch: a consensus
+  outage must never cost a ticker its peer row, which the whole peer-relative substrate needs.
 - `earningsTrend` is fetched by a DEDICATED `fetchConsensusTrend()`, deliberately NOT
   folded into `FUNDAMENTALS_MODULES`. Yahoo would accept it in the same request for free,
   and that is precisely the trap: this client keeps provider schema validation failing

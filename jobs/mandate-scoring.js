@@ -23,6 +23,8 @@ import {
   researchStoreConfigured,
   writeResearchRun,
 } from "../lib/pg/research-observations.js";
+import { readConsensusHistories } from "../lib/pg/consensus-snapshots.js";
+import { selectRevenueBeatPair } from "../lib/consensus-snapshot.js";
 
 /**
  * Whole-market deterministic scoring pass. The production entrypoint is inert
@@ -94,7 +96,16 @@ export function mandateScoringPrerequisite({
  * Pure: score a full cohort for one agent. It remains useful as a fixture seam;
  * the operational caller passes only active-production-universe candidates.
  */
-export function scoreCohortForAgent(agentId, names, { coreMetrics = CORE_PEER_METRICS } = {}) {
+export function scoreCohortForAgent(agentId, names, {
+  coreMetrics = CORE_PEER_METRICS,
+  // Optional evidence bundles, supplied per ticker by the operational caller.
+  // Each is independently optional: an absent bundle leaves exactly its own
+  // metrics unbound, so a cohort scored without any of them produces precisely
+  // the scores it did before these sources existed.
+  consensusByTicker = null,
+  thirteenFByTicker = null,
+  historyByTicker = null,
+} = {}) {
   const scores = [];
   let skipped = 0;
   const unsupportedReasons = [];
@@ -109,6 +120,9 @@ export function scoreCohortForAgent(agentId, names, { coreMetrics = CORE_PEER_ME
       metrics: candidate.metrics ?? {},
       derived: candidate.derived ?? null,
       sector: sectorKey,
+      consensus: consensusByTicker?.[candidate.ticker] ?? null,
+      thirteenF: thirteenFByTicker?.[candidate.ticker] ?? null,
+      history: historyByTicker?.[candidate.ticker] ?? null,
     });
     if (!inputs.supported) {
       skipped++;
@@ -165,6 +179,39 @@ export function scoreCohortForAgent(agentId, names, { coreMetrics = CORE_PEER_ME
   }
   scores.sort((left, right) => right.total - left.total || left.ticker.localeCompare(right.ticker));
   return { scores, skipped, unsupportedReasons, unsupportedRows };
+}
+
+/**
+ * Turn locally-observed consensus history into the per-ticker bundle
+ * `lib/mandate-evidence.js` consumes.
+ *
+ * `revBeat` needs a reported quarter paired with the consensus standing before
+ * that quarter was filed; `selectRevenueBeatPair` owns that point-in-time rule.
+ * The EDGAR quarters come from the persisted peer-metrics bundle, which is the
+ * only reported-revenue record this job has — it never re-fetches companyfacts.
+ *
+ * A ticker with no history yields no entry at all rather than an empty bundle,
+ * so `assembleConsensusEvidence` is never handed a shell that looks like
+ * coverage but carries nothing.
+ */
+export function buildConsensusBundles({ candidates = [], histories = new Map(), asOf = null } = {}) {
+  const bundles = {};
+  for (const candidate of candidates) {
+    const history = histories.get(candidate.ticker) ?? [];
+    if (!history.length) continue;
+    const { snapshot, actualRevenue } = selectRevenueBeatPair({
+      history,
+      revenueQuarters: candidate.derived?._revenueQuarterSeries ?? [],
+      asOf,
+    });
+    // `snapshot` is deliberately the pre-report one selected above, NOT simply the
+    // newest observation: the newest may post-date the print, and differencing an
+    // actual against a post-report estimate is the leakage this pairing exists to
+    // prevent. When nothing pairs, revBeat stays unbound and only estimateRevisions
+    // — which reads `history` — can still bind.
+    bundles[candidate.ticker] = { snapshot, history, actualRevenue };
+  }
+  return bundles;
 }
 
 function cacheView(score) {
@@ -240,8 +287,23 @@ export async function runMandateScoring({
   const cachePayloads = [];
   const scoringConfig = agentOneScoringConfigVersion();
 
+  // Point-in-time read: never difference against a snapshot observed after this
+  // run's own decision instant. A consensus outage degrades revBeat and
+  // estimateRevisions to missing (rescaled out by lib/mandate-score.js) — it must
+  // not fail a scoring pass whose other eight metrics are unaffected.
+  let consensusByTicker = {};
+  try {
+    const histories = await readConsensusHistories({
+      tickers: eligibleCandidates.map((candidate) => candidate.ticker),
+      asOf: observedAt,
+    }, { pool });
+    consensusByTicker = buildConsensusBundles({ candidates: eligibleCandidates, histories, asOf: observedAt });
+  } catch (error) {
+    console.error(`[MandateScore] consensus history unavailable (revBeat/estimateRevisions will score as missing): ${error?.message ?? error}`);
+  }
+
   for (const agentId of SCORED_AGENTS) {
-    const { scores, skipped, unsupportedReasons, unsupportedRows } = scoreCohortForAgent(agentId, eligibleCandidates);
+    const { scores, skipped, unsupportedReasons, unsupportedRows } = scoreCohortForAgent(agentId, eligibleCandidates, { consensusByTicker });
     if (!scores.length) {
       return disabledResult("no_supported_agent_one_evidence");
     }

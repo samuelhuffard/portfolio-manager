@@ -9,17 +9,24 @@ const catalog = {
   AXP: { t: "AXP", i: "Credit Services", s: "Financial Services", mc: 80 },
 };
 
+// A coverage request only stays actionable for PEER_COVERAGE_ACTIVE_REQUEST_MS
+// (7 days), so a hardcoded request date silently turns this test from "a fresh
+// cohort is refreshed" into "an expired request is ignored" once it ages out.
+// Relative to now, it keeps testing what it was written to test.
+const recentlyRequestedAt = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
 test("requested cohort refresh checkpoints fetched metrics without a model or broad refresh", async () => {
   const saves = [];
   const result = await runPeerCoverageRefresh({
     env,
     limit: 3,
     getCatalog: async () => catalog,
-    getRequests: async () => ({ V: { ticker: "V", industry: "Credit Services", lastRequestedAt: "2026-07-27T20:00:00.000Z" } }),
+    getRequests: async () => ({ V: { ticker: "V", industry: "Credit Services", lastRequestedAt: recentlyRequestedAt } }),
     getMetrics: async () => ({}),
     saveMetrics: async (rows) => saves.push(structuredClone(rows)),
     getFundamentals: async (ticker) => ({ industry: "Credit Services", sector: "Financial Services", raw: { financialData: {}, summaryDetail: {} }, ticker }),
     getCompanyFacts: async () => null,
+    consensusStore: () => false,
     sleep: async () => {},
   });
   assert.equal(result.state, "completed");

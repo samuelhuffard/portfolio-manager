@@ -80,7 +80,10 @@ test("real migrations + encrypted logical snapshot restore cleanly into disposab
     const verification = await verifyRestoredSnapshot(target.db, decrypted);
 
     assert.equal(verification.ok, true);
-    assert.equal(verification.tablesVerified, 20);
+    // 21 as of 0008_consensus_snapshots. This count is deliberately explicit:
+    // adding a table to the schema without adding it to the backup inventory
+    // must break here rather than silently ship an unbacked-up table.
+    assert.equal(verification.tablesVerified, 21);
     assert.ok(verification.rowsVerified >= 4);
     assert.deepEqual(decrypted.migrations, migrationFiles);
 
@@ -105,7 +108,7 @@ test("real migrations + encrypted logical snapshot restore cleanly into disposab
     const manifest = privacySafeManifest(snapshot, verification, { totalMs: 1234 }, "fixture");
     assert.deepEqual(manifest.verification, {
       ok: true,
-      tablesVerified: 20,
+      tablesVerified: 21,
       failedTableCount: 0,
       allColumnsAndSignatureBytesPreserved: true,
     });
