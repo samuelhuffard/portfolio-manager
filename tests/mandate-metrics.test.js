@@ -58,6 +58,43 @@ test("peerMetricsRow carries industry, vector and a zoned retrieval instant", ()
   assert.equal(row.ts, "2026-07-13T20:00:00.000Z");
   assert.equal(row.retrievedAt, "2026-07-13T20:00:00.000Z");
   assert.equal(row.src, "yfinance");
+  assert.equal(row.history, null, "no companyfacts → no long-horizon bundle to derive");
+});
+
+test("peerMetricsRow caches Agent 3's long-horizon bundle from the SAME companyfacts call — no extra fetch", () => {
+  // 16 clean quarters (4 non-overlapping TTM windows), steady ~15%/yr growth — the
+  // shape lib/agent3-history.js needs. Mirrors tests/agent3-history.test.js's fixture.
+  const startYear = 2022;
+  const ends = [];
+  for (let y = startYear; ends.length < 16; y++) {
+    for (const md of ["-03-31", "-06-30", "-09-30", "-12-31"]) if (ends.length < 16) ends.push(`${y}${md}`);
+  }
+  const vals = [100, 100, 100, 100, 115, 115, 115, 115, 132, 132, 132, 132, 152, 152, 152, 152];
+  const startFor = (e) => new Date(Date.parse(e) - 90 * 86400000).toISOString().slice(0, 10);
+  const rev = ends.map((e, i) => ({ start: startFor(e), end: e, val: vals[i], fy: 0, fp: "Q", form: "10-Q", filed: e }));
+  const cf = { cik: 1, entityName: "T", facts: { "us-gaap": { Revenues: { units: { USD: rev } } } } };
+
+  const row = peerMetricsRow(fundamentals(), cf);
+  assert.equal(row.history.windows, 4);
+  // `complete` needs all four sub-bundles; this fixture supplies revenue only (the
+  // other three need opInc/margin/balance-sheet facts this fixture omits on purpose).
+  assert.equal(row.history.complete, false);
+  assert.ok(row.history.revGrowth.revenueCagr3yPct > 14, "cached bundle carries real multi-year evidence, not a placeholder");
+  assert.equal(row.history.epsTrajectory, null, "no operating-income facts supplied — must not be guessed at");
+});
+
+test("peerMetricsRow still caches a history bundle on thin filing history — nulled per-metric, never fabricated", () => {
+  // The existing 8-quarter (2-window) fixture below is one TTM window short of the
+  // 4 lib/agent3-history.js requires — the honest "not enough history yet" case.
+  const ends = ["2023-03-31", "2023-06-30", "2023-09-30", "2023-12-31", "2024-03-31", "2024-06-30", "2024-09-30", "2024-12-31"];
+  const vals = [100, 100, 100, 100, 110, 120, 130, 140];
+  const startFor = (e) => new Date(Date.parse(e) - 91 * 86400000).toISOString().slice(0, 10);
+  const rev = ends.map((e, i) => ({ start: startFor(e), end: e, val: vals[i], fy: +e.slice(0, 4), fp: "Q1", form: "10-Q", filed: e }));
+  const cf = { cik: 1, entityName: "T", facts: { "us-gaap": { Revenues: { units: { USD: rev } } } } };
+
+  const row = peerMetricsRow(fundamentals(), cf);
+  assert.equal(row.history.complete, false);
+  assert.equal(row.history.revGrowth, null, "2 windows is not 4 — must not be guessed at");
 });
 
 test("peer quant vector retains only sourced current fundamental fields", () => {

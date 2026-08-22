@@ -4,6 +4,30 @@ Personal follow-up list for Sam. Not a system-loop artifact (see `ops/FIXLIST.md
 for those) — just things to come back to.
 
 
+- [ ] **ACTIVATE AGENT 3 SCORING (data wiring done, activation gate remains).**
+      `SCORED_AGENTS` in `jobs/mandate-scoring.js` is still `["agent-1"]`. As of
+      2026-08-22, `lib/mandate-metrics.js` `peerMetricsRow` caches
+      `deriveAgent3History(companyfacts)` (lib/agent3-history.js) alongside `derived`,
+      `lib/mandate-observation.js` `buildAgentOneUniverseSnapshot` carries that `history`
+      field through onto each `eligibleCandidates` entry, and `jobs/mandate-scoring.js`
+      builds `historyByTicker` from it and passes it into `scoreCohortForAgent`. This
+      unlocks up to **61 of Agent 3's 100 points** (revGrowth 24 + epsTrajectory 14 +
+      marginTrend 9 + balanceSheet 14) from data already fetched nightly — no new vendor,
+      no new derivation logic, all three pieces covered by tests
+      (`tests/mandate-metrics.test.js`, `tests/mandate-observation.test.js`).
+      **What's still missing before this does anything live:**
+      1. `SCORED_AGENTS` doesn't include `"agent-3"` — this is the actual activation
+         gate and is a paper/shadow decision, not a wiring one.
+      2. The bundle only populates for names enriched with `PEER_METRICS_EDGAR` on
+         AND that clear the 3-years-public screen (`screenAgentThree` in
+         `lib/mandate-catalog-screen.js`) with ≥4 clean non-overlapping TTM windows
+         (~4 years of filings) — thinner history yields `history.revGrowth: null` etc.,
+         honestly, not a guess.
+      3. Even fully wired, Agent 3 still needs `revBeat`(6)+`estimateRevisions`(21) from
+         consensus (already wired for agent-1, ticker-agnostic — should carry over) to
+         reach the full 100; without consensus the ceiling is ~61, still above the
+         80-point actionable bar on its own.
+
 - [ ] **RE-ADD THE OWNERSHIP METRICS (retired Category D, 2026-08-22).** Category D
       (`instOwnershipDir` + `thirteenF`, 15 pts) was cut from scoring and its points
       redistributed proportionally across A/B/C (now 30/35/35). **The ingestion pipeline

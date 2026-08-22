@@ -288,7 +288,7 @@ export async function runMandateScoring({
   // Point-in-time read: never difference against a snapshot observed after this
   // run's own decision instant. A consensus outage degrades revBeat and
   // estimateRevisions to missing (rescaled out by lib/mandate-score.js) — it must
-  // not fail a scoring pass whose other eight metrics are unaffected.
+  // not fail a scoring pass whose other six metrics are unaffected.
   let consensusByTicker = {};
   try {
     const histories = await readConsensusHistories({
@@ -300,8 +300,16 @@ export async function runMandateScoring({
     console.error(`[MandateScore] consensus history unavailable (revBeat/estimateRevisions will score as missing): ${error?.message ?? error}`);
   }
 
+  // Agent 3's long-horizon bundle, cached per candidate by lib/mandate-metrics.js
+  // peerMetricsRow (lib/agent3-history.js, derived from the same companyfacts already
+  // fetched nightly — no extra EDGAR call). Agents 1/2 ignore this bundle; harmless to
+  // pass unconditionally, same pattern as consensusByTicker above.
+  const historyByTicker = Object.fromEntries(
+    eligibleCandidates.filter((candidate) => candidate.history).map((candidate) => [candidate.ticker, candidate.history]),
+  );
+
   for (const agentId of SCORED_AGENTS) {
-    const { scores, skipped, unsupportedReasons, unsupportedRows } = scoreCohortForAgent(agentId, eligibleCandidates, { consensusByTicker });
+    const { scores, skipped, unsupportedReasons, unsupportedRows } = scoreCohortForAgent(agentId, eligibleCandidates, { consensusByTicker, historyByTicker });
     if (!scores.length) {
       return disabledResult("no_supported_agent_one_evidence");
     }

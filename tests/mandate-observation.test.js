@@ -112,10 +112,11 @@ test("production-universe snapshot preserves every catalog member and stable exc
     KO: { t: "KO", n: "Consumer", ea: "2026-07-13", v: "Retail", s: "Consumer Defensive", i: "Beverages", mc: 2e9, advd: 15e6 },
     LEG: { t: "LEG", n: "Legacy", ea: "2026-07-13", v: "Software/SaaS", s: "Technology", i: "Software - Application", mc: 2e9, advd: 15e6 },
   };
+  const agent3History = { windows: 4, complete: true, revGrowth: { revenueCagr3yPct: 15 }, epsTrajectory: null, marginTrend: null, balanceSheet: null };
   const { snapshot, eligibleCandidates } = buildAgentOneUniverseSnapshot({
     catalog,
     peerMetrics: {
-      AAA: { metrics: candidate().metrics, retrievedAt: EARLIER, src: "edgar+yfinance" },
+      AAA: { metrics: candidate().metrics, retrievedAt: EARLIER, src: "edgar+yfinance", history: agent3History },
       LEG: { metrics: candidate().metrics, ts: "2026-07-13", src: "edgar+yfinance" },
     },
     observedAt: OBSERVED_AT,
@@ -128,8 +129,23 @@ test("production-universe snapshot preserves every catalog member and stable exc
   assert.deepEqual(snapshot.membership.find((item) => item.ticker === "KO").eligibilityReasonCodes, ["outside_approved_subvertical"]);
   assert.deepEqual(snapshot.membership.find((item) => item.ticker === "LEG").scoringExclusionReasonCodes, ["legacy_peer_metric_retrieval_time_unavailable"]);
   assert.deepEqual(eligibleCandidates.map((item) => item.ticker), ["AAA"]);
+  // Agent 3's cached long-horizon bundle must survive the snapshot's field mapping —
+  // it is the one field this function does NOT get for free by spreading the row.
+  assert.deepEqual(eligibleCandidates[0].history, agent3History);
   assert.match(snapshot.id, /^universe:[0-9a-f]{64}$/);
   assert.match(snapshot.contentHash, /^[0-9a-f]{64}$/);
+});
+
+test("a peer-metrics row with no cached history yields history: null, not a throw", () => {
+  const catalog = { AAA: { t: "AAA", n: "Alpha", ea: "2026-07-13", v: "Software/SaaS", s: "Technology", i: "Software - Application", mc: 2e9, advd: 15e6 } };
+  const { eligibleCandidates } = buildAgentOneUniverseSnapshot({
+    catalog,
+    peerMetrics: { AAA: { metrics: candidate().metrics, retrievedAt: EARLIER, src: "edgar+yfinance" } },
+    observedAt: OBSERVED_AT,
+    sourceRevision: "9d44eaf1d31a4bda8ece57ccadbd5eea",
+    limits: { allowedSubVerticals: ["Software/SaaS"], microCapMinAvgDollarVolume: 3_000_000 },
+  });
+  assert.equal(eligibleCandidates[0].history, null);
 });
 
 test("Agent 1 adapter emits a schema-valid partial observation with canonical identities and unresolved provenance", () => {
@@ -145,7 +161,13 @@ test("Agent 1 adapter emits a schema-valid partial observation with canonical id
   assert.match(observation.id, /^[0-9a-f]{64}$/);
   assert.match(evidenceSnapshot.id, /^evidence:[0-9a-f]{64}$/);
   assert.equal(evidenceSnapshot.observedAt, OBSERVED_AT);
-  assert.equal(observation.maxAvailablePoints, 53);
+  // revGrowth + epsTrajectory + marginTrend + peerValuation are the four metrics with
+  // a non-null value in recordArgs()'s vector; computed from METRIC_MAX_POINTS (which
+  // tracks config/scoring/mandate-v2.js) rather than hardcoded, so a future reweight
+  // can't silently desync this assertion the way the pre-2026-08-22 literal (53) did.
+  const boundPoints = ["revGrowth", "epsTrajectory", "marginTrend", "peerValuation"]
+    .reduce((sum, id) => sum + METRIC_MAX_POINTS[id], 0);
+  assert.equal(observation.maxAvailablePoints, boundPoints);
   assert.equal(observation.complete, false);
   assert.equal(observation.actionable, false);
 
