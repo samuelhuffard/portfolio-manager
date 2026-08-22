@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { runPeerCoverageRefresh } from "../jobs/peer-coverage-refresh.js";
 import { buildConsensusBundles, scoreCohortForAgent } from "../jobs/mandate-scoring.js";
 import { assembleMandateInputs } from "../lib/mandate-evidence.js";
+import { runUniverseRefresh } from "../jobs/universe-refresh.js";
 
 const env = { PEER_METRICS_ENABLED: "1", PEER_METRICS_EDGAR: "1" };
 const catalog = { V: { t: "V", i: "Credit Services", s: "Financial Services", mc: 100 } };
@@ -158,4 +159,58 @@ test("scoring a cohort without any bundle is byte-identical to scoring it before
     withoutArg.scores.map((s) => s.boundMetrics),
     withEmpty.scores.map((s) => s.boundMetrics),
   );
+});
+
+// --- broad-universe collection ----------------------------------------------
+// jobs/peer-coverage-refresh.js only walks REQUESTED cohorts, but
+// jobs/universe-refresh.js writes peer metrics for the broad nightly batch.
+// Collecting in only one of them leaves most scored names carrying peer metrics
+// with no consensus history behind them.
+
+const listing = Array.from({ length: 1200 }, (_, i) => ({ ticker: `T${i}`, name: `Name ${i}`, exchange: "NASDAQ" }));
+
+const universeArgs = (overrides = {}) => ({
+  env: { PEER_METRICS_ENABLED: "1", UNIVERSE_ENRICH_PER_RUN: "2" },
+  getListing: async () => listing,
+  getQuotes: async (chunk) => Object.fromEntries(chunk.map((t) => [t, { regularMarketPrice: 10, marketCap: 1e9 }])),
+  getFundamentals: async (ticker) => fundamentals(ticker),
+  getCompanyFacts: async () => null,
+  getConsensusTrend: async (ticker) => trend(ticker),
+  consensusStore: () => true,
+  now: () => new Date("2026-08-14T12:00:00.000Z"),
+  ...overrides,
+});
+
+test("the nightly universe batch accumulates consensus for the same names it enriches", async () => {
+  const written = [];
+  const status = await runUniverseRefresh(universeArgs({
+    saveConsensusSnapshots: async (rows) => { written.push(...rows); return { attempted: rows.length, inserted: rows.length }; },
+  }));
+  assert.equal(status.state, "ok");
+  assert.ok(status.enrichedThisRun > 0, "the batch enriched names");
+  assert.equal(status.consensusObserved, status.enrichedThisRun,
+    "every enriched name contributes a consensus observation");
+  assert.equal(status.consensusStored, status.consensusObserved);
+  assert.equal(written[0].retrievedAt, "2026-08-14T12:00:00.000Z");
+});
+
+test("a consensus outage in the nightly batch never blocks the catalog refresh", async () => {
+  const status = await runUniverseRefresh(universeArgs({
+    getConsensusTrend: async () => { throw new Error("yahoo schema drift"); },
+    saveConsensusSnapshots: async () => { throw new Error("should not be called"); },
+  }));
+  assert.equal(status.state, "ok", "the catalog still refreshed");
+  assert.ok(status.enrichedThisRun > 0);
+  assert.equal(status.consensusFailed, status.enrichedThisRun);
+  assert.equal(status.consensusStored, 0);
+});
+
+test("no durable store means the nightly batch collects nothing rather than discarding it", async () => {
+  const status = await runUniverseRefresh(universeArgs({
+    consensusStore: () => false,
+    getConsensusTrend: async () => { throw new Error("should not be called"); },
+    saveConsensusSnapshots: async () => { throw new Error("should not be called"); },
+  }));
+  assert.equal(status.consensusObserved, 0);
+  assert.ok(status.enrichedThisRun > 0, "enrichment itself is unaffected");
 });

@@ -186,8 +186,8 @@ Supplies the two metrics the `maxAvailable >= 80` actionability bar in
 `estimateRevisions` (Category B) — 22 points for Agent 1, 22 for Agent 2. Files:
 `lib/consensus-snapshot.js` (pure extraction, derivations, and the point-in-time
 `selectRevenueBeatPair`), `fetchConsensusTrend()` (`lib/yahoo.js`),
-`lib/pg/consensus-snapshots.js` (durable store), `db/migrations/0008_consensus_snapshots.sql`,
-collection in `jobs/peer-coverage-refresh.js`, consumption in `jobs/mandate-scoring.js`
+`lib/pg/consensus-snapshots.js` (durable store), `db/migrations/0009_consensus_snapshots.sql`,
+collection in `jobs/universe-refresh.js` (broad nightly batch) + `jobs/peer-coverage-refresh.js` (requested cohorts), consumption in `jobs/mandate-scoring.js`
 (`buildConsensusBundles` → `scoreCohortForAgent`). Tests:
 `tests/consensus-snapshot.test.js`, `tests/consensus-beat-pairing.test.js`,
 `tests/consensus-snapshot-store.test.js`, `tests/consensus-wiring.test.js`.
@@ -212,9 +212,12 @@ Gotchas:
   discretion. It requires `retrievedAt < filed` and takes the LATEST qualifying snapshot.
   This needs each quarter's FILING date, which is why `_revenueQuarterSeries` (end/val/filed)
   is carried in the EDGAR derived bundle — the scalar `_asOf` cannot express it.
-- Collection rides `peer-coverage-refresh` because that job already visits each name on a
-  paced, gated schedule. It is a SEPARATE try/catch from the peer-metrics fetch: a consensus
-  outage must never cost a ticker its peer row, which the whole peer-relative substrate needs.
+- Collection rides BOTH enrichment jobs, and it has to. `peer-coverage-refresh` only walks
+  requested cohorts; `universe-refresh` handles the broad nightly batch. Wiring only one
+  leaves most of the scored universe holding peer metrics with no consensus behind them.
+  If you add a third place that writes `peerMetricsRow`, it needs consensus collection too.
+- In both jobs it is a SEPARATE try/catch from the peer-metrics fetch: a consensus outage
+  must never cost a ticker its peer row, which the whole peer-relative substrate needs.
 - `earningsTrend` is fetched by a DEDICATED `fetchConsensusTrend()`, deliberately NOT
   folded into `FUNDAMENTALS_MODULES`. Yahoo would accept it in the same request for free,
   and that is precisely the trap: this client keeps provider schema validation failing

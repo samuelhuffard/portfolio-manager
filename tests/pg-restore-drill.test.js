@@ -86,7 +86,7 @@ test("real migrations + encrypted logical snapshot restore cleanly into disposab
     const verification = await verifyRestoredSnapshot(target.db, decrypted);
 
     assert.equal(verification.ok, true);
-    // 21 as of 0008_consensus_snapshots. This count is deliberately explicit:
+    // 21 as of 0009_consensus_snapshots. This count is deliberately explicit:
     // adding a table to the schema without adding it to the backup inventory
     // must break here rather than silently ship an unbacked-up table.
     assert.equal(verification.tablesVerified, 21);
