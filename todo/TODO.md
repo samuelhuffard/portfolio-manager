@@ -4,11 +4,32 @@ Personal follow-up list for Sam. Not a system-loop artifact (see `ops/FIXLIST.md
 for those) — just things to come back to.
 
 
+- [ ] **RE-ADD THE OWNERSHIP METRICS (retired Category D, 2026-08-22).** Category D
+      (`instOwnershipDir` + `thirteenF`, 15 pts) was cut from scoring and its points
+      redistributed proportionally across A/B/C (now 30/35/35). **The ingestion pipeline
+      was deliberately NOT deleted** — `lib/thirteen-f.js`, `lib/thirteen-f-dataset.js`,
+      `lib/cusip-map.js` and `tests/thirteen-f.test.js` still build and test the
+      evidence; it is simply bound to nothing. What was removed: the category + point
+      entries in `config/scoring/mandate-v2.js`, the two rule tables in
+      `config/scoring/absolute-thresholds.js`, the binding in `lib/mandate-evidence.js`
+      (`applySharedEvidence` + the `thirteenF` param), the `thirteenFByTicker` plumbing
+      in `jobs/mandate-scoring.js`, and the metric metadata in `lib/mandate-observation.js`.
+      All recoverable from git history — this commit is the whole diff.
+      **Re-binding is a policy decision, not a code one:** it needs a point split that
+      takes 15 back out of A/B/C, and it reverses decision **Q-004** (2026-08-02), which
+      is still in `docs/RESEARCH-DECISION-REGISTER.md` marked superseded rather than
+      deleted. `tests/mandate-coverage-ceiling.test.js` pins that the retired pair stays
+      inert until then, so re-binding will fail that test first — by design.
+      Worth revisiting once the Agent 2 persistence gap below is closed, since ownership
+      direction is the only Category-D-shaped signal the mandates ever scored.
+
 - [ ] **AGENT 2 CANNOT PRODUCE AN ACTIONABLE CANDIDATE (Q-009).** Its rule tables read
       eight multi-quarter beat/persistence inputs that nothing derives —
       `lib/mandate-evidence.js` sets them null by design rather than infer four-quarter
-      persistence from one scalar. Agent 2 therefore caps at **59** available points,
-      below the 80-point bar. Worse, `evaluateCondition` short-circuits `all` on `false`
+      persistence from one scalar. Agent 2 therefore caps at **51** available points,
+      below the 80-point bar. (Was 59 before Category D was retired on 2026-08-22 —
+      that cut moved 15 points onto A/B/C, and three of the metrics that grew are
+      exactly the ones nothing derives, so this gap got *wider*, not narrower.) Worse, `evaluateCondition` short-circuits `all` on `false`
       but returns `null` on a missing input, so this bites the *strongest* names: a
       company growing >20% reaches the top band, hits the null and scores missing, while
       a mediocre one scores fine. Pinned by `tests/mandate-coverage-ceiling.test.js`.

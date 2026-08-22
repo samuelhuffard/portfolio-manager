@@ -37,31 +37,10 @@ const balanceSheet = {
   ],
 };
 
-const institutionalOwnership = {
-  rules: [
-    rule(1, any(f("ownershipChangePoints", { gte: 5 }), f("clearMultiQuarterAccumulation", { eq: true }))),
-    rule(0.75, f("ownershipChangePoints", { gte: 2 })),
-    rule(0.5, f("ownershipChangePoints", { gte: -2, lte: 2 })),
-    rule(0, f("ownershipChangePoints", { lt: -2 })),
-  ],
-};
-
-const thirteenF = {
-  rules: [
-    rule(1, all(
-      f("usableQuarters", { gte: 2 }),
-      f("latestQuarterChangePct", { gt: 0 }),
-      f("priorQuarterChangePct", { gt: 0 }),
-      f("cumulativeTwoQuarterChangePct", { gte: 5 }),
-    )),
-    rule(0.75, all(
-      f("latestQuarterChangePct", { gte: 2 }),
-      any(f("usableQuarters", { eq: 1 }), f("priorQuarterChangePct", { gte: 0 })),
-    )),
-    rule(0.5, f("latestQuarterChangePct", { gte: -2, lte: 2 })),
-    rule(0, any(f("latestQuarterChangePct", { lt: -2 }), f("cumulativeTwoQuarterChangePct", { lt: 0 }))),
-  ],
-};
+// The Category D tables (institutional ownership direction + 13F accumulation) were
+// removed here on 2026-08-22 along with the category itself. The band thresholds they
+// encoded are recoverable from git history and from the mandate §5 text; the evidence
+// that fed them is still derived by lib/thirteen-f.js. See todo/TODO.md to re-bind.
 
 export const ABSOLUTE_RULE_TABLES = Object.freeze({
   "agent-1": Object.freeze({
@@ -94,8 +73,6 @@ export const ABSOLUTE_RULE_TABLES = Object.freeze({
     },
     marginTrend,
     balanceSheet,
-    instOwnershipDir: institutionalOwnership,
-    thirteenF,
   }),
   "agent-2": Object.freeze({
     revBeat: {
@@ -132,8 +109,6 @@ export const ABSOLUTE_RULE_TABLES = Object.freeze({
     },
     marginTrend,
     balanceSheet,
-    instOwnershipDir: institutionalOwnership,
-    thirteenF,
   }),
   "agent-3": Object.freeze({
     revGrowth: {
@@ -187,8 +162,6 @@ export const ABSOLUTE_RULE_TABLES = Object.freeze({
         rule(0, any(f("latestNetDebtEbitda", { gt: 3 }), f("latestInterestCoverage", { lt: 3 }), f("materialMultiYearDeterioration", { eq: true }))),
       ],
     },
-    instOwnershipDir: institutionalOwnership,
-    thirteenF,
   }),
 });
 

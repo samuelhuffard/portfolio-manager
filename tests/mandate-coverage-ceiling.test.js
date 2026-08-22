@@ -4,14 +4,18 @@ import { scoreMandateCandidate } from "../lib/mandate-score.js";
 import { AGENT_SCORING } from "../config/scoring/mandate-v2.js";
 
 /**
- * The point of the 13F + Agent-3 work: `maxAvailable` is what gates actionability
- * (>= 80 of 100), and before this every agent was capped below its own ceiling —
- * Agents 1 and 2 at 85 with ownership unbound, Agent 3 at 10.
+ * `maxAvailable` is what gates actionability (>= 80 of 100).
  *
  * These tests assert the CEILING, not a score. They feed each metric evidence good
  * enough to land in some band and check how many points the scorer is willing to put on
  * the table. A metric that reports `missing` contributes nothing to maxAvailable, which
- * is exactly the mechanism that held the old ceilings down.
+ * is exactly the mechanism that holds a thinly-evidenced name down.
+ *
+ * Category D (institutional ownership + 13F, 15 pts) was retired 2026-08-22 and its
+ * points redistributed proportionally across A/B/C, so the ceiling is now reached from
+ * seven metrics rather than nine. The retired pair must never contribute again while
+ * unbound — `lib/thirteen-f.js` still derives that evidence and a caller could still
+ * hand it over, so that is pinned explicitly below rather than left to inspection.
  */
 
 const fullEvidence = {
@@ -22,8 +26,6 @@ const fullEvidence = {
     balanceSheet: { isProfitable: true, isPreProfit: false, netCash: true, netDebtEbitda: 0.4, interestCoverage: 20, cashRunwayQuarters: 999 },
     revBeat: { beatPct: 7 },
     estimateRevisions: { consensusChangePct: 8, consensusChangePct90d: 8, positiveBreadthPct: 80, positiveNegativeRatio: 4, net30dReversal: false },
-    instOwnershipDir: { ownershipChangePoints: 6, clearMultiQuarterAccumulation: true },
-    thirteenF: { usableQuarters: 2, latestQuarterChangePct: 8, priorQuarterChangePct: 5, cumulativeTwoQuarterChangePct: 13 },
   },
   "agent-3": {
     revGrowth: { revenueCagr3yPct: 22, positiveGrowthYears: 3, minimumAnnualGrowthPct: 18, maxAnnualGrowthSpreadPoints: 6, volatileYears: 0, negativeGrowthYears: 0, materiallyErraticGrowth: false },
@@ -32,8 +34,6 @@ const fullEvidence = {
     balanceSheet: { latestNetDebtEbitda: 0.4, medianNetDebtEbitda3y: 0.5, latestInterestCoverage: 20, medianInterestCoverage3y: 18, anyYearBelowNextBand: false, materialMultiYearDeterioration: false },
     revBeat: { latestBeatPct: 5, yoyGrowthNonDecelerating: true, positiveYoyGrowth: true, materialDeterioration: false },
     estimateRevisions: { consensusChangePct90d: 8, positiveBreadthPct: 80, net30dReversal: false },
-    instOwnershipDir: { ownershipChangePoints: 6, clearMultiQuarterAccumulation: true },
-    thirteenF: { usableQuarters: 2, latestQuarterChangePct: 8, priorQuarterChangePct: 5, cumulativeTwoQuarterChangePct: 13 },
   },
 };
 // Agent 2's rule tables read a different vocabulary from Agent 1's: multi-quarter beat
@@ -45,8 +45,6 @@ fullEvidence["agent-2"] = {
   estimateRevisions: { consensusChangePct60d: 8, positiveBreadthPct: 80, net30dReversal: false },
   marginTrend: fullEvidence["agent-1"].marginTrend,
   balanceSheet: fullEvidence["agent-1"].balanceSheet,
-  instOwnershipDir: fullEvidence["agent-1"].instOwnershipDir,
-  thirteenF: fullEvidence["agent-1"].thirteenF,
 };
 
 const score = (agentId, absoluteEvidence) => scoreMandateCandidate({
@@ -66,7 +64,7 @@ test("every agent's point table still sums to 100", () => {
   }
 });
 
-test("agents 1 and 2 reach the full 100-point ceiling once ownership is bound", () => {
+test("agents 1 and 2 reach the full 100-point ceiling from the seven surviving metrics", () => {
   for (const agentId of ["agent-1", "agent-2"]) {
     const result = score(agentId, fullEvidence[agentId]);
     assert.equal(result.maxAvailable, 100, `${agentId} maxAvailable`);
@@ -75,21 +73,22 @@ test("agents 1 and 2 reach the full 100-point ceiling once ownership is bound", 
   }
 });
 
-test("agent 3 reaches the full 100-point ceiling — up from 10", () => {
+test("agent 3 reaches the full 100-point ceiling", () => {
   const result = score("agent-3", fullEvidence["agent-3"]);
   assert.equal(result.maxAvailable, 100);
   assert.deepEqual(result.missingMetrics, []);
   assert.equal(result.actionable, true);
 });
 
-test("dropping 13F leaves 85 available — degraded, still actionable, never zeroed", () => {
-  // Q-004 as revised: required for FULL coverage, but absence must degrade rather than
-  // block. A ~45-day-delayed dataset must never hold a veto over a candidate.
-  const { instOwnershipDir, thirteenF, ...withoutOwnership } = fullEvidence["agent-1"];
-  const result = score("agent-1", withoutOwnership);
-  assert.equal(result.maxAvailable, 85);
+test("dropping one metric degrades coverage without zeroing the score", () => {
+  // The rescale-not-zero invariant, previously pinned via the 13F pair. A single absent
+  // metric must lower maxAvailable by exactly its own weight and leave the rest intact.
+  const { marginTrend, ...withoutMargin } = fullEvidence["agent-1"];
+  const weight = AGENT_SCORING["agent-1"].categories.C.metrics.marginTrend.points;
+  const result = score("agent-1", withoutMargin);
+  assert.equal(result.maxAvailable, 100 - weight);
   assert.equal(result.actionable, true, "still clears the 80-point bar");
-  assert.deepEqual(result.missingMetrics.sort(), ["instOwnershipDir", "thirteenF"]);
+  assert.deepEqual(result.missingMetrics, ["marginTrend"]);
   // Rescaled out, not scored zero: a perfect candidate still scores 100 on what IS known.
   assert.equal(result.uncappedTotal, 100);
   // `total` is lower because these fixtures carry no peer distributions, so every metric
@@ -99,29 +98,56 @@ test("dropping 13F leaves 85 available — degraded, still actionable, never zer
   assert.ok(result.total < result.uncappedTotal);
 });
 
+test("retired Category D cannot contribute points even if its evidence is supplied", () => {
+  // lib/thirteen-f.js still derives this evidence and is still tested, so a caller can
+  // physically hand it over. Until the category is deliberately restored it must be
+  // inert: no points, no ceiling change, no entry in the per-metric breakdown.
+  const withRetired = {
+    ...fullEvidence["agent-1"],
+    instOwnershipDir: { ownershipChangePoints: 6, clearMultiQuarterAccumulation: true },
+    thirteenF: { usableQuarters: 2, latestQuarterChangePct: 8, priorQuarterChangePct: 5, cumulativeTwoQuarterChangePct: 13 },
+  };
+  const result = score("agent-1", withRetired);
+  assert.equal(result.maxAvailable, 100, "ceiling unchanged by retired evidence");
+  assert.equal(result.rawPoints, score("agent-1", fullEvidence["agent-1"]).rawPoints);
+  for (const retired of ["instOwnershipDir", "thirteenF"]) {
+    assert.equal(retired in result.perMetric, false, `${retired} must not be scored`);
+    assert.equal(result.missingMetrics.includes(retired), false, `${retired} is not "missing", it is gone`);
+  }
+});
+
 test("KNOWN GAP: agent 2's persistence inputs are still not derived anywhere", () => {
   // Agent 2 reaches 100 above only because the fixture hands it multi-quarter beat
   // history and growth/EPS persistence counts. lib/mandate-evidence.js explicitly sets
   // those to null — it will not infer four-quarter persistence from one scalar — and
-  // nothing else derives them, so in production Agent 2's revBeat (8), revGrowth (17)
-  // and epsTrajectory (16) go missing on any name strong enough to reach their top
-  // bands. This test pins that gap so it cannot be mistaken for solved.
+  // nothing else derives them, so in production Agent 2's revBeat, revGrowth and
+  // epsTrajectory go missing on any name strong enough to reach their top bands.
+  // This test pins that gap so it cannot be mistaken for solved.
+  //
+  // Retiring Category D made this gap WIDER, not narrower: those 15 points were
+  // redistributed across A/B/C, and three of the metrics that grew are exactly the ones
+  // nothing derives. The expectation is computed from the live table so a future
+  // reweight updates it here instead of silently drifting.
   const asProduced = {
     ...fullEvidence["agent-2"],
     revBeat: { latestBeatPct: 6 },
     revGrowth: { currentGrowthPct: 30, positiveQuartersInLatestFour: null, positiveMultiQuarterPersistence: null, nonDecelerating: true, consecutiveMaterialDecelerations: null },
     epsTrajectory: { epsGrowthPct: 30, consecutiveQualifyingQuarters: null, nonDecelerating: true, consecutiveDeterioratingQuarters: null },
   };
+  const { A, B } = AGENT_SCORING["agent-2"].categories;
+  const underivable = A.metrics.revBeat.points + A.metrics.revGrowth.points + B.metrics.epsTrajectory.points;
   const result = score("agent-2", asProduced);
   assert.deepEqual(result.missingMetrics.sort(), ["epsTrajectory", "revBeat", "revGrowth"]);
-  assert.equal(result.maxAvailable, 59);
+  assert.equal(result.maxAvailable, 100 - underivable);
   assert.equal(result.actionable, false, "below the 80-point bar until persistence is derived");
 });
 
 test("dropping consensus drops agent 3 below the actionability bar rather than guessing", () => {
   const { revBeat, estimateRevisions, ...withoutConsensus } = fullEvidence["agent-3"];
+  const { A, B } = AGENT_SCORING["agent-3"].categories;
+  const consensusWeight = A.metrics.revBeat.points + B.metrics.estimateRevisions.points;
   const result = score("agent-3", withoutConsensus);
-  assert.equal(result.maxAvailable, 77);
+  assert.equal(result.maxAvailable, 100 - consensusWeight);
   assert.equal(result.actionable, false);
   assert.equal(result.noTradeReason, "insufficient_available_points");
 });

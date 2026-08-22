@@ -240,7 +240,16 @@ Gotchas:
 - A row with neither an EPS nor a revenue estimate returns null rather than storing an
   empty row that would inflate apparent coverage.
 
-## Changing 13F / institutional-ownership ingestion (Mandate v3 Category D)
+## Changing 13F / institutional-ownership ingestion (Mandate v3 Category D — RETIRED, UNBOUND)
+
+> **Category D was retired 2026-08-22.** `instOwnershipDir` and `thirteenF` are no
+> longer scored metrics: the category was removed from `config/scoring/mandate-v2.js`
+> and `config/scoring/absolute-thresholds.js`, and its 15 points were redistributed
+> proportionally across A/B/C (now 30/35/35). **Everything below still exists on disk
+> and is still tested — it is bound to nothing.** `assembleMandateInputs` no longer
+> accepts a `thirteenF` bundle and `scoreCohortForAgent` no longer accepts
+> `thirteenFByTicker`. Re-binding reverses decision Q-004 and needs a point split that
+> takes 15 back out of A/B/C first; see `todo/TODO.md`.
 
 - Pure derivation of the named rule inputs: `lib/thirteen-f.js`.
 - Quarterly SEC data-set parse + aggregate: `lib/thirteen-f-dataset.js` (pure, text in).

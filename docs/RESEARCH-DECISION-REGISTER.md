@@ -100,6 +100,12 @@ This register prevents executor models from inventing rules. Accepted decisions 
 
 ### Q-004 — Consensus and 13F completeness policy
 
+- **Status: PARTIALLY SUPERSEDED (2026-08-22).** The *consensus* half stands unchanged.
+  The *13F* half is moot: Category D was retired entirely and its 15 points
+  redistributed across A/B/C, so there is no longer a scored ownership metric for a
+  completeness policy to govern. The reasoning below is retained deliberately — it is
+  the rationale to re-read if the category is ever restored (`todo/TODO.md`), and the
+  ingestion code it describes still exists and is still tested.
 - **Status: RESOLVED (Sam, 2026-08-02).** Supersedes the prior "temporarily optional,
   not thesis-critical" reading.
 - **Decision:** 13F/institutional ownership is **required for full coverage but never

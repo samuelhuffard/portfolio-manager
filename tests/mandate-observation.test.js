@@ -15,15 +15,13 @@ const EARLIER = "2026-07-13T19:00:00.000Z";
 const LATER = "2026-07-13T21:00:00.000Z";
 
 const METRIC_MAX_POINTS = {
-  revBeat: 10,
-  revGrowth: 15,
-  epsTrajectory: 18,
-  estimateRevisions: 12,
-  marginTrend: 12,
-  peerValuation: 8,
-  balanceSheet: 10,
-  instOwnershipDir: 9,
-  thirteenF: 6,
+  revBeat: 12,
+  revGrowth: 18,
+  epsTrajectory: 21,
+  estimateRevisions: 14,
+  marginTrend: 14,
+  peerValuation: 9,
+  balanceSheet: 12,
 };
 
 function candidate(overrides = {}) {
@@ -74,8 +72,6 @@ function recordArgs(overrides = {}) {
     marginTrend: 0.025,
     peerValuation: 14,
     balanceSheet: null,
-    instOwnershipDir: null,
-    thirteenF: null,
   };
   const perMetric = Object.fromEntries(Object.entries(METRIC_MAX_POINTS).map(([metricId, maxPoints]) => [metricId, {
     points: vector[metricId] == null ? null : maxPoints,
@@ -164,7 +160,6 @@ test("Agent 1 adapter emits a schema-valid partial observation with canonical id
   assert.equal(byId.balanceSheet.freshnessState, "policy_unresolved");
   assert.equal(byId.balanceSheet.missingReason, "q001_balance_sheet_definition_unresolved");
   assert.equal(byId.estimateRevisions.freshnessState, "unavailable");
-  assert.equal(byId.thirteenF.freshnessState, "unavailable");
   assert.ok(observation.criticalMissingMetrics.includes("peerValuation"));
 });
 

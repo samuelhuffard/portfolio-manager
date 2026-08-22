@@ -9,11 +9,9 @@ const AGENT_ONE_FULL = {
   estimateRevisions: { consensusChangePct: 5, positiveNegativeRatio: 2, positiveBreadthPct: 70 },
   marginTrend: { marginChangeBps: 200, documentedInvestmentExplanation: false },
   balanceSheet: { isProfitable: true, isPreProfit: false, netCash: true, netDebtEbitda: 0, interestCoverage: 9 },
-  instOwnershipDir: { ownershipChangePoints: 5, clearMultiQuarterAccumulation: false },
-  thirteenF: { usableQuarters: 2, latestQuarterChangePct: 3, priorQuarterChangePct: 2, cumulativeTwoQuarterChangePct: 5 },
 };
 
-const metricVector = Object.fromEntries(["revBeat", "revGrowth", "epsTrajectory", "estimateRevisions", "marginTrend", "balanceSheet", "instOwnershipDir", "thirteenF"].map((key) => [key, 100]));
+const metricVector = Object.fromEntries(["revBeat", "revGrowth", "epsTrajectory", "estimateRevisions", "marginTrend", "balanceSheet"].map((key) => [key, 100]));
 metricVector.peerValuation = 10;
 
 const distributions = (n) => Object.fromEntries(Object.keys(metricVector).map((key) => [key, Array.from({ length: n }, (_, i) => key === "peerValuation" ? 20 + i : i)]));

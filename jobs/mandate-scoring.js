@@ -103,7 +103,6 @@ export function scoreCohortForAgent(agentId, names, {
   // metrics unbound, so a cohort scored without any of them produces precisely
   // the scores it did before these sources existed.
   consensusByTicker = null,
-  thirteenFByTicker = null,
   historyByTicker = null,
 } = {}) {
   const scores = [];
@@ -121,7 +120,6 @@ export function scoreCohortForAgent(agentId, names, {
       derived: candidate.derived ?? null,
       sector: sectorKey,
       consensus: consensusByTicker?.[candidate.ticker] ?? null,
-      thirteenF: thirteenFByTicker?.[candidate.ticker] ?? null,
       history: historyByTicker?.[candidate.ticker] ?? null,
     });
     if (!inputs.supported) {

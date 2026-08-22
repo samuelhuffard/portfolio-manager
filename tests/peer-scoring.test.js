@@ -167,11 +167,11 @@ test("vendor-lag rescale excludes missing fields from numerator and denominator"
   vector.peerValuation = 0; // best on the lower-is-better metric so it earns full points too
   // Drop two fields → they must not zero the score, they must rescale it out.
   vector.estimateRevisions = null;
-  vector.thirteenF = null;
+  vector.marginTrend = null;
 
   const res = scoreCategoriesPeerRelative(vector, dist, config);
   assert.equal(res.basis, "rescaled_available_fields");
-  assert.deepEqual(res.missingMetrics.sort(), ["estimateRevisions", "thirteenF"]);
+  assert.deepEqual(res.missingMetrics.sort(), ["estimateRevisions", "marginTrend"]);
   // All scorable metrics are best-in-class → earned == maxAvailable → 100.
   assert.equal(res.total, 100);
   assert.ok(res.maxAvailable < 100); // two metrics excluded

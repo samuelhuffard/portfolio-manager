@@ -48,7 +48,7 @@ test("Agent One scalar and acceleration boundaries match §5", () => {
   ].map((x) => fraction("agent-1", "epsTrajectory", x)), [1, 0.75, 0.5, 0]);
 });
 
-test("Agent One revisions, margins, balance sheet, ownership and 13F match §5", () => {
+test("Agent One revisions, margins and balance sheet match §5", () => {
   assert.deepEqual([
     { consensusChangePct: 5, positiveNegativeRatio: 2, positiveBreadthPct: 70 },
     { consensusChangePct: 2, positiveNegativeRatio: 1, positiveBreadthPct: 60 },
@@ -62,18 +62,6 @@ test("Agent One revisions, margins, balance sheet, ownership and 13F match §5",
     { isProfitable: true, isPreProfit: false, netCash: false, netDebtEbitda: 2.5, interestCoverage: 4 },
     { isProfitable: true, isPreProfit: false, netCash: false, netDebtEbitda: 3.1, interestCoverage: 2.9 },
   ].map((x) => fraction("agent-1", "balanceSheet", x)), [1, 0.75, 0.5, 0]);
-  assert.deepEqual([
-    { ownershipChangePoints: 5, clearMultiQuarterAccumulation: false },
-    { ownershipChangePoints: 2, clearMultiQuarterAccumulation: false },
-    { ownershipChangePoints: 0, clearMultiQuarterAccumulation: false },
-    { ownershipChangePoints: -2.1, clearMultiQuarterAccumulation: false },
-  ].map((x) => fraction("agent-1", "instOwnershipDir", x)), [1, 0.75, 0.5, 0]);
-  assert.deepEqual([
-    { usableQuarters: 2, latestQuarterChangePct: 3, priorQuarterChangePct: 2, cumulativeTwoQuarterChangePct: 5 },
-    { usableQuarters: 1, latestQuarterChangePct: 5, priorQuarterChangePct: null, cumulativeTwoQuarterChangePct: 5 },
-    { usableQuarters: 2, latestQuarterChangePct: 0, priorQuarterChangePct: 0, cumulativeTwoQuarterChangePct: 0 },
-    { usableQuarters: 2, latestQuarterChangePct: -2.1, priorQuarterChangePct: 0, cumulativeTwoQuarterChangePct: -2.1 },
-  ].map((x) => fraction("agent-1", "thirteenF", x)), [1, 0.75, 0.5, 0]);
 });
 
 test("Agent Two persistence-specific bands match §5", () => {

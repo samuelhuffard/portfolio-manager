@@ -4,16 +4,23 @@
  * Section 5).
  *
  * v2.1 replaced v2.0's five-category table with FOUR categories and removed several
- * metrics entirely:
- *   A — Revenue Quality ............ 25
- *   B — Earnings Momentum & Est. Rev. 30
- *   C — Profitability, Valuation, BS  30
- *   D — Institutional Ownership/13F   15
+ * metrics entirely. Category D was then retired (2026-08-22) and its 15 points spread
+ * evenly across the survivors, leaving THREE categories:
+ *   A — Revenue Quality ............ 30  (was 25)
+ *   B — Earnings Momentum & Est. Rev. 35  (was 30)
+ *   C — Profitability, Valuation, BS  35  (was 30)
  * REMOVED (score zero, must not appear): short interest, days to cover, insider
- * BUYING, analyst price-target levels and changes. Insider SELLING is a deterministic
- * trigger OUTSIDE the score (caps conviction one tier). Estimate revisions activate
- * only after ≥3 local snapshots spanning ≥30 days (else estimate_revision_status:
- * "insufficient_history").
+ * BUYING, analyst price-target levels and changes, and — since 2026-08-22 —
+ * institutional ownership direction + 13F accumulation (old Category D). Insider
+ * SELLING is a deterministic trigger OUTSIDE the score (caps conviction one tier).
+ * Estimate revisions activate only after ≥3 local snapshots spanning ≥30 days (else
+ * estimate_revision_status: "insufficient_history").
+ *
+ * The 13F INGESTION PIPELINE IS DELIBERATELY RETAINED, unbound: `lib/thirteen-f.js`,
+ * `lib/thirteen-f-dataset.js`, `lib/cusip-map.js` and `tests/thirteen-f.test.js` still
+ * build and test the evidence, nothing consumes it. See todo/TODO.md to re-bind.
+ * Within each category the redistribution was proportional to the prior weights, so
+ * every agent's relative emphasis is preserved and each category lands on an integer.
  *
  * Every analyst shares this 4-category frame and the same peer-relative bands, thin-
  * peer fallback, and special-sector substitution map; they differ in the point split
@@ -41,16 +48,19 @@ export const METRIC_IDS = Object.freeze([
   "marginTrend", // C: margin trend (level ignored)
   "peerValuation", // C: peer-relative forward valuation (lower is better)
   "balanceSheet", // C: balance-sheet strength & cash-runway quality (higher is better)
-  "instOwnershipDir", // D: institutional ownership direction
-  "thirteenF", // D: latest 13F accumulation (delayed, labeled)
 ]);
 
-/** Metrics explicitly removed from scoring in v2.1 (must never contribute points). */
+/** Metrics explicitly removed from scoring (must never contribute points). */
 export const REMOVED_SIGNALS = Object.freeze([
   "shortInterestTrend",
   "daysToCover",
   "insiderBuying",
   "analystPT",
+  // Retired 2026-08-22 with Category D. The derivation code is still present and
+  // tested (lib/thirteen-f.js) but is bound to nothing; re-binding means restoring a
+  // category here, not just re-adding an id.
+  "instOwnershipDir",
+  "thirteenF",
 ]);
 
 /** Special-sector economic substitutions (Section 5 map) — applied deterministically. */
@@ -63,7 +73,7 @@ export const SPECIAL_SECTOR_SUBSTITUTIONS = Object.freeze({
 // Category skeletons differ per agent (point splits + metric definitions).
 const catA = (revBeat, revGrowth, revGrowthDef) => ({
   label: "Revenue Quality",
-  maxPoints: 25,
+  maxPoints: 30,
   metrics: {
     revBeat: { points: revBeat, higherIsBetter: true },
     revGrowth: { points: revGrowth, higherIsBetter: true, def: revGrowthDef },
@@ -71,7 +81,7 @@ const catA = (revBeat, revGrowth, revGrowthDef) => ({
 });
 const catB = (eps, est, epsDef) => ({
   label: "Earnings Momentum & Estimate Revisions",
-  maxPoints: 30,
+  maxPoints: 35,
   metrics: {
     epsTrajectory: { points: eps, higherIsBetter: true, def: epsDef },
     estimateRevisions: { points: est, higherIsBetter: true, note: "activation-gated: ≥3 snapshots / ≥30d, else insufficient_history" },
@@ -79,51 +89,39 @@ const catB = (eps, est, epsDef) => ({
 });
 const catC = (margin, val, bs) => ({
   label: "Profitability, Valuation & Balance Sheet",
-  maxPoints: 30,
+  maxPoints: 35,
   metrics: {
     marginTrend: { points: margin, higherIsBetter: true, note: "trend only — absolute level ignored" },
     peerValuation: { points: val, higherIsBetter: false, note: "cheaper vs peers is better" },
     balanceSheet: { points: bs, higherIsBetter: true, note: "strength + cash-runway quality" },
   },
 });
-const catD = (inst, thirteenF) => ({
-  label: "Institutional Ownership & 13F Activity",
-  maxPoints: 15,
-  metrics: {
-    instOwnershipDir: { points: inst, higherIsBetter: true },
-    thirteenF: { points: thirteenF, higherIsBetter: true, note: "delayed ownership confirmation; record quarter + filing date" },
-  },
-});
-
 export const AGENT_SCORING = Object.freeze({
   "agent-1": {
     mandateId: "agent_one",
     thinPeerMin: 7,
     categories: {
-      A: catA(10, 15, "acceleration of the YoY growth rate quarter-over-quarter; deceleration scores 0"),
-      B: catB(18, 12, "EPS acceleration on a short-term clock"),
-      C: catC(12, 8, 10),
-      D: catD(9, 6),
+      A: catA(12, 18, "acceleration of the YoY growth rate quarter-over-quarter; deceleration scores 0"),
+      B: catB(21, 14, "EPS acceleration on a short-term clock"),
+      C: catC(14, 9, 12),
     },
   },
   "agent-2": {
     mandateId: "agent_two",
     thinPeerMin: 7,
     categories: {
-      A: { label: "Revenue Quality", maxPoints: 25, metrics: { revBeat: { points: 8, higherIsBetter: true, def: "revenue-beat consistency across recent quarters" }, revGrowth: { points: 17, higherIsBetter: true, def: "peer-relative YoY revenue growth, emphasize persistence" } } },
-      B: catB(16, 14, "multi-quarter EPS trajectory (≥2 quarters of evidence)"),
-      C: catC(10, 8, 12),
-      D: catD(10, 5),
+      A: { label: "Revenue Quality", maxPoints: 30, metrics: { revBeat: { points: 10, higherIsBetter: true, def: "revenue-beat consistency across recent quarters" }, revGrowth: { points: 20, higherIsBetter: true, def: "peer-relative YoY revenue growth, emphasize persistence" } } },
+      B: catB(19, 16, "multi-quarter EPS trajectory (≥2 quarters of evidence)"),
+      C: catC(12, 9, 14),
     },
   },
   "agent-3": {
     mandateId: "agent_three",
     thinPeerMin: 7,
     categories: {
-      A: { label: "Revenue Quality", maxPoints: 25, metrics: { revBeat: { points: 5, higherIsBetter: true, def: "latest revenue quality / beat" }, revGrowth: { points: 20, higherIsBetter: true, def: "durable peer-leading growth sustained ~3yr with low variance; erratic scores poorly" } } },
-      B: catB(12, 18, "normalized multi-year EPS trajectory (normalize cyclical / one-time)"),
-      C: catC(8, 10, 12),
-      D: catD(7, 8),
+      A: { label: "Revenue Quality", maxPoints: 30, metrics: { revBeat: { points: 6, higherIsBetter: true, def: "latest revenue quality / beat" }, revGrowth: { points: 24, higherIsBetter: true, def: "durable peer-leading growth sustained ~3yr with low variance; erratic scores poorly" } } },
+      B: catB(14, 21, "normalized multi-year EPS trajectory (normalize cyclical / one-time)"),
+      C: catC(9, 12, 14),
     },
   },
 });
@@ -160,16 +158,16 @@ export const ABSOLUTE_TABLE_REQUIREMENTS = Object.freeze({
   "agent-1": Object.freeze({
     revBeat: "beatPct", revGrowth: "yoyGrowthPct + accelerationPoints", epsTrajectory: "epsGrowthPct + accelerationPoints",
     estimateRevisions: "consensusChangePct + positiveRevisionBreadth", marginTrend: "marginChangeBps",
-    balanceSheet: "leverage + interestCoverage OR cashRunwayQuarters", instOwnershipDir: "ownershipChangePoints", thirteenF: "13fQuarterlyChange + 13fPriorQuarterChange",
+    balanceSheet: "leverage + interestCoverage OR cashRunwayQuarters",
   }),
   "agent-2": Object.freeze({
     revBeat: "threeQuarterBeatHistory", revGrowth: "yoyGrowthPct + growthPersistence", epsTrajectory: "epsGrowthPct + epsPersistence",
     estimateRevisions: "60dConsensusChangePct + positiveRevisionBreadth + no30dReversal", marginTrend: "marginChangeBps",
-    balanceSheet: "leverage + interestCoverage OR cashRunwayQuarters", instOwnershipDir: "ownershipChangePoints", thirteenF: "13fQuarterlyChange + 13fPriorQuarterChange",
+    balanceSheet: "leverage + interestCoverage OR cashRunwayQuarters",
   }),
   "agent-3": Object.freeze({
     revBeat: "latestBeatPct + yoyGrowthNonDecelerating", revGrowth: "threeYearRevenueCagr + annualGrowthHistory", epsTrajectory: "threeYearNormalizedEpsCagr + annualEpsHistory",
     estimateRevisions: "90dConsensusChangePct + positiveRevisionBreadth + no30dReversal", marginTrend: "threeYearMarginChangeBps + contractionHistory",
-    balanceSheet: "threeYearLeverageAndCoverageHistory", instOwnershipDir: "ownershipChangePoints", thirteenF: "13fQuarterlyChange + 13fPriorQuarterChange",
+    balanceSheet: "threeYearLeverageAndCoverageHistory",
   }),
 });
