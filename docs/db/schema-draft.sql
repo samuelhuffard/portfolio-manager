@@ -77,8 +77,8 @@ CREATE TABLE lots (
   owner_agent_id  agent_id,               -- NULL = unattributed
   open_date       DATE NOT NULL,
   cost_per_share  NUMERIC(14,4) NOT NULL CHECK (cost_per_share >= 0),
-  shares_original NUMERIC(18,4) NOT NULL CHECK (shares_original > 0),
-  shares_open     NUMERIC(18,4) NOT NULL CHECK (shares_open >= 0),
+  shares_original NUMERIC(18,8) NOT NULL CHECK (shares_original > 0),
+  shares_open     NUMERIC(18,8) NOT NULL CHECK (shares_open >= 0),
   status          lot_status NOT NULL DEFAULT 'OPEN',
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );

@@ -28,6 +28,10 @@
 
 10. **[2026-07-26] PM2 diagnostics can leak process environments**
     Do instead: never run raw `pm2 jlist`, `pm2 describe`, or print PM2 process environments into a task transcript. Extract and emit only the status, cwd, role, uptime, and restart fields needed for verification; rotate any dedicated secret immediately if an accidental private-transcript disclosure occurs.
+11. **[2026-08-01] Mac fulfillment can bypass the Neon shadow**
+    Do instead: route every broker-confirmed lot/proposal mutation through the Jetson-owned financial write path, or persist a retryable outbox that the Jetson drains; do not rely on a Mac-local `PG_DUAL_WRITE` setting for financial parity.
+12. **[2026-08-02] Lot shares need eight decimal places in the Neon shadow**
+    Do instead: preserve `shares_original` and `shares_open` as `NUMERIC(18,8)` and include sub-four-decimal residual lots in migration/restore tests; four-decimal storage silently turns valid fractional inventory into a parity divergence.
 
 ## Domain Behavior Guardrails
 1. **[2026-07-11] Unattributed lots are quarantined until explicitly resolved**

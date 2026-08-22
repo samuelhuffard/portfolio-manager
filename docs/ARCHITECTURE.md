@@ -57,7 +57,7 @@ mac-companion.mjs (polls 15 min market hours; pm:exec_trigger for immediate)
         │ verifyApprovalSignature (refuse + Telegram if unsigned/invalid)
         │ set executionState "Executing" ON the proposal   ← before any order
         │ claude -p + Robinhood MCP place_equity_order, ref_id = proposal.id
-        │ recordTrade → scripts/record-trade.js → lib/mcp-accounting.js
+        │ authenticated receipt → Jetson /record-trade → lib/mcp-accounting.js
         │   (validates fill vs proposal: signature, status, orderId dedupe,
         │    ticker/side/agent match, maxPrice, amount tolerance —
         │    SELL may undershoot, never overshoot)

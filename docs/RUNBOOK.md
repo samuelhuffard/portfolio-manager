@@ -47,7 +47,7 @@ Google Sheet: create a blank Sheet in a personal Drive, share it Editor with the
 | RESEND_API_KEY / INVESTOR_UPDATE_* | opt ✅ | ✗ | ✗ |
 | CLAUDE_BIN | ✗ | ✗ | opt (default `~/.local/bin/claude`) |
 
-Companion env cascade: `portfolio-dashboard/.env.local` → `.env` → `../portfolio-manager/.env` (first hit wins per var). The Mac therefore needs a working `portfolio-manager` checkout as a **sibling directory** — `record-trade.js`/sync scripts are invoked at `../../portfolio-manager/`.
+Companion env cascade: `portfolio-dashboard/.env.local` → `.env` → `../portfolio-manager/.env` (first hit wins per var). The Mac executor requires `PORTFOLIO_BACKEND_URL` and `PORTFOLIO_WEBHOOK_SECRET`: it submits all proposal-state changes and broker-confirmed fills to Jetson, which is the only financial writer. Do not restore direct Mac Redis/Sheet lifecycle writes.
 
 The Jetson `portfolio-broker-reader` must run with `COMPANION_ROLE=read-worker` and emit `MCP_READ_RECEIPT_SOURCE=jetson-robinhood-mcp`. The backend rejects any unsigned or legacy receipt, so set the same dedicated `MCP_RECEIPT_HMAC_SECRET` on both before a scheduled observation day.
 
