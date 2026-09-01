@@ -144,7 +144,8 @@ pm2 describe portfolio-broker-reader
 - Phase 0 Redis records are a 90-day transport. Signed create-once archives live
   under ignored `ops/phase0-observations/` (or `PHASE0_EVIDENCE_DIR`) and must be
   included in Jetson backups; verify their HMAC before using them as evidence.
-- Phase 0 also requires bounded per-invocation histories: holdings at 9:30/11:00/
+- Phase 0 also requires bounded per-invocation histories retained for 90 days:
+  holdings at 9:30/11:00/
   13:00/15:00/16:30, reconciliation at 16:40, all 14 intraday checks, and both
   sentinel runs. Histories retain every attempt; for the same exact invocation,
   a valid final retry satisfies the slot, while a final failure remains blocking.

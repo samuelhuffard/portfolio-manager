@@ -365,9 +365,10 @@ Gotchas:
 Exact transactional parity lives in `lib/pg/inventory.js` and
 `lib/pg/parity-runner.js`. It covers proposal lifecycle, capital entries/units,
 strategy-owned lots, position shares/cost, and the latest total-value/cash/units
-accounting snapshot. `jobs/holdings-sync.js` and
-`scripts/refresh-shadow-positions.js` mirror the accounting snapshot through
-`shadowWriteNavSnapshot`; the latter runs before the nightly parity job. Quote-
+accounting snapshot. `jobs/holdings-sync.js`, the MCP recovery writer
+`lib/portfolio-snapshot.js`, and `scripts/refresh-shadow-positions.js` mirror
+the accounting snapshot through `shadowWriteNavSnapshot`; the latter runs
+before the nightly parity job. Quote-
 derived market value is a separate classification in `lib/pg/parity.js` and may
 only exact-match when both stores carry the same quote snapshot/source/time.
 
