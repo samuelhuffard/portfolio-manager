@@ -199,6 +199,10 @@ test("initial events preserve unknown materiality, and event provenance timestam
   };
   const result = await writeResearchEvents([initialEvent], { pool });
   assert.equal(result[0].inserted, true);
+  const dateBacked = await writeResearchEvents([event()], {
+    pool: fakePool({ storedObservationTimes: { "observation-2": new Date(LATER) } }), materialityPolicy: acceptPolicy,
+  });
+  assert.equal(dateBacked[0].inserted, true);
   await assert.rejects(writeResearchEvents([{ ...initialEvent, id: "event-early", createdAt: NOW }], { pool: fakePool() }), />= current observation/);
   await assert.rejects(writeResearchEvents([event()], { pool: fakePool({ storedObservationTimes: { "observation-2": NOW } }), materialityPolicy: acceptPolicy }), /payload observedAt does not match/);
 });
