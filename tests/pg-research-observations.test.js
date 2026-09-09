@@ -10,6 +10,7 @@ import {
   writeResearchJobStart,
   writeMandateScoreObservations,
   writeResearchRun,
+  writeUniverseSnapshot,
 } from "../lib/pg/research-observations.js";
 
 const NOW = "2026-07-13T20:00:00.000Z";
@@ -158,6 +159,26 @@ test("observation replay is idempotent and divergent content hard-conflicts", as
     ] })], { client }),
     ResearchReplayConflictError
   );
+});
+
+test("JSONB arrays are explicitly serialized instead of using PostgreSQL array encoding", async () => {
+  const client = observationClient();
+  await writeMandateScoreObservations([observation()], { client });
+  const insert = client.calls.find((call) => call.sql.includes("INSERT INTO mandate_score_observations"));
+  for (const index of [13, 20, 21, 22, 31, 32]) assert.equal(typeof insert.params[index], "string");
+  const expectedJsonb = new Map([
+    [13, observation().eligibilityReasonCodes], [20, observation().coverageMask],
+    [21, observation().missingMetrics], [22, observation().criticalMissingMetrics],
+    [31, observation().metrics], [32, observation()],
+  ]);
+  for (const [index, expected] of expectedJsonb) assert.deepEqual(JSON.parse(insert.params[index]), expected);
+
+  let universeParams = null;
+  await writeUniverseSnapshot({
+    id: "universe-1", observedAt: NOW, sourceRevision: "abc123", catalogCount: 1,
+    eligibleCount: 1, membership: ["NVDA"],
+  }, { client: { async query(_sql, params) { universeParams = params; return { rowCount: 1, rows: [{ id: "universe-1" }] }; } } });
+  assert.equal(universeParams[5], '["NVDA"]');
 });
 
 test("latest-prior helper reads and validates the immutable Postgres payload", async () => {
