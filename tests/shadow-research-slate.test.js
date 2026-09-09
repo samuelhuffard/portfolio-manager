@@ -7,7 +7,20 @@ import { getPrivateResearchSlate, setPrivateResearchSlate, setResearchDataStatus
 const NOW = "2026-07-13T20:00:00.000Z";
 const CONFIG = { mode: "shadow", policyVersion: "research-selection-v1", canarySlots: 0, explorationSlots: 1, maxSectorShare: 1 };
 const UNIVERSE = { aiReviewBudget: 3, researchCooldownDays: 14 };
-const observation = (ticker, agentId = "agent-1") => ({ id: `observation-${agentId}-${ticker}`, ticker, agentId, observedAt: NOW, score: 80 });
+const observation = (ticker, agentId = "agent-1") => ({
+  id: `observation-${agentId}-${ticker}`, runId: "run-fixture", observedAt: NOW, agentId,
+  mandateId: "agent_one", mandateVersion: "3.0", mandateUniverseVersion: "eligible-us-operating-common-equities-v3",
+  productionUniversePolicyVersion: "catalog-technology-subverticals-v1", scoringConfigVersion: "fixture-score-v1",
+  codeRevision: "fixture-revision", ticker, universeSnapshotId: "universe-fixture", eligible: true,
+  eligibilityReasonCodes: [], score: 80, uncappedScore: 80, rawPoints: 80, maxAvailablePoints: 100,
+  complete: true, actionable: true, coverageMask: ["earnings_quality", "growth"], missingMetrics: [],
+  criticalMissingMetrics: [], fallbackMethod: "peer_relative", thinPeerSet: false, peerSetId: "peer-fixture",
+  peerSetLevel: "industry", peerCount: 12, specialSectorKey: null, scoreCause: "filing",
+  inputSnapshotId: "evidence-fixture", metrics: [
+    { metricId: "earnings_quality", value: 0.8, unit: "decimal_ratio", points: 40, maxPoints: 50, source: "fixture", sourceDocumentId: "fixture-document", sourceFiledAt: NOW, sourceAsOf: NOW, retrievedAt: NOW, freshnessState: "fresh", peerCount: 12, calculationMethod: "fixture", thesisCritical: true, missingReason: null },
+    { metricId: "growth", value: 0.8, unit: "decimal_ratio", points: 40, maxPoints: 50, source: "fixture", sourceDocumentId: "fixture-document", sourceFiledAt: NOW, sourceAsOf: NOW, retrievedAt: NOW, freshnessState: "fresh", peerCount: 12, calculationMethod: "fixture", thesisCritical: true, missingReason: null },
+  ],
+});
 const BASELINE_PROVENANCE = { agentId: "agent-1", sourceRunId: "research-scan-1", capturedAt: NOW };
 
 test("missing private baseline is explicit, status-only, and writes no empty selection", async () => {
@@ -51,6 +64,17 @@ test("private baseline drives a real advisory comparison while preserving the li
   assert.equal(persisted.run.selectionPolicy.comparator.overlap.nonHoldingCount, 2);
   assert.equal(JSON.stringify(persisted.run.selectionPolicy.comparator).includes("HELD"), false);
   assert.equal(JSON.stringify(persisted.run.selectionPolicy.comparator).includes("NEW"), false);
+  assert.deepEqual(persisted.run.selectionPolicy.candidateDossierReadiness, {
+    version: "actionable-candidate-dossier-shadow-v2",
+    mode: "shadow_only",
+    evaluatedCount: 3,
+    readyForDeepResearchCount: 3,
+    blockedCount: 0,
+    invalidObservationCount: 0,
+    observationsInputInvalid: false,
+    assessmentUnavailableCount: 0,
+    reasonCodeCounts: {},
+  });
 });
 
 test("stable and exploration paths retain agent-scoped observation lineage and count rejected candidates", async () => {

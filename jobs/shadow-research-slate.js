@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { selectEvidenceSlate } from "../lib/evidence-slate.js";
 import { compareShadowSlate } from "../lib/shadow-slate.js";
+import { summarizeActionableCandidateDossiers } from "../lib/actionable-candidate-dossier.js";
 import { contentHash, mandateMetadataFor } from "../lib/research-version.js";
 import { writeResearchSelectionRun } from "../lib/pg/research-events.js";
 import { setShadowSelectionStatus } from "../lib/redis.js";
@@ -255,6 +256,15 @@ export async function runShadowResearchSlate({
     now: completedAt,
   });
   const comparatorSummary = aggregateComparatorSummary(comparison);
+  // The peer-relative score selects attention. This adjacent, deterministic
+  // shadow record tells us whether selected names have enough fresh mandate
+  // evidence to justify a future full dossier investigation. It never changes
+  // the live slate, calls a model, or creates a proposal.
+  // Holdings and mandatory re-underwrites are protected maintenance work, not
+  // competing candidates. Keep them out of the dossier-readiness denominator.
+  const candidateDossierReadiness = summarizeActionableCandidateDossiers(
+    slate.items.filter((item) => item.budgetExempt !== true), observations,
+  );
   const selectionRunId = `research-selection:${contentHash({
     sourceRunId,
     policyVersion: policy.policyVersion,
@@ -275,6 +285,7 @@ export async function runShadowResearchSlate({
       baselineSourceRunId: baseline.sourceRunId,
       baselineCapturedAt: baseline.capturedAt,
       comparator: comparatorSummary,
+      candidateDossierReadiness,
     },
     mode: policy.mode, candidateCount, selectedCount: slate.items.length,
     displacedCount: items.filter((item) => !item.selected).length,

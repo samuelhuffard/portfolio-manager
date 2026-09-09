@@ -182,6 +182,10 @@ test("strict units, timestamps, coverage, completeness, and actionability fail c
   assert.throws(() => MandateScoreObservationSchema.parse(fullObservation({ coverageMask: ["earnings_quality"] })), /coverageMask must exactly/);
   assert.throws(() => MandateScoreObservationSchema.parse(fullObservation({ scoreCause: "coverage" })), /never directly research-actionable/);
   assert.throws(() => MandateScoreObservationSchema.parse(fullObservation({
+    metrics: [], rawPoints: 0, maxAvailablePoints: 0, score: 0, uncappedScore: 0,
+    complete: false, coverageMask: [], fallbackMethod: "none",
+  })), /every thesis-critical metric to be fresh and present/);
+  assert.throws(() => MandateScoreObservationSchema.parse(fullObservation({
     metrics: [metric(), metric({ metricId: "growth", freshnessState: "policy_unresolved" })],
   })), /criticalMissingMetrics must exactly/);
   assert.throws(() => MandateScoreObservationSchema.parse({ ...fullObservation(), unexpected: true }), /Unrecognized key/);
