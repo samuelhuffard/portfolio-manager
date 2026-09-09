@@ -143,6 +143,37 @@ test("events recompute exact E3.1 output from immutable observation payloads and
   await assert.rejects(writeResearchEvents([event({ allCauses: ["market", "filing"] })], { pool, materialityPolicy: acceptPolicy }), /canonical E3.1 priority/);
 });
 
+test("event and selection JSONB parameters are explicitly serialized", async () => {
+  const pool = fakePool();
+  const researchEvent = event();
+  await writeResearchEvents([researchEvent], { pool, materialityPolicy: acceptPolicy });
+  const eventInsert = pool.calls.find((call) => call.text.includes("INSERT INTO research_events"));
+  for (const [index, expected] of new Map([
+    [7, researchEvent.allCauses], [12, researchEvent.reasonCodes], [13, researchEvent.changedMetrics],
+  ])) {
+    assert.equal(typeof eventInsert.params[index], "string");
+    assert.deepEqual(JSON.parse(eventInsert.params[index]), expected);
+  }
+  assert.equal(typeof eventInsert.params[18], "string");
+  const { comparisonKey, ...storedEvent } = JSON.parse(eventInsert.params[18]);
+  assert.equal(typeof comparisonKey, "string");
+  assert.deepEqual(storedEvent, researchEvent);
+
+  await writeResearchSelectionRun({ run: selectionRun(), items: selectionItems() }, { pool });
+  const runInsert = pool.calls.find((call) => call.text.includes("INSERT INTO research_selection_runs"));
+  const itemInserts = pool.calls.filter((call) => call.text.includes("INSERT INTO research_selection_items"));
+  assert.equal(typeof runInsert.params[9], "string");
+  assert.deepEqual(JSON.parse(runInsert.params[9]), {
+    ...selectionRun(), items: selectionItems().map((item) => ({ ...item, selectionRunId: "selection-1" })),
+  });
+  for (const [insert, item] of itemInserts.map((insert, index) => [insert, selectionItems()[index]])) {
+    assert.equal(typeof insert.params[9], "string");
+    assert.deepEqual(JSON.parse(insert.params[9]), item.reasonCodes);
+    assert.equal(typeof insert.params[14], "string");
+    assert.deepEqual(JSON.parse(insert.params[14]), { ...item, selectionRunId: "selection-1" });
+  }
+});
+
 test("event materiality states, timing, and reference invariants fail closed", async () => {
   const pool = fakePool(); const { previous, current } = observations();
   const structuralCurrent = { ...current, scoringConfigVersion: "score-v2", scoreCause: "version", actionable: false };
