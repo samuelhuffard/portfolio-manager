@@ -93,6 +93,7 @@ import { buildAgentParityRuntimeSummary } from "../lib/agent-parity-runtime-summ
 import { recordAgent4ShadowReview } from "../lib/agent4-shadow-adapter.js";
 import { appendResearchDecisionAudits } from "../lib/research-decision-audit.js";
 import { applyPersistedMandateScoreGate } from "../lib/mandate-proposal-gate.js";
+import { createPeerFundamentalProposalCanary, peerFundamentalScreenPolicy } from "../lib/peer-fundamental-proposal-canary.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_AGENT_IDS = AGENTS.map((agent) => agent.id);
@@ -791,8 +792,8 @@ async function reviewCandidateForAgent(agent, c, ctx) {
     `Ordinary research-scan SELL/rotation proposals are cadence-capped to one SELL review per agent/ticker every ${ctx.ordinarySellCooldownDays} days.`,
     "A sell-funded replacement is a contingent rotation idea: first propose/review the SELL, then only propose the BUY after the sell is approved, filled, and cash is synced. Do not present a new BUY as funded until cash is real.",
     "Immediate risk exits from stop/kill-criteria monitors are handled by separate exit jobs and can bypass this ordinary rotation cadence.",
-    ...(c.quantScoreContext?.researchOnly === true
-      ? ["This Lab score is a partial peer-fundamental research screen, not a complete agent-mandate score. It may be discussed as a relative score only, but it cannot authorize a BUY or SELL. Return HOLD and state what additional mandate evidence would be needed for an actionable conclusion."]
+    ...(c.quantScoreContext?.partialPeerFundamentalScreen === true
+      ? [peerFundamentalScreenPolicy({ proposalResearchEligible: c.quantScoreContext?.proposalResearchEligible === true })]
       : []),
   ].join("\n");
 
@@ -1637,9 +1638,13 @@ async function runResearchScanForAgent(
     canUse: (candidate, coverage) => Boolean(scorePeerFundamentals({ candidate, peers: coverage.peers })),
   });
   const peerScoredToReview = new Map();
+  // runResearchScanForAgent executes one scheduled agent scan, so this is a
+  // one-slot-per-agent-per-scan canary rather than a shared process budget.
+  const peerProposalCanary = createPeerFundamentalProposalCanary();
   for (const { candidate: c, coverage } of peerSelection.selected) {
     const peerScore = scorePeerFundamentals({ candidate: c, peers: coverage.peers });
     if (!peerScore) continue;
+    const proposalResearchEligible = peerProposalCanary.claimResearchSlot();
     const peerCohortLabel = `${coverage.peerSetUsed.key ?? coverage.peerSetUsed.level} peer cohort (${coverage.peerCount + 1} names)`;
     peerScoredToReview.set(c.ticker, {
       ...c,
@@ -1648,7 +1653,8 @@ async function runResearchScanForAgent(
       quantScoreContext: {
         source: `stored Yahoo/SEC peer fundamentals; ${peerCohortLabel}`,
         description: `normalized rank versus the resolved ${peerCohortLabel}; seven current fundamental fields only (no momentum, estimates, or long-horizon mandate evidence), not a full mandate conviction score`,
-        researchOnly: true,
+        partialPeerFundamentalScreen: true,
+        proposalResearchEligible,
       },
       peerFactEvidence: sourcedFact(
         "peer_cohort",
@@ -2160,7 +2166,10 @@ async function researchTickerForAgentUnlocked(agentId, ticker) {
     quantScoreContext: {
       source: `stored Yahoo/SEC peer fundamentals; ${peerCohortLabel}`,
       description: `normalized rank versus the resolved ${peerCohortLabel}; seven current fundamental fields only (no momentum, estimates, or long-horizon mandate evidence), not a full mandate conviction score`,
-      researchOnly: true,
+      partialPeerFundamentalScreen: true,
+      // The dashboard Lab is a separate, human-invoked workflow. It never
+      // consumes or bypasses the scheduled per-agent proposal canary.
+      proposalResearchEligible: false,
     },
     peerFactEvidence: sourcedFact(
       "peer_cohort",
