@@ -82,7 +82,10 @@ test("EDGAR companyfacts populate & override the EDGAR-sourced metrics", () => {
 
   const withEdgar = extractMetricVector(fundamentals(), cf);
   assert.equal(Math.round(withEdgar.revGrowth * 100), 40); // EDGAR overrides the interim
-  assert.equal(peerMetricsRow(fundamentals(), cf).src, "edgar+yfinance");
+  const row = peerMetricsRow(fundamentals(), cf);
+  assert.equal(row.src, "edgar+yfinance");
+  assert.equal(row.derived._revenueQuarterSeries.length, 8);
+  assert.deepEqual(row.derived._epsQuarterSeries, [], "missing EPS is retained as an empty authoritative series, never inferred");
 });
 
 test("end-to-end: extract → build distributions → score peer-relative (rescaled while EDGAR pending)", () => {

@@ -194,7 +194,22 @@ pm2 describe portfolio-broker-reader
 
 Order of operations is the safety mechanism:
 1. Money actually moves (bank/Robinhood) FIRST. Verify it landed.
-2. Same-day 4:30 PM holdings sync has run (fresh NAV row). For a first-ever contribution into a fund with pre-existing value, seed the owner first: `node scripts/record-contribution.js agent-1 <email> "<name>" <value> --seed-owner`.
-3. `node scripts/record-contribution.js <agentId> <email> "<name>" <amount> [--investor-id=<clerk-user-id>]` — prefer stable Clerk IDs; requires `INVESTOR_LEDGER_HMAC_SECRET`; refuses stale NAV without explicit `--nav-date`/`--allow-stale-nav`.
-4. Withdrawals: preview in the dashboard (`/api/withdrawals/preview`), then `scripts/process-withdrawal.js` — bounded by units held.
-5. Never edit the Investors tab by hand; corrections are new appended entries.
+2. Confirm that the latest completed *prior trading date* has exactly one source-invocation-HMAC-verified 4:30 PM ET holdings snapshot. The contribution command will refuse a same-day/intraday fallback; the withdrawal workflow likewise values units only from the latest signed 4:30 PM ET close. For a first-ever contribution into a fund with pre-existing value, seed the owner first: `node scripts/record-contribution.js agent-1 <email> "<name>" <value> --seed-owner`.
+3. `node scripts/record-contribution.js <agentId> <email> "<name>" <amount> --deposit-date=YYYY-MM-DD --idempotency-key=<immutable-key> [--investor-id=<clerk-user-id>]` — prefer stable Clerk IDs; requires `INVESTOR_LEDGER_HMAC_SECRET`; it refuses ambiguous/missing snapshot provenance.
+4. Withdrawals: preview in the dashboard (`/api/withdrawals/preview`), then `node scripts/process-withdrawal.js <email> <amount|--full> [--sell-from TICKER:shares ...] --commit --idempotency-key=<immutable-key>` — bounded by units held. The default run is a read-only dry run; `--commit` requires the key (16-128 of `A-Za-z0-9_-`). It first writes a signed immutable plan to Withdrawal Operations, then writes the Trade Ledger, Lots, and Investors row. **Reuse the same key when retrying a failed commit** — it replays that exact plan. If the retry reports a partial/conflicting lot state, stop and investigate; never hand-edit the rows or issue a fresh key.
+5. Never edit the Investors tab by hand to *correct* a value — corrections are new appended entries. The one exception is deleting a row that a transport retry duplicated (identical `Entry ID`, identical signature): that row was never an intended entry, and both scripts refuse to proceed until exactly one remains. Confirm with `npm run ledgers:verify` before and after, and delete only the duplicate.
+
+### Withdrawal retry — what each refusal means
+
+A `--commit` retry with the **same** idempotency key replays the signed plan. Every message below is a deliberate fail-closed stop, not a transient error; none of them should be worked around with a fresh key.
+
+| Message | Meaning | Action |
+|---|---|---|
+| `Tax lots changed since the preview` | A concurrent operation moved the lots between the dry run and the commit, so the tax reserve shown is not what would be recorded. | Re-run the dry run, re-confirm the reserve, then commit. |
+| `partially applied` / `no longer matches its signed plan` | Lots are in a state the plan cannot explain (some updated, some not, or edited outside the tool). | Do **not** re-run. Reconcile Lots by hand against the plan JSON in Withdrawal Operations. |
+| `Lot rows moved during the update` | A sheet sort landed inside the write window. The write may have gone to the wrong rows — Sheets has no compare-and-set, so this window cannot be closed in code. | **A retry cannot repair this.** If the write was misdirected, the affected row now fails signature verification, and every verified `readAllLots` — including the first read a retry does — will refuse. Run `npm run ledgers:verify` to find failing rows, reconcile the Lots tab by hand against the plan JSON in Withdrawal Operations, then re-run with the same key. |
+| `Trade Ledger rows conflict with the signed recovery plan` | Rows carrying this key do not match the plan, or are unsigned. | Investigate the Trade Ledger; do not re-run. |
+| `Investors tab holds N rows for this withdrawal key` | A duplicate append landed (transport retry). Units were burned twice. | Remove the duplicate row, then retry with the same key. |
+| `investor entry is not validly signed` | The plan's embedded entry fails investor-ledger verification — wrong key or tampering. | Stop; verify `INVESTOR_LEDGER_HMAC_SECRET` and treat the plan row as suspect. |
+| `entry exists without a signed recovery plan` | A withdrawal predating this mechanism. | Repair by hand; the system will not infer lot state. |
+| `WITHDRAWAL OVERDRAW` (completed, with Telegram alert) | The replay finished a half-committed operation, but another capital entry landed in between and the investor is now negative. | The operation is complete and correct to complete — reconcile the Investors tab with a compensating entry. |

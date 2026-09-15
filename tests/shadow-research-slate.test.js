@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { runShadowResearchSlate } from "../jobs/shadow-research-slate.js";
+import { buildPrivateResearchSlateItems } from "../jobs/research-scan.js";
 import { getPrivateResearchSlate, setPrivateResearchSlate, setResearchDataStatus, setShadowSelectionStatus } from "../lib/redis.js";
 
 const NOW = "2026-07-13T20:00:00.000Z";
@@ -127,11 +128,46 @@ test("health never reads the private baseline, and the live scan never imports e
   const scan = readFileSync(new URL("../jobs/research-scan.js", import.meta.url), "utf8");
   assert.doesNotMatch(health, /getPrivateResearchSlate|pm:research-slate:private/);
   assert.doesNotMatch(scan, /shadow-research-slate|selectEvidenceSlate|research-selection\.json/);
-  assert.match(scan, /setPrivateResearchSlate\(agent\.id, \[\.\.\.toReview\.keys\(\)\]/);
-  assert.ok(scan.indexOf("await applyResearchRecords(agent.id, researchRecords)") < scan.indexOf("await setPrivateResearchSlate(agent.id"));
+  assert.match(scan, /buildPrivateResearchSlateItems\(peerScoredToReview, reviewBuckets\)/);
+  assert.ok(scan.indexOf("await applyResearchRecords(agent.id, researchRecords)") < scan.indexOf("await setPrivateResearchSlate("));
   assert.doesNotMatch(scan.slice(0, scan.indexOf("const toReview = new Map()")), /setPrivateResearchSlate\(agent\.id/);
   assert.match(health, /researchStoreConfigured\(\)/);
   assert.match(health, /resolveResearchCodeRevision/);
+});
+
+test("private research baseline contains only peer-scored candidates actually reviewed", () => {
+  const prePeerSelection = new Map([
+    ["DEFERRED", { ticker: "DEFERRED" }],
+    ["REVIEWED", { ticker: "REVIEWED" }],
+  ]);
+  const peerScoredSelection = new Map([["REVIEWED", { ticker: "REVIEWED" }]]);
+  const buckets = new Map([["DEFERRED", "ranked"], ["REVIEWED", "exploration"]]);
+  assert.deepEqual(buildPrivateResearchSlateItems(peerScoredSelection, buckets), [{ ticker: "REVIEWED", bucket: "exploration" }]);
+  assert.notDeepEqual(buildPrivateResearchSlateItems(peerScoredSelection, buckets), [...prePeerSelection.keys()].map((ticker) => ({
+    ticker,
+    bucket: buckets.get(ticker),
+  })));
+  assert.throws(() => buildPrivateResearchSlateItems([], buckets), /must be Maps/);
+});
+
+test("peer-ready backfills retain valid private-slate provenance instead of an undefined original bucket", async () => {
+  const reviewed = new Map([
+    ["PRIORITY", { ticker: "PRIORITY" }],
+    ["BACKFILL", { ticker: "BACKFILL" }],
+  ]);
+  const buckets = new Map([["PRIORITY", "ranked"]]);
+  const items = buildPrivateResearchSlateItems(reviewed, buckets);
+  assert.deepEqual(items, [
+    { ticker: "PRIORITY", bucket: "ranked" },
+    { ticker: "BACKFILL", bucket: "peer_ready_backfill" },
+  ]);
+
+  const values = new Map();
+  const redis = { async set(key, value) { values.set(key, value); } };
+  const persisted = await setPrivateResearchSlate("agent-1", items, {
+    sourceRunId: "scan-backfill", redis, now: () => new Date(NOW),
+  });
+  assert.equal(persisted.items[1].bucket, "peer_ready_backfill");
 });
 
 test("stale, future, and incomplete baseline provenance fail closed without a durable selection", async () => {

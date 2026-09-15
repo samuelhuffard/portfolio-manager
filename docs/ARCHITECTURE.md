@@ -95,6 +95,7 @@ One spreadsheet ("Sam's Portfolio Manager"), ID from `SPREADSHEET_ID` env, cache
 | Trade Ledger | `appendTradeLedgerEntries` (append-only) | orderId dedupe, agent books |
 | Lots | `appendLots` / `applyLotUpdatesToSheet` (FIFO tax lots, `lib/tax-lots.js`) | realized gains, tax reserve |
 | Investors | `appendInvestorLedgerEntry` (append-only, HMAC per row) | NAV/unit, dashboard /investors |
+| Withdrawal Operations | `appendWithdrawalOperation` (append-only, HMAC per row) | exact signed retry plan for manual withdrawals |
 | Track Record | `writeAgentTrackRecordBlock` | dashboard |
 | Agent-1/2/3 | `appendAgentRecommendations`, strategy notes | performance review, dashboard |
 
@@ -104,7 +105,7 @@ Dashboard has its own independent TS reader (`portfolio-dashboard/lib/sheets.ts`
 
 - Pooled fund, unitized: contributions/withdrawals buy/sell units at that day's NAV/unit; investor value = units × current NAV/unit. `lib/investor-ledger.js` (+ `scripts/record-contribution.js`, `scripts/process-withdrawal.js` — always run manually AFTER money actually moves).
 - NAV/unit computed in holdings-sync: `totalValue ÷ unitsOutstanding` (ledger sum), written to Performance.
-- Guardrails: rows HMAC-signed (`INVESTOR_LEDGER_HMAC_SECRET`, `AUDIT_HMAC_SECRET` fallback; `ALLOW_UNSIGNED_INVESTOR_LEDGER=true` escape hatch — don't), `--seed-owner` required before recording outside money into a non-empty fund, stale-NAV rejection unless `--nav-date`/`--allow-stale-nav`, withdrawal bounded by units held. Signatures are currently **write-only** (no verify-on-read — see RISK_REGISTER).
+- Guardrails: rows HMAC-signed (`INVESTOR_LEDGER_HMAC_SECRET`, `AUDIT_HMAC_SECRET` fallback; `ALLOW_UNSIGNED_INVESTOR_LEDGER=true` escape hatch — don't), `--seed-owner` required before recording outside money into a non-empty fund, withdrawal bounded by units held. Capital entries price only from a signed `16:30` ET Performance close (`lib/contribution-nav.js`); there is no stale/manual NAV override — `--nav-date` and `--allow-stale-nav` were removed. `scripts/process-withdrawal.js --commit` requires `--idempotency-key`, prices/validates inside the `capital-ledger` lock, and first records a signed immutable plan in Withdrawal Operations. Retries reconcile each write against that plan; a partial or conflicting lot state fails closed rather than being recomputed. Investor and audit rows are verified on read by `lib/ledger-verify.js` + the scheduled `scripts/verify-ledgers.js`.
 - Agent attribution: `lib/agent-attribution.js` matches fills to proposals; `lib/agent-books.js` tracks per-agent books inside the shared pool.
 
 ## Redis usage (shared Upstash instance — `pm:` prefix except chat)

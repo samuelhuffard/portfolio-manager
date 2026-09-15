@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   assertOperationalLedgerEntries,
+  assertPerformanceSourceInvocationEntries,
   assertPerformanceSourceRequestEntries,
+  computePerformanceSourceInvocationHmac,
   computePerformanceSourceRequestHmac,
   getOperationalLedgerVerificationSecrets,
   signOperationalLedgerEntry,
@@ -58,6 +60,18 @@ test("performance source request ids are bound to signed money state", () => {
   assert.doesNotThrow(() => assertPerformanceSourceRequestEntries([entry], SECRET));
   assert.throws(() => assertPerformanceSourceRequestEntries([{ ...entry, sourceRequestId: "8f1c2b3a-1111-2222-3333-444455556666" }], SECRET), /source-request integrity/);
   assert.doesNotThrow(() => assertPerformanceSourceRequestEntries([signed], SECRET), "legacy performance rows remain valid");
+});
+
+test("performance source invocation ids are bound to signed money state", () => {
+  const signed = signOperationalLedgerEntry("performance", performance, SECRET);
+  const entry = { ...signed, sourceInvocationId: "2026-07-10/16:30" };
+  entry.sourceInvocationHmac = computePerformanceSourceInvocationHmac(entry, SECRET);
+  assert.doesNotThrow(() => assertPerformanceSourceInvocationEntries([entry], SECRET));
+  assert.throws(
+    () => assertPerformanceSourceInvocationEntries([{ ...entry, sourceInvocationId: "2026-07-10/15:00" }], SECRET),
+    /source-invocation integrity/
+  );
+  assert.doesNotThrow(() => assertPerformanceSourceInvocationEntries([signed], SECRET), "legacy performance rows remain valid");
 });
 
 function fakeSheets(tabs) {

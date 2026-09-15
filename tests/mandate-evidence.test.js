@@ -7,6 +7,7 @@ import {
   UNBOUND_METRICS,
 } from "../lib/mandate-evidence.js";
 import { scoreCohortForAgent } from "../jobs/mandate-scoring.js";
+import { scoreMandateCandidate } from "../lib/mandate-score.js";
 
 // A representative EDGAR `_derived` bundle (fractions, as lib/edgar-metrics.js emits).
 const derived = {
@@ -110,6 +111,42 @@ test("special sectors and unknown mandates fail closed while Agent 2/3 adapters 
   assert.deepEqual(long.boundMetrics, ["peerValuation"]);
   assert.equal(assembleMandateInputs({ agentId: "agent-9", metrics, derived, sector: null }).supported, false);
   assert.equal(assembleMandateInputs({ agentId: "agent-1", metrics, derived: null, sector: null }).supported, false);
+});
+
+test("Agent 2 binds only unambiguous contiguous EDGAR revenue history", () => {
+  const quarters = [
+    ["2024-03-31", 100], ["2024-06-30", 100], ["2024-09-30", 100], ["2024-12-31", 100],
+    ["2025-03-31", 110], ["2025-06-30", 120], ["2025-09-30", 130], ["2025-12-31", 140],
+  ].map(([end, val]) => ({ end, val, filed: end }));
+  const out = assembleMandateInputs({
+    agentId: "agent-2",
+    metrics,
+    derived: { ...derived, _revenueQuarterSeries: quarters },
+    sector: null,
+  });
+  assert.equal(out.absoluteEvidence.revGrowth.positiveQuartersInLatestFour, 4);
+  assert.equal(out.absoluteEvidence.revGrowth.nonDecelerating, true);
+  assert.equal(out.absoluteEvidence.revGrowth.positiveMultiQuarterPersistence, null);
+  assert.equal(out.absoluteEvidence.revGrowth.consecutiveMaterialDecelerations, null);
+  assert.equal(out.absoluteEvidence.epsTrajectory.consecutiveQualifyingQuarters, null, "GAAP EPS is not substituted for adjusted EPS");
+  const score = scoreMandateCandidate({
+    agentId: "agent-2",
+    metricVector: out.metricVector,
+    absoluteEvidence: out.absoluteEvidence,
+    valuationEvidence: out.valuationEvidence,
+    peerDistributions: {},
+  });
+  const withoutHistory = assembleMandateInputs({ agentId: "agent-2", metrics, derived, sector: null });
+  const baselineScore = scoreMandateCandidate({
+    agentId: "agent-2",
+    metricVector: withoutHistory.metricVector,
+    absoluteEvidence: withoutHistory.absoluteEvidence,
+    valuationEvidence: withoutHistory.valuationEvidence,
+    peerDistributions: {},
+  });
+  assert.equal(score.perMetric.revGrowth.missing, false);
+  assert.equal(score.maxAvailable - baselineScore.maxAvailable, 17, "only the 17-point revenue-history gap is closed; undefined terms stay unavailable");
+  assert.equal(score.actionable, false);
 });
 
 test("valuation evidence is still offered when the EDGAR bundle is absent", () => {

@@ -206,7 +206,12 @@ cron.schedule("45 16 * * 0-4", wrapJob("exit-monitor", "ExitMonitor", runExitMon
 // Runs after exit monitor so any SELL proposals are already queued first.
 // Sunday is an explicit Friday-close replay; its runId is consumed once by the
 // next weekday observation and never counted again.
-cron.schedule("15 17 * * 0-4", wrapJob("research-scan", "Research", runResearchScan, MARKET_DAY_ONLY), TZ);
+cron.schedule("15 17 * * 0-4", wrapJob(
+  "research-scan",
+  "Research",
+  () => runResearchScan({ source: "scheduled" }),
+  MARKET_DAY_ONLY
+), TZ);
 
 // Consume the coverage requests made by the research scan immediately after
 // it completes. This is data-only (no model, proposal, or order path) and

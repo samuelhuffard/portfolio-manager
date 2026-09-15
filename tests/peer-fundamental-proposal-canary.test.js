@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   createPeerFundamentalProposalCanary,
+  createScheduledPeerFundamentalProposalCanary,
   peerFundamentalProposalCanarySlots,
   peerFundamentalScreenPolicy,
 } from "../lib/peer-fundamental-proposal-canary.js";
@@ -32,6 +33,12 @@ test("peer-fundamental proposal promotion is an explicit, per-agent-scan one-slo
 
   const disabled = createPeerFundamentalProposalCanary();
   assert.equal(disabled.claimResearchSlot(), false);
+});
+
+test("manual scans cannot consume a peer-fundamental proposal canary slot", () => {
+  const env = { PEER_FUNDAMENTAL_PROPOSAL_CANARY_SLOTS: "1" };
+  assert.equal(createScheduledPeerFundamentalProposalCanary({ source: "manual", env }).claimResearchSlot(), false);
+  assert.equal(createScheduledPeerFundamentalProposalCanary({ source: "scheduled", env }).claimResearchSlot(), true);
 });
 
 test("peer screen promotion permits full research, never standalone trade authority", () => {

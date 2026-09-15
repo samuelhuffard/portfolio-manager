@@ -7,10 +7,49 @@ import {
   computeUnattributedCapital,
   computeInvestorLedgerHmac,
   defaultInvestorId,
+  investorLedgerEntryHmacMatches,
   parseInvestorLedgerRow,
 } from "../lib/investor-ledger.js";
 
 const secret = "test-secret";
+
+test("the withdrawal ceiling is checked against the rounded units actually persisted", () => {
+  // Holds 1.00006 units; the raw quotient equals that exactly, but the row
+  // stores round4 => 1.0001, which would burn more than the investor owns.
+  const ledger = [buildInvestorLedgerEntry({
+    date: "2026-09-01", email: "client@example.com", name: "Client", type: "Contribution",
+    amount: 10000.6, navPerUnit: 10000, units: 1.00006, investorId: "user_client", entryId: "seed",
+  }, secret)];
+
+  assert.throws(() => calculateInvestorLedgerEntry({
+    agentId: "agent-1", ledger, performanceHistory: [], email: "client@example.com", name: "Client",
+    amount: 10000.6, isWithdrawal: true, investorId: "user_client", pricingNavPerUnit: 10000, secret,
+  }), /cannot withdraw/);
+
+  // A withdrawal that rounds within the holding still succeeds, and never burns
+  // more than the ceiling check approved.
+  const ok = calculateInvestorLedgerEntry({
+    agentId: "agent-1", ledger, performanceHistory: [], email: "client@example.com", name: "Client",
+    amount: 10000, isWithdrawal: true, investorId: "user_client", pricingNavPerUnit: 10000, secret,
+  });
+  assert.equal(ok.entry.units, -1);
+  assert.ok(Math.abs(ok.entry.units) <= 1.00006);
+});
+
+test("a single investor entry's signature can be verified independently of the ledger read", () => {
+  const entry = buildInvestorLedgerEntry({
+    date: "2026-09-16", email: "client@example.com", name: "Client", type: "Withdrawal",
+    amount: 50, navPerUnit: 1, units: -50, investorId: "user_client", entryId: "op-key",
+  }, secret);
+
+  assert.equal(investorLedgerEntryHmacMatches(entry, secret), true);
+  // A plan signed with a different key must not smuggle in an investor entry.
+  assert.equal(investorLedgerEntryHmacMatches(entry, "operational-ledger-secret"), false);
+  assert.equal(investorLedgerEntryHmacMatches({ ...entry, units: -60 }, secret), false);
+  assert.equal(investorLedgerEntryHmacMatches({ ...entry, rowHmac: null }, secret), false);
+  assert.equal(investorLedgerEntryHmacMatches({ ...entry, rowHmac: "" }, secret), false);
+  assert.equal(investorLedgerEntryHmacMatches(undefined, secret), false);
+});
 
 test("ledger entries include stable investor id, entry id, and row HMAC", () => {
   const entry = buildInvestorLedgerEntry(
@@ -65,7 +104,7 @@ test("first non-owner entry is blocked if the agent already has value", () => {
   );
 });
 
-test("existing investors must use a current or explicitly accepted NAV date", () => {
+test("existing investors require an explicit signed pricing NAV", () => {
   const ledger = [
     buildInvestorLedgerEntry(
       {
@@ -95,7 +134,7 @@ test("existing investors must use a current or explicitly accepted NAV date", ()
         now: new Date("2026-06-18T16:00:00-04:00"),
         secret,
       }),
-    /Latest NAV is dated 2026-06-17/
+    /require an explicit signed pricing NAV/
   );
 
   const accepted = calculateInvestorLedgerEntry({
@@ -105,8 +144,7 @@ test("existing investors must use a current or explicitly accepted NAV date", ()
     email: "client@example.com",
     name: "Client",
     amount: 110,
-    navDate: "2026-06-17",
-    now: new Date("2026-06-18T16:00:00-04:00"),
+    pricingNavPerUnit: 1.1,
     secret,
   });
 
@@ -188,7 +226,7 @@ test("withdrawals cannot exceed the investor's units", () => {
         amount: 200,
         isWithdrawal: true,
         investorId: "user_client",
-        now: new Date("2026-06-18T16:00:00-04:00"),
+        pricingNavPerUnit: 1,
         secret,
       }),
     /cannot withdraw/

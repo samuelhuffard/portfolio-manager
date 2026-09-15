@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { setResearchScanStatus } from "../lib/redis.js";
+import { listResearchScanHistory, setResearchScanStatus } from "../lib/redis.js";
 
 function redisFixture() {
   const values = new Map();
@@ -51,4 +51,23 @@ test("one runId cannot acquire conflicting terminal outcomes", async () => {
     /Conflicting terminal research status/
   );
   assert.equal(redis.lists.get("pm:research-scan:history").length, 1);
+});
+
+test("research scan history fails loudly for unreadable, malformed, or invalid requests", async () => {
+  await assert.rejects(
+    () => listResearchScanHistory({ redis: null }),
+    /Redis is required/
+  );
+  await assert.rejects(
+    () => listResearchScanHistory({ limit: 0, redis: {} }),
+    /history limit/
+  );
+  await assert.rejects(
+    () => listResearchScanHistory({ redis: { async lrange() { return null; } } }),
+    /history is unreadable/
+  );
+  await assert.rejects(
+    () => listResearchScanHistory({ redis: { async lrange() { return ["{bad json"]; } } }),
+    /invalid JSON/
+  );
 });

@@ -90,7 +90,7 @@ Gotchas: FundManager = Clerk `publicMetadata.role` AND `FUND_MANAGER_EMAILS` (Ve
 ## Changing investor ledger / NAV behavior
 
 Files: `lib/investor-ledger.js`, `scripts/record-contribution.js`, `scripts/process-withdrawal.js`, `jobs/holdings-sync.js` (NAV/unit computation), `../portfolio-dashboard/lib/investors.ts` + `lib/withdrawal-preview.ts` (read side).
-Gotchas: append-only, HMAC-signed (INVARIANTS #5/#6); the seed-owner guard and stale-NAV rejection are load-bearing — never bypass them "temporarily"; Performance now has 5+ rows/day, so "today's NAV" should mean the 4:30 PM row for contributions; scripts run manually AFTER money moves, never before.
+Gotchas: append-only, HMAC-signed (INVARIANTS #5/#6); the seed-owner guard and stale-NAV rejection are load-bearing — never bypass them "temporarily". A post-ledger contribution uses the latest *prior-date* signed 4:30 PM ET snapshot, never a same-day/intraday fallback. `sourceInvocationId` and request ID are forwarded from the companion and must match the durable scheduler request before they are HMAC-bound beside the Performance row; scripts run manually AFTER money moves, never before.
 
 ## Changing Robinhood sync behavior
 

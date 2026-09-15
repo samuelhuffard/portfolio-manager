@@ -2,6 +2,8 @@ import "dotenv/config";
 import { getServiceAccountClients, resolveSharedSpreadsheetId, getSheetIds, readCashBalance, readHoldingsDetail, readPerformanceHistory, readInvestorLedger, appendInvestorLedgerEntry } from "../lib/sheets.js";
 import { calculateInvestorLedgerEntry, computeUnattributedCapital, getInvestorLedgerSecret, getTodayInNewYork } from "../lib/investor-ledger.js";
 import { withWorkflowLock } from "../lib/workflow-lock.js";
+import { selectPreDepositContributionNav } from "../lib/contribution-nav.js";
+import { prepareSignedWithdrawalLedgerEntry, selectSignedWithdrawalNav } from "../lib/withdrawal-pricing.js";
 
 // Records a real contribution or withdrawal into the shared portfolio's capital
 // ledger — run by Sam after he's confirmed money was actually received/sent (this
@@ -26,7 +28,7 @@ const PORTFOLIO_LABEL = "portfolio";
 const [, , email, name, amountStr, ...flags] = process.argv;
 
 if (!email || !name || !amountStr) {
-  console.error('Usage: node scripts/record-contribution.js <email> "<name>" <amount> [--withdraw] [--seed-owner] [--investor-id=user_xxx] [--nav-date=YYYY-MM-DD] [--allow-stale-nav]');
+  console.error('Usage: node scripts/record-contribution.js <email> "<name>" <amount> [--withdraw] [--seed-owner] [--investor-id=user_xxx] [--deposit-date=YYYY-MM-DD] [--idempotency-key=<immutable-key>]');
   process.exit(1);
 }
 
@@ -38,13 +40,11 @@ if (!Number.isFinite(amount) || amount <= 0) {
 
 const isWithdrawal = flags.includes("--withdraw");
 const isSeedOwner = flags.includes("--seed-owner");
-const allowStaleNav = flags.includes("--allow-stale-nav");
 const investorId = flags.find((f) => f.startsWith("--investor-id="))?.slice("--investor-id=".length);
-const navDate = flags.find((f) => f.startsWith("--nav-date="))?.slice("--nav-date=".length);
 const depositDate = flags.find((f) => f.startsWith("--deposit-date="))?.slice("--deposit-date=".length);
 const idempotencyKey = flags.find((f) => f.startsWith("--idempotency-key="))?.slice("--idempotency-key=".length);
-if (navDate && !/^\d{4}-\d{2}-\d{2}$/.test(navDate)) {
-  console.error("--nav-date must be YYYY-MM-DD.");
+if (flags.some((flag) => flag === "--allow-stale-nav" || flag.startsWith("--nav-date="))) {
+  console.error("--nav-date and --allow-stale-nav are not accepted: capital entries always use a signed 16:30 ET NAV.");
   process.exit(1);
 }
 
@@ -62,6 +62,7 @@ try {
 
 let result;
 let alreadyRecorded = false;
+let pricingNavDate = null;
 try {
   await withWorkflowLock("capital-ledger", async () => {
     // Every read used to price/validate the entry happens inside the same
@@ -76,38 +77,38 @@ try {
     if (ledger.length && (!/^\d{4}-\d{2}-\d{2}$/.test(depositDate ?? "") || !/^[A-Za-z0-9_-]{16,128}$/.test(idempotencyKey ?? ""))) {
       throw new Error("Post-ledger contributions require --deposit-date=YYYY-MM-DD and --idempotency-key=<immutable-key>.");
     }
-    if (idempotencyKey && ledger.some((entry) => entry.entryId === idempotencyKey)) {
+    // Count, don't just test for existence. A Sheets append that succeeded with
+    // a lost response can be retried by the transport, leaving two validly-signed
+    // rows for one key. Reporting "already recorded" would silently accept that
+    // duplicate, and nothing downstream detects it — both rows verify.
+    const recordedForKey = idempotencyKey ? ledger.filter((entry) => entry.entryId === idempotencyKey) : [];
+    if (recordedForKey.length > 1) {
+      throw new Error(`Investors tab holds ${recordedForKey.length} rows for idempotency key ${idempotencyKey}; remove the duplicate append before re-running.`);
+    }
+    if (recordedForKey.length === 1) {
       alreadyRecorded = true;
       return;
     }
-    const preDepositNav = ledger.length
-      ? history.filter((row) => row.date < depositDate && Number.isFinite(row.navPerUnit) && row.navPerUnit > 0).sort((a, b) => b.date.localeCompare(a.date))[0]?.navPerUnit
+    const pricingNav = ledger.length
+      ? (isWithdrawal ? selectSignedWithdrawalNav(history) : selectPreDepositContributionNav(history, depositDate))
       : null;
-    if (ledger.length && !preDepositNav) {
-      throw new Error("No NAV strictly before the deposit date is available; refusing to price new cash.");
-    }
+    pricingNavDate = pricingNav?.date ?? null;
+    const pricingNavPerUnit = pricingNav?.navPerUnit ?? null;
     if (ledger.length && !isWithdrawal) {
       const unattributed = computeUnattributedCapital(holdings, cash, ledger);
       if (!unattributed.detected || amount > unattributed.amount + 0.01) {
         throw new Error(`Only $${Math.max(0, unattributed.amount).toFixed(2)} of unmatched broker capital is available to assign.`);
       }
     }
-    result = calculateInvestorLedgerEntry({
-      agentId: PORTFOLIO_LABEL,
-      ledger,
-      performanceHistory: history,
-      email,
-      name,
-      amount,
-      isWithdrawal,
-      isSeedOwner,
-      investorId,
-      navDate,
-      pricingNavPerUnit: isWithdrawal ? null : preDepositNav,
-      entryId: idempotencyKey,
-      allowStaleNav,
-      secret,
-    });
+    result = isWithdrawal && ledger.length
+      ? prepareSignedWithdrawalLedgerEntry({
+          agentId: PORTFOLIO_LABEL, ledger, performanceHistory: history, email, name, amount, investorId,
+          entryId: idempotencyKey, navSnapshot: pricingNav, secret,
+        }).entryResult
+      : calculateInvestorLedgerEntry({
+          agentId: PORTFOLIO_LABEL, ledger, performanceHistory: history, email, name, amount, isWithdrawal,
+          isSeedOwner, investorId, pricingNavPerUnit, entryId: idempotencyKey, secret,
+        });
     await appendInvestorLedgerEntry(sheets, spreadsheetId, sheetIds["Investors"], result.entry);
     await (await import("../lib/pg/dual-write.js")).shadowWriteCapitalEntry(result.entry);
   });
@@ -130,7 +131,7 @@ if (result.seeded) {
 
 console.log(
   `${isWithdrawal ? "Withdrew" : "Recorded"} investor ledger entry for ${name}. ` +
-    `NAV date ${navDate || getTodayInNewYork()}, amount $${amount.toFixed(2)}, ` +
+    `NAV date ${pricingNavDate ?? getTodayInNewYork()}, amount $${amount.toFixed(2)}, ` +
     `${result.entry.units.toFixed(4)} units, ownership ${result.ownershipPct.toFixed(2)}%.`
 );
 

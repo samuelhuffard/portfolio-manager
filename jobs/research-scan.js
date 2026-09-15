@@ -13,7 +13,7 @@ import { assembleEntrySignals, assessConviction } from "../lib/conviction.js";
 import { tavilySearch } from "../lib/tavily.js";
 import { fetchRecentFilings } from "../lib/edgar.js";
 import { fetchMacroSnapshot, formatMacroSnapshot, fetchTreasuryYieldObservations, computeTreasuryYieldChangeBps } from "../lib/fred.js";
-import { evaluateMacroRedFlags, formatMacroRedFlags } from "../lib/macro-regime.js";
+import { applySingleRedMacroTierCap, evaluateMacroRedFlags, formatMacroRedFlags } from "../lib/macro-regime.js";
 import { enforceFractionalShareHoldPolicy, getAIRecommendation } from "../lib/ai-overlay.js";
 import { applyRiskChecks } from "../lib/risk-engine.js";
 import { evaluateProposal, resolveFinalVerdict } from "../lib/evaluator.js";
@@ -90,13 +90,30 @@ import { withWorkflowLock } from "../lib/workflow-lock.js";
 import { BudgetExhaustedError, createResearchRunBudget } from "../lib/ai-budget.js";
 import { createAnthropicMonthlyBudget } from "../lib/anthropic-monthly-budget.js";
 import { buildAgentParityRuntimeSummary } from "../lib/agent-parity-runtime-summary.js";
+import { RESEARCH_FUNNEL_RECEIPT_VERSION } from "../lib/research-funnel-report.js";
 import { recordAgent4ShadowReview } from "../lib/agent4-shadow-adapter.js";
 import { appendResearchDecisionAudits } from "../lib/research-decision-audit.js";
 import { applyPersistedMandateScoreGate } from "../lib/mandate-proposal-gate.js";
-import { createPeerFundamentalProposalCanary, peerFundamentalScreenPolicy } from "../lib/peer-fundamental-proposal-canary.js";
+import { createScheduledPeerFundamentalProposalCanary, peerFundamentalScreenPolicy } from "../lib/peer-fundamental-proposal-canary.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_AGENT_IDS = AGENTS.map((agent) => agent.id);
+
+// The private slate is an advisory baseline for the shadow selector. It must
+// describe the candidates actually sent through the live model loop, not the
+// wider pre-peer selection where deferred candidates never received review.
+export function buildPrivateResearchSlateItems(reviewedCandidates, reviewBuckets) {
+  if (!(reviewedCandidates instanceof Map) || !(reviewBuckets instanceof Map)) {
+    throw new TypeError("reviewed candidates and review buckets must be Maps");
+  }
+  return [...reviewedCandidates.keys()].map((ticker) => ({
+    ticker,
+    // A peer-ready fallback was not in the original priority map. It was still
+    // actually reviewed, so preserve it as an explicit advisory-slate source
+    // instead of emitting an invalid undefined bucket after durable writes.
+    bucket: reviewBuckets.get(ticker) ?? "peer_ready_backfill",
+  }));
+}
 
 function blankModelCallCounts() {
   return {
@@ -120,6 +137,18 @@ function blankAgentScanSummary(agentId) {
     evaluatorRejects: 0,
     outcomeCounts: blankOutcomeCounts(),
     discovery: null,
+    // Aggregate-only selection telemetry. This measures why a review budget was
+    // not used; it never changes the slate, peer gate, model prompt, or queue.
+    researchFunnel: {
+      schemaVersion: RESEARCH_FUNNEL_RECEIPT_VERSION,
+      reviewBudget: 0,
+      priorityCandidates: 0,
+      exemptHoldingCandidates: 0,
+      peerReadyCandidates: 0,
+      deferredPriorityCandidates: 0,
+      peerReadyBackfillCandidates: 0,
+      proposalResearchEligibleCandidates: 0,
+    },
     capacity: null,
     modelCalls: blankModelCallCounts(),
     startedAt: new Date().toISOString(),
@@ -919,15 +948,10 @@ async function reviewCandidateForAgent(agent, c, ctx) {
       overrideNotes: [...(rec.overrideNotes ?? []), "macro_dual_red: SPY below 200-day average AND 10-year rate pressure — NO_TRADE per mandate"],
     };
     riskOverridden = true;
-  } else if (rec.action === "BUY" && DUAL_RED_BLOCKS_AGENTS.has(agent.id) && ctx.macroRedFlags?.redCount === 1) {
-    // Single red condition: mandate requires an explanation, not a block. A
-    // deterministic Tier-2 size cap isn't wired here yet — see
-    // config/agents/mandate-policy.js's macro.singleRedTierCap for the shadow
-    // system's intended value; this only guarantees the condition is flagged.
-    rec = {
-      ...rec,
-      overrideNotes: [...(rec.overrideNotes ?? []), "macro_single_red: one macro condition is red — mandate requires explicit explanation"],
-    };
+  } else if (rec.action === "BUY" && DUAL_RED_BLOCKS_AGENTS.has(agent.id) && [ctx.macroRedFlags?.spyRed, ctx.macroRedFlags?.rateRed].includes(true)) {
+    // Single red is not a block, but it can only retain the mandate's Tier-2
+    // upper bound. The pure helper reads that bound from the policy table.
+    rec = applySingleRedMacroTierCap(rec, { agentId: agent.id, macroRedFlags: ctx.macroRedFlags });
   }
 
   // The mandate-score gate is intentionally default-off until the full
@@ -1019,7 +1043,12 @@ async function reviewCandidateForAgent(agent, c, ctx) {
           evaluatorCritique: first.critique,
           previousProposal: rec,
         }, ctx);
-        const revised = applyConvictionClamp(applyRiskChecks(revisedRaw, riskContext, riskLimits), agent, c, riskLimits);
+        // A revision is a fresh model-provided BUY size, so re-apply every
+        // downgrade-only sizing clamp before the evaluator can see it.
+        const revised = applySingleRedMacroTierCap(
+          applyConvictionClamp(applyRiskChecks(revisedRaw, riskContext, riskLimits), agent, c, riskLimits),
+          { agentId: agent.id, macroRedFlags: ctx.macroRedFlags },
+        );
         if (revised.action === "HOLD") {
           // Generator conceded (or the risk engine downgraded the revision) — final HOLD.
           finalEval = { ...first, verdict: "REJECT", revisions: 1, critique: [...first.critique, "generator conceded on revision"] };
@@ -1379,7 +1408,7 @@ async function runResearchScanForAgent(
   sheets,
   spreadsheetId,
   sheetIds,
-  { breaker, boundaryToken, budget, runId, candidateBus = null, runBudgetCapUsd = null, verifiedLots = [] } = {}
+  { breaker, boundaryToken, budget, runId, source = "manual", candidateBus = null, runBudgetCapUsd = null, verifiedLots = [] } = {}
 ) {
   const summary = blankAgentScanSummary(agent.id);
   breaker = breaker ?? { tier: "NONE", drawdownPct: 0 };
@@ -1640,7 +1669,7 @@ async function runResearchScanForAgent(
   const peerScoredToReview = new Map();
   // runResearchScanForAgent executes one scheduled agent scan, so this is a
   // one-slot-per-agent-per-scan canary rather than a shared process budget.
-  const peerProposalCanary = createPeerFundamentalProposalCanary();
+  const peerProposalCanary = createScheduledPeerFundamentalProposalCanary({ source });
   for (const { candidate: c, coverage } of peerSelection.selected) {
     const peerScore = scorePeerFundamentals({ candidate: c, peers: coverage.peers });
     if (!peerScore) continue;
@@ -1665,6 +1694,18 @@ async function runResearchScanForAgent(
       ),
     });
   }
+  summary.researchFunnel = {
+    schemaVersion: RESEARCH_FUNNEL_RECEIPT_VERSION,
+    reviewBudget: aiReviewBudget,
+    priorityCandidates: toReview.size,
+    exemptHoldingCandidates: [...reviewBuckets.values()].filter((bucket) => bucket === "holdings").length,
+    peerReadyCandidates: peerScoredToReview.size,
+    deferredPriorityCandidates: peerSelection.deferredPrimary,
+    peerReadyBackfillCandidates: peerSelection.backfilled,
+    proposalResearchEligibleCandidates: [...peerScoredToReview.values()]
+      .filter((candidate) => candidate.quantScoreContext?.proposalResearchEligible === true)
+      .length,
+  };
   if (peerSelection.deferredPrimary) {
     console.log(`[Research] ${agent.id}: deferred ${peerSelection.deferredPrimary}/${toReview.size} priority candidates pending a scoreable peer cohort; peer-ready backfill added ${peerSelection.backfilled}.`);
   }
@@ -1805,10 +1846,11 @@ async function runResearchScanForAgent(
   // slate built before fundamentals, screening, scoring, and the AI budget. This
   // occurs only after both recommendation and research-ledger persistence pass.
   if (catalogMode.requestedSource === "catalog") {
-    await setPrivateResearchSlate(agent.id, [...toReview.keys()].map((ticker) => ({
-      ticker,
-      bucket: reviewBuckets.get(ticker),
-    })), { sourceRunId: runId });
+    await setPrivateResearchSlate(
+      agent.id,
+      buildPrivateResearchSlateItems(peerScoredToReview, reviewBuckets),
+      { sourceRunId: runId }
+    );
   }
 
   // Injection-suspect evidence is logged every time, but Telegram only escalates
@@ -1834,7 +1876,10 @@ async function runResearchScanForAgent(
  * agents so newly-available cash can collect competing proposals from every desk.
  * Pass agentIds to override for a targeted diagnostic scan.
  */
-async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = "scheduled" } = {}) {
+async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = "manual" } = {}) {
+  if (source !== "scheduled" && source !== "manual") {
+    throw new TypeError("research scan source must be scheduled or manual");
+  }
   const runId = randomUUID();
   const startedAt = new Date().toISOString();
   const agentSummaries = [];
@@ -1976,6 +2021,7 @@ async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = 
           boundaryToken,
           budget: agentBudgets.get(agent.id),
           runId,
+          source,
           candidateBus,
           runBudgetCapUsd: fairCaps[agent.id],
           verifiedLots,
@@ -2261,7 +2307,10 @@ export async function researchTickerForAgent(agentId, ticker) {
 
 if (fileURLToPath(import.meta.url) === process.argv[1]) {
   const cliAgentIds = process.argv.slice(2).filter((arg) => !arg.startsWith("--"));
-  runResearchScan(cliAgentIds.length ? { agentIds: cliAgentIds } : undefined).catch((e) => {
+  runResearchScan({
+    source: "manual",
+    ...(cliAgentIds.length ? { agentIds: cliAgentIds } : {}),
+  }).catch((e) => {
     console.error("[Research] Scan error:", e.message);
     process.exit(1);
   });
