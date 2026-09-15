@@ -19,20 +19,10 @@ import {
   appendInvestorLedgerEntry,
 } from "../lib/sheets.js";
 import { consumeLotsFIFO, applyLotUpdates } from "../lib/tax-lots.js";
-import { defaultInvestorId, entryMatchesInvestor, getInvestorLedgerSecret, getTodayInNewYork, investorLedgerEntryHmacMatches } from "../lib/investor-ledger.js";
+import { defaultInvestorId, entryMatchesInvestor, getInvestorLedgerSecret, getTodayInNewYork } from "../lib/investor-ledger.js";
 import { withWorkflowLock } from "../lib/workflow-lock.js";
-import { prepareSignedWithdrawalLedgerEntry, selectSignedWithdrawalNav, withdrawalCommitAlreadyRecorded } from "../lib/withdrawal-pricing.js";
-import { operationalLedgerEntryHmacMatches } from "../lib/operational-ledger.js";
-import {
-  buildWithdrawalCommitPlan,
-  parseWithdrawalCommitPlan,
-  projectWithdrawalUnitsAfterReplay,
-  reconcileWithdrawalLotTransitions,
-  serializeWithdrawalCommitPlan,
-  withdrawalEntryMatchesPlan,
-  withdrawalPlanMatchesRequest,
-  withdrawalTradesMatchPlan,
-} from "../lib/withdrawal-commit.js";
+import { selectSignedWithdrawalNav } from "../lib/withdrawal-pricing.js";
+import { runWithdrawalCommit } from "../lib/withdrawal-commit-runner.js";
 
 // Calculates — and, with --commit, records — what an investor withdrawal should
 // actually pay out vs. hold back for the capital-gains tax Sam personally owes on
@@ -183,135 +173,43 @@ let commitError = null;
 let overdrawWarning = null;
 await withWorkflowLock("capital-ledger", async () => {
   try {
-    const [freshLedger, freshHistory, freshLots, operationRows] = await Promise.all([
-      readInvestorLedger(sheets, spreadsheetId),
-      readPerformanceHistory(sheets, spreadsheetId),
-      readAllLots(sheets, spreadsheetId),
-      readWithdrawalOperations(sheets, spreadsheetId),
-    ]);
-    const matchingOperations = operationRows.filter((row) => row.operationId === idempotencyKey);
-    // A Sheets append that succeeded but whose response was lost can be retried
-    // by the transport, leaving byte-identical duplicate plan rows. Every row
-    // here already passed its operational HMAC, so identical duplicates are the
-    // same immutable plan and are safe to replay. Divergent plans are genuine
-    // ambiguity about which one the money state reflects — refuse those.
-    if (matchingOperations.length > 1
-      && new Set(matchingOperations.map((row) => row.planJson)).size > 1) {
-      throw new Error("Conflicting signed withdrawal plans use this idempotency key; refusing automatic repair.");
-    }
-
-    let plan;
-    let replayed = false;
-    if (matchingOperations.length >= 1) {
-      replayed = true;
-      plan = parseWithdrawalCommitPlan(matchingOperations[0].planJson);
-      if (!withdrawalPlanMatchesRequest(plan, {
-        email, investorId: resolvedInvestorId, requestedAmount,
-        sales: sellFrom.map(({ ticker, shares }) => ({ ticker, shares, price: 1 })),
-      })) {
-        throw new Error("Withdrawal idempotency key is already bound to a different request; refusing to reuse it.");
-      }
-    } else {
-      // A row without a plan predates this recovery mechanism. Never guess
-      // whether its tax lots were already updated.
-      if (withdrawalCommitAlreadyRecorded(freshLedger, idempotencyKey)) {
-        throw new Error("Withdrawal entry exists without a signed recovery plan; refusing to infer lot state automatically.");
-      }
-      ({ entryResult } = prepareSignedWithdrawalLedgerEntry({
-        agentId: "portfolio",
-        ledger: freshLedger,
-        performanceHistory: freshHistory,
-        email,
-        name: email,
-        amount: requestedAmount,
-        investorId: resolvedInvestorId,
-        entryId: idempotencyKey,
-        navSnapshot: latest,
-        secret,
-      }));
-      plan = buildWithdrawalCommitPlan({
-        operationId: idempotencyKey,
-        createdAt: new Date().toISOString(),
-        email,
-        investorId: resolvedInvestorId,
-        requestedAmount,
-        entry: entryResult.entry,
-        sales: sellFrom.map(({ ticker, shares }) => ({
-          ticker,
-          shares,
-          price: holdingsDetail.find((holding) => holding.ticker === ticker)?.currentPrice,
-        })),
-        lots: freshLots,
-        tradeDate: getTodayInNewYork(),
-      });
-      // The preview above computed realized gain (and therefore the tax reserve
-      // Sam acted on) from lots read before the lock. The plan just recomputed
-      // FIFO against fresh lots. If a concurrent operation moved them, the
-      // displayed reserve is not what would be committed — refuse rather than
-      // silently record a different number than the operator approved.
-      // Both sides are already cent-rounded, so the only legitimate difference
-      // is float representation — a full cent of drift is a real divergence.
-      if (Math.abs(plan.totalRealizedGain - Math.round(totalRealizedGain * 100) / 100) > 1e-6) {
-        throw new Error(
-          `Tax lots changed since the preview: realized gain would be $${plan.totalRealizedGain.toFixed(2)}, not the $${totalRealizedGain.toFixed(2)} shown. Re-run the dry-run preview and confirm the new tax reserve before committing.`
-        );
-      }
-      await appendWithdrawalOperation(sheets, spreadsheetId, sheetIds["Withdrawal Operations"], {
-        operationId: idempotencyKey,
-        createdAt: plan.createdAt,
-        planJson: serializeWithdrawalCommitPlan(plan),
-      });
-    }
-    entryResult ??= { entry: plan.entry };
-
-    // Existing unsigned legacy trade rows do not block this operation, but a
-    // row bearing this key must exactly match its signed plan.
-    if (plan.trades.length) {
-      const existingTrades = await readTradeLedger(sheets, spreadsheetId, { verify: false });
-      const keyedTrades = existingTrades.filter((row) => row.proposalId === idempotencyKey);
-      if (keyedTrades.length && (!withdrawalTradesMatchPlan(existingTrades, plan)
-        || !keyedTrades.every((row) => operationalLedgerEntryHmacMatches("trade", row)))) {
-        throw new Error("Withdrawal Trade Ledger rows conflict with the signed recovery plan; refusing automatic repair.");
-      }
-      if (!keyedTrades.length) {
-        await appendTradeLedgerEntries(sheets, spreadsheetId, sheetIds["Trade Ledger"], plan.trades);
-      }
-    }
-
-    const lotUpdates = reconcileWithdrawalLotTransitions(freshLots, plan.lotTransitions);
-    if (lotUpdates.length) await applyLotUpdatesToSheet(sheets, spreadsheetId, lotUpdates);
-
-    // Exactly one — never `.find()`. A Sheets append that succeeded with a lost
-    // response can be retried by the transport, producing two validly-signed
-    // identical investor rows. Taking the first match would report the operation
-    // idempotent and leave both withdrawals burning units, and nothing else in
-    // the system detects duplicate investor rows (both verify).
-    const existingEntries = freshLedger.filter((entry) => entry.entryId === idempotencyKey);
-    if (existingEntries.length > 1) {
-      throw new Error(`Investors tab holds ${existingEntries.length} rows for this withdrawal key; refusing automatic repair — remove the duplicate append first.`);
-    }
-    const existingEntry = existingEntries[0];
-    if (existingEntry && !withdrawalEntryMatchesPlan(existingEntry, plan)) {
-      throw new Error("Withdrawal Investors row conflicts with the signed recovery plan; refusing automatic repair.");
-    }
-    // The plan row is signed with the OPERATIONAL secret; the entry inside it is
-    // signed with the INVESTOR secret. In production those are different keys, so
-    // holding the outer signature must not confer authority to append an
-    // arbitrary investor row. Verify the inner signature before writing it.
-    if (!existingEntry && !investorLedgerEntryHmacMatches(plan.entry, secret)) {
-      throw new Error("Withdrawal plan's investor entry is not validly signed with the investor-ledger key; refusing to append it.");
-    }
-    // A replay does not re-run the unit ceiling (see projectWithdrawalUnitsAfterReplay):
-    // the lots and trade rows are already committed, so completing is safer than
-    // abandoning a half-written operation. It can still overdraw if another capital
-    // entry landed in between, so record that for a loud report after the lock.
-    if (replayed && !existingEntry) {
-      const projection = projectWithdrawalUnitsAfterReplay(freshLedger, plan);
-      if (projection.overdrawn) overdrawWarning = { ...projection, email: plan.entry.email, units: plan.entry.units };
-    }
-    if (!existingEntry) await appendInvestorLedgerEntry(sheets, spreadsheetId, sheetIds["Investors"], plan.entry);
-    await (await import("../lib/pg/dual-write.js")).shadowWriteCapitalEntry(plan.entry);
-    alreadyRecorded = Boolean(existingEntry);
+    const result = await runWithdrawalCommit({
+      io: {
+        readInvestorLedger: () => readInvestorLedger(sheets, spreadsheetId),
+        readPerformanceHistory: () => readPerformanceHistory(sheets, spreadsheetId),
+        readAllLots: () => readAllLots(sheets, spreadsheetId),
+        readWithdrawalOperations: () => readWithdrawalOperations(sheets, spreadsheetId),
+        // Dedupe probe only — read unverified. A legacy unsigned Trade Ledger
+        // row must not become a new reason a withdrawal cannot be recorded;
+        // keyed rows are separately signature-checked inside the runner.
+        readTradeLedger: () => readTradeLedger(sheets, spreadsheetId, { verify: false }),
+        appendWithdrawalOperation: (operation) =>
+          appendWithdrawalOperation(sheets, spreadsheetId, sheetIds["Withdrawal Operations"], operation),
+        appendTradeLedgerEntries: (trades) =>
+          appendTradeLedgerEntries(sheets, spreadsheetId, sheetIds["Trade Ledger"], trades),
+        applyLotUpdatesToSheet: (lotUpdates) => applyLotUpdatesToSheet(sheets, spreadsheetId, lotUpdates),
+        appendInvestorLedgerEntry: (entry) =>
+          appendInvestorLedgerEntry(sheets, spreadsheetId, sheetIds["Investors"], entry),
+        shadowWriteCapitalEntry: async (entry) =>
+          (await import("../lib/pg/dual-write.js")).shadowWriteCapitalEntry(entry),
+      },
+      idempotencyKey,
+      email,
+      investorId: resolvedInvestorId,
+      requestedAmount,
+      sales: sellFrom.map(({ ticker, shares }) => ({
+        ticker,
+        shares,
+        price: holdingsDetail.find((holding) => holding.ticker === ticker)?.currentPrice,
+      })),
+      previewRealizedGain: totalRealizedGain,
+      navSnapshot: latest,
+      secret,
+      tradeDate: getTodayInNewYork(),
+    });
+    entryResult = result.entryResult;
+    alreadyRecorded = result.alreadyRecorded;
+    overdrawWarning = result.overdrawWarning;
   } catch (err) {
     commitError = err;
   }

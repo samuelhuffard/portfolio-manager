@@ -77,6 +77,20 @@ test("a persisted plan is canonical, rejects malformed data, and binds the immut
     sales: [{ ticker: "ABC", shares: 7, price: 20 }],
   }), false);
   assert.throws(() => parseWithdrawalCommitPlan("{bad json"), /plan JSON is invalid/);
+
+  // Identity is (ticker, shares); price is stripped. A retry that cannot supply
+  // a live price must still be able to COMPARE its request rather than throwing.
+  assert.equal(withdrawalPlanMatchesRequest(parsed, {
+    email: "investor@example.com", investorId: "user_investor", requestedAmount: 70,
+    sales: [{ ticker: "ABC", shares: 7 }],
+  }), true);
+  assert.equal(withdrawalPlanMatchesRequest(parsed, {
+    email: "investor@example.com", investorId: "user_investor", requestedAmount: 70,
+    sales: [{ ticker: "ABC", shares: 8 }],
+  }), false);
+  assert.throws(() => withdrawalPlanMatchesRequest(parsed, {
+    email: "investor@example.com", investorId: "user_investor", requestedAmount: 70, sales: "ABC:7",
+  }), /must be an array/);
 });
 
 test("keyed trade rows match the plan as a set, tolerating sheet reordering and float drift", () => {
