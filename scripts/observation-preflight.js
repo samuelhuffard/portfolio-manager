@@ -17,10 +17,20 @@ const REQUIRED_ENV = [
   "ANTHROPIC_MONTHLY_MAX_USD",
 ];
 
-// Opt-outs that disable a signature check. They exist for local development and
+// Opt-outs that disable a safety check. They exist for local development and
 // must never be set where real money executes — a preflight that ignores them
 // would certify an environment with the approval boundary switched off.
 const FORBIDDEN_TRUE_ENV = ["ALLOW_UNSIGNED_PROPOSALS", "ALLOW_UNSIGNED_INVESTOR_LEDGER", "ROBINHOOD_STORE_SESSION"];
+
+// Match the LOOSEST truthiness any consumer applies, not the strictest. The
+// Python broker readers enable session persistence for "1"/"true"/"yes"
+// (lib/robinhood-sync.py, lib/robinhood-scan.py), so a preflight that rejected
+// only the literal "true" would pass ROBINHOOD_STORE_SESSION=yes while a
+// reusable brokerage session pickle sat on disk. A value a consumer never reads
+// as true still fails here on purpose: it means the operator believed they set
+// something, and that confusion is worth surfacing before an observation day.
+const TRUTHY = new Set(["1", "true", "yes", "on", "y"]);
+const isTruthy = (value) => TRUTHY.has(String(value ?? "").trim().toLowerCase());
 
 export function evaluateObservationPreflight({ status, head, remoteHead, env = process.env }) {
   const failures = [];
@@ -34,7 +44,14 @@ export function evaluateObservationPreflight({ status, head, remoteHead, env = p
     if (!String(env[name] ?? "").trim()) failures.push(`${name} is missing`);
   }
   for (const name of FORBIDDEN_TRUE_ENV) {
-    if (String(env[name] ?? "").trim() === "true") failures.push(`${name}=true disables a signature check and must not be set in production`);
+    if (isTruthy(env[name])) failures.push(`${name}=${String(env[name]).trim()} disables a safety check and must not be set in production`);
+  }
+  // Inverted sense: ownership enforcement is ON unless explicitly "false".
+  // Pulling that kill switch reverts to legacy account-wide FIFO, which lets a
+  // signed SELL consume another strategy's or unattributed lots and misattribute
+  // realized gains. It exists for a fast rollback — never for an observation day.
+  if (String(env.ENFORCE_OWNERSHIP ?? "").trim().toLowerCase() === "false") {
+    failures.push("ENFORCE_OWNERSHIP=false reverts to legacy account-wide FIFO and must not be set for observation");
   }
   if (String(env.ANTHROPIC_BUDGET_REQUIRED ?? "").trim() !== "true") {
     failures.push("ANTHROPIC_BUDGET_REQUIRED must be true for observation");

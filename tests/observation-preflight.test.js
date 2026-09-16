@@ -35,14 +35,33 @@ test("observation preflight refuses an environment missing the approval-signatur
 });
 
 test("observation preflight refuses any signature escape hatch left switched on", () => {
+  // Every spelling a consumer treats as true must fail, not just the literal
+  // "true": lib/robinhood-sync.py and lib/robinhood-scan.py enable session
+  // persistence for "1"/"true"/"yes", so matching only "true" would pass
+  // ROBINHOOD_STORE_SESSION=yes with a reusable brokerage pickle on disk.
   for (const name of ["ALLOW_UNSIGNED_PROPOSALS", "ALLOW_UNSIGNED_INVESTOR_LEDGER", "ROBINHOOD_STORE_SESSION"]) {
-    const result = evaluateObservationPreflight({ status: "", head: "abc", remoteHead: "abc", env: { ...ENV, [name]: "true" } });
-    assert.equal(result.ok, false, `${name}=true must fail preflight`);
-    assert.match(result.failures.join(" "), new RegExp(`${name}=true disables a signature check`));
+    for (const value of ["true", "TRUE", "1", "yes", "Yes", "on", " true "]) {
+      const result = evaluateObservationPreflight({ status: "", head: "abc", remoteHead: "abc", env: { ...ENV, [name]: value } });
+      assert.equal(result.ok, false, `${name}=${value} must fail preflight`);
+      assert.match(result.failures.join(" "), new RegExp(`${name}=.*disables a safety check`));
+    }
   }
   // Explicitly "false" — the documented production value — must still pass.
   assert.equal(evaluateObservationPreflight({
     status: "", head: "abc", remoteHead: "abc",
     env: { ...ENV, ALLOW_UNSIGNED_PROPOSALS: "false", ROBINHOOD_STORE_SESSION: "false" },
   }).ok, true);
+});
+
+test("observation preflight refuses an ownership-enforcement kill switch left pulled", () => {
+  // Inverted sense: enforcement is on unless explicitly "false". With it off, a
+  // signed SELL can consume another strategy's lots and misattribute gains.
+  for (const value of ["false", "FALSE", " false "]) {
+    const result = evaluateObservationPreflight({ status: "", head: "abc", remoteHead: "abc", env: { ...ENV, ENFORCE_OWNERSHIP: value } });
+    assert.equal(result.ok, false, `ENFORCE_OWNERSHIP=${value} must fail preflight`);
+    assert.match(result.failures.join(" "), /ENFORCE_OWNERSHIP=false reverts to legacy account-wide FIFO/);
+  }
+  // Unset and "true" are the production states and must pass.
+  assert.equal(evaluateObservationPreflight({ status: "", head: "abc", remoteHead: "abc", env: ENV }).ok, true);
+  assert.equal(evaluateObservationPreflight({ status: "", head: "abc", remoteHead: "abc", env: { ...ENV, ENFORCE_OWNERSHIP: "true" } }).ok, true);
 });
