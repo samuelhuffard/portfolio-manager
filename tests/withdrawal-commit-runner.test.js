@@ -34,7 +34,13 @@ function makeWorld() {
       { rowIndex: 0, lotId: "lot-a", ticker: "ABC", openDate: "2025-01-01", agentId: "agent-1", costPerShare: 5, sharesOriginal: 10, sharesOpen: 10, status: "OPEN", rowHmac: "a" },
     ],
     operations: [],
-    trades: [],
+    // A pre-existing unsigned Trade Ledger row from before rows were signed.
+    // It is unrelated to this key and must never block the operation — the
+    // runner reads the ledger unverified and signature-checks only keyed rows.
+    trades: [{
+      date: "2025-03-02", ticker: "OLD", side: "SELL", shares: 1, price: 9, amount: 9,
+      orderId: null, agentId: "legacy", proposalId: null, realizedGain: 1, rowHmac: null,
+    }],
     shadow: [],
   };
 }
@@ -86,8 +92,10 @@ const commit = (io) => runWithdrawalCommit({
   now: () => "2026-09-16T20:00:00.000Z",
 });
 
-function assertSettledExactlyOnce(world) {
-  assert.equal(world.operations.length >= 1, true, "a signed plan must exist");
+function assertSettledExactlyOnce(world, { expectedPlanRows = 1 } = {}) {
+  assert.equal(world.operations.length, expectedPlanRows, "plan rows");
+  assert.equal(world.operations.filter((o) => o.operationId === KEY).length, expectedPlanRows, "keyed plan rows");
+  assert.equal(world.trades.filter((t) => t.proposalId === null).length, 1, "the legacy unsigned row must be left alone");
   assert.equal(world.investors.filter((e) => e.entryId === KEY).length, 1, "exactly one investor row");
   assert.equal(world.trades.filter((t) => t.proposalId === KEY).length, 1, "exactly one keyed trade row");
   assert.equal(world.lots.find((l) => l.lotId === "lot-a").sharesOpen, 5, "lot consumed exactly once");
@@ -137,7 +145,9 @@ test("an append the transport duplicated is detected and fails closed, never acc
     const world = makeWorld();
     await assert.rejects(commit(makeIo(world, { failAt: boundary, duplicateAt: boundary })), /injected failure/);
     await commit(makeIo(world));
-    assertSettledExactlyOnce(world);
+    // Two byte-identical plan rows are the same immutable plan, so the money
+    // state must still settle exactly once even though the row is duplicated.
+    assertSettledExactlyOnce(world, { expectedPlanRows: boundary === "plan" ? 2 : 1 });
   }
 });
 
