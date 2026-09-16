@@ -54,7 +54,14 @@ test("catalog identity is deterministic and census distinguishes raw from usable
     marketCapCovered: 3,
     liquidityCovered: 3,
     quoteAndLiquidityCovered: 3,
+    firstTradeDateCovered: 3,
   });
+});
+
+test("catalog identity changes when first-trade-date eligibility evidence changes", () => {
+  const withoutDate = buildLiveResearchCandidateBus({ catalog: { ...catalog, FAST: { ...catalog.FAST, ftd: null, fda: null } }, agentConfigs: configs() });
+  const withDate = buildLiveResearchCandidateBus({ catalog, agentConfigs: configs() });
+  assert.notEqual(withoutDate.catalogSnapshotId, withDate.catalogSnapshotId);
 });
 
 test("every agent's rollback receipt is explicit, independent, and degraded", () => {

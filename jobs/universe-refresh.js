@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { fileURLToPath } from "node:url";
-import { fetchUsListing, mergeCatalog, applyQuotes, dropJunk, selectEnrichmentBatch } from "../lib/universe.js";
-import { fetchQuotes, fetchFundamentals, fetchConsensusTrend } from "../lib/yahoo.js";
+import { fetchUsListing, mergeCatalog, applyQuotes, dropJunk, selectEnrichmentBatch, selectFirstTradeDateRefreshBatch } from "../lib/universe.js";
+import { fetchQuotes, fetchFundamentals, fetchConsensusTrend, fetchFirstTradeDate } from "../lib/yahoo.js";
 import { classifySubVertical } from "../lib/indicators.js";
 import { getUniverseCatalog, setUniverseCatalog, setUniverseStatus, getPeerMetrics, setPeerMetrics, getPeerCoverageRequests } from "../lib/redis.js";
 import { peerMetricsRow } from "../lib/mandate-metrics.js";
@@ -10,6 +10,7 @@ import { sendMessage as sendTelegram } from "../lib/telegram.js";
 import { selectPeerCoverageRefreshTargets } from "../lib/peer-coverage.js";
 import { consensusSnapshotRow } from "../lib/consensus-snapshot.js";
 import { consensusStoreConfigured, writeConsensusSnapshots } from "../lib/pg/consensus-snapshots.js";
+import { etDateString } from "../lib/market-calendar.js";
 
 const QUOTE_CHUNK_SIZE = 200;
 const QUOTE_CHUNK_DELAY_MS = 400;
@@ -44,6 +45,7 @@ export async function runUniverseRefresh({
   getListing = fetchUsListing,
   getQuotes = fetchQuotes,
   getFundamentals = fetchFundamentals,
+  getFirstTradeDate = fetchFirstTradeDate,
   getCompanyFacts = fetchCompanyFacts,
 } = {}) {
   // Mandate v2.1 Phase A/W2: cache each enriched name's peer-scoring metric vector
@@ -71,6 +73,28 @@ export async function runUniverseRefresh({
       await sleep(QUOTE_CHUNK_DELAY_MS);
     }
     catalog = dropJunk(catalog);
+
+    // A quote-derived catalog alone cannot establish Agent Three's public-history
+    // gate: Yahoo omits firstTradeDate from bulk quotes. Pace a distinct chart-
+    // metadata refresh off the scan path and record attempts even when unavailable
+    // so one broken symbol cannot starve the whole catalog.
+    const firstTradeDateTargets = selectFirstTradeDateRefreshBatch(catalog, { perRun: enrichPerRun, now: now() });
+    let firstTradeDatesObserved = 0;
+    for (const ticker of firstTradeDateTargets) {
+      const entry = catalog[ticker];
+      let firstTradeDate = null;
+      try {
+        firstTradeDate = await getFirstTradeDate(ticker);
+      } catch (error) {
+        console.warn(`[Universe] ${ticker} first-trade date unavailable: ${error.message}`);
+      }
+      if (entry) {
+        entry.ftd = firstTradeDate ?? entry.ftd ?? null;
+        entry.fda = etDateString(now());
+        if (Number.isFinite(firstTradeDate)) firstTradeDatesObserved++;
+      }
+      await sleep(250);
+    }
 
     const coverageRequests = peerMetricsEnabled ? await getPeerCoverageRequests() : {};
     const existingPeer = peerMetricsEnabled ? await getPeerMetrics() : {};
@@ -165,11 +189,14 @@ export async function runUniverseRefresh({
       consensusObserved: consensusRows.length,
       consensusStored,
       consensusFailed,
+      firstTradeDateTargets: firstTradeDateTargets.length,
+      firstTradeDatesObserved,
+      firstTradeDateCovered: Object.values(catalog).filter((entry) => Number.isFinite(entry.ftd)).length,
       error: null,
     };
     await setUniverseStatus(status);
     console.log(
-      `[Universe] Refresh done: ${total} cataloged, ${sectorEnriched} sector-enriched (${Math.round((sectorEnriched / total) * 100)}%), +${enriched} tonight${priorityTickers.length ? `, ${priorityTickers.length} coverage-priority ticker(s)` : ""}${collectConsensus ? `, consensus stored ${consensusStored}/${consensusRows.length}` : ""}.`
+      `[Universe] Refresh done: ${total} cataloged, ${sectorEnriched} sector-enriched (${Math.round((sectorEnriched / total) * 100)}%), +${enriched} tonight, first-trade-date fetches ${firstTradeDatesObserved}/${firstTradeDateTargets.length}, ${status.firstTradeDateCovered} covered${priorityTickers.length ? `, ${priorityTickers.length} coverage-priority ticker(s)` : ""}${collectConsensus ? `, consensus stored ${consensusStored}/${consensusRows.length}` : ""}.`
     );
     return status;
   } catch (err) {
