@@ -232,3 +232,35 @@ test("withdrawals cannot exceed the investor's units", () => {
     /cannot withdraw/
   );
 });
+
+test("an email resolving to two investor identities refuses rather than pooling their units", () => {
+  const entry = (units, investorId, entryId) => buildInvestorLedgerEntry({
+    date: "2026-09-01", email: "household@example.com", name: "Household", type: "Contribution",
+    amount: units, navPerUnit: 1, units, investorId, entryId,
+  }, secret);
+  const withdraw = (ledger, investorId) => calculateInvestorLedgerEntry({
+    agentId: "agent-1", ledger, performanceHistory: [], email: "household@example.com", name: "Household",
+    amount: 60, isWithdrawal: true, investorId, pricingNavPerUnit: 1, secret,
+  });
+
+  // entryMatchesInvestor matches on email regardless of stable ID, so without
+  // this guard user_a could withdraw against user_b's 50 units.
+  const shared = [entry(50, "user_a", "a1"), entry(50, "user_b", "b1")];
+  assert.throws(() => withdraw(shared, "user_a"), /more than one investor identity/);
+
+  // A single identity is unaffected, including legacy rows carrying no ID.
+  assert.equal(withdraw([entry(100, "user_a", "a1")], "user_a").entry.units, -60);
+  const legacy = [{ ...entry(100, "user_a", "a1"), investorId: "" }];
+  assert.equal(withdraw(legacy, "user_a").entry.units, -60);
+
+  // The real shape of a pre-Clerk row: parseInvestorLedgerRow synthesises a
+  // POPULATED `email:` id for a blank column. That is the absence of a stable
+  // identity, not a competing one — treating it as a conflict would refuse
+  // every withdrawal on a ledger containing pre-Clerk history.
+  const derived = parseInvestorLedgerRow(["2026-09-01", "household@example.com", "Household", "Contribution", "100", "1", "100"]);
+  assert.equal(derived.investorId, defaultInvestorId("household@example.com"));
+  assert.equal(withdraw([derived], "user_a").entry.units, -60);
+
+  // But a derived id must not mask a genuine stable-identity conflict.
+  assert.throws(() => withdraw([derived, entry(50, "user_b", "b1")], "user_a"), /more than one investor identity/);
+});

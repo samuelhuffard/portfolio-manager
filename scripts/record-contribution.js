@@ -3,7 +3,6 @@ import { getServiceAccountClients, resolveSharedSpreadsheetId, getSheetIds, read
 import { calculateInvestorLedgerEntry, computeUnattributedCapital, getInvestorLedgerSecret, getTodayInNewYork } from "../lib/investor-ledger.js";
 import { withWorkflowLock } from "../lib/workflow-lock.js";
 import { selectPreDepositContributionNav } from "../lib/contribution-nav.js";
-import { prepareSignedWithdrawalLedgerEntry, selectSignedWithdrawalNav } from "../lib/withdrawal-pricing.js";
 
 // Records a real contribution or withdrawal into the shared portfolio's capital
 // ledger — run by Sam after he's confirmed money was actually received/sent (this
@@ -28,7 +27,8 @@ const PORTFOLIO_LABEL = "portfolio";
 const [, , email, name, amountStr, ...flags] = process.argv;
 
 if (!email || !name || !amountStr) {
-  console.error('Usage: node scripts/record-contribution.js <email> "<name>" <amount> [--withdraw] [--seed-owner] [--investor-id=user_xxx] [--deposit-date=YYYY-MM-DD] [--idempotency-key=<immutable-key>]');
+  console.error('Usage: node scripts/record-contribution.js <email> "<name>" <amount> [--seed-owner] [--investor-id=user_xxx] [--deposit-date=YYYY-MM-DD] [--idempotency-key=<immutable-key>]');
+  console.error("Withdrawals: use scripts/process-withdrawal.js — it writes the signed recovery plan and reconciles tax lots.");
   process.exit(1);
 }
 
@@ -38,7 +38,19 @@ if (!Number.isFinite(amount) || amount <= 0) {
   process.exit(1);
 }
 
-const isWithdrawal = flags.includes("--withdraw");
+// This script records CONTRIBUTIONS only. It used to accept --withdraw, which
+// appended an Investors withdrawal row directly — no signed Withdrawal
+// Operations plan, no Trade Ledger rows, no tax-lot reconciliation. That made it
+// a second withdrawal writer with weaker guarantees than process-withdrawal.js,
+// and it silently skipped lot accounting for a securities-funded withdrawal.
+// Refuse it loudly: treating it as an unknown flag would record a CONTRIBUTION
+// for an operator who asked to withdraw.
+if (flags.includes("--withdraw")) {
+  console.error("--withdraw is no longer accepted here. Every withdrawal must go through scripts/process-withdrawal.js,");
+  console.error("which writes a signed recovery plan before any money state moves and reconciles tax lots.");
+  console.error(`  node scripts/process-withdrawal.js ${email} ${amountStr} --commit --idempotency-key=<immutable-key>`);
+  process.exit(1);
+}
 const isSeedOwner = flags.includes("--seed-owner");
 const investorId = flags.find((f) => f.startsWith("--investor-id="))?.slice("--investor-id=".length);
 const depositDate = flags.find((f) => f.startsWith("--deposit-date="))?.slice("--deposit-date=".length);
@@ -89,26 +101,19 @@ try {
       alreadyRecorded = true;
       return;
     }
-    const pricingNav = ledger.length
-      ? (isWithdrawal ? selectSignedWithdrawalNav(history) : selectPreDepositContributionNav(history, depositDate))
-      : null;
+    const pricingNav = ledger.length ? selectPreDepositContributionNav(history, depositDate) : null;
     pricingNavDate = pricingNav?.date ?? null;
     const pricingNavPerUnit = pricingNav?.navPerUnit ?? null;
-    if (ledger.length && !isWithdrawal) {
+    if (ledger.length) {
       const unattributed = computeUnattributedCapital(holdings, cash, ledger);
       if (!unattributed.detected || amount > unattributed.amount + 0.01) {
         throw new Error(`Only $${Math.max(0, unattributed.amount).toFixed(2)} of unmatched broker capital is available to assign.`);
       }
     }
-    result = isWithdrawal && ledger.length
-      ? prepareSignedWithdrawalLedgerEntry({
-          agentId: PORTFOLIO_LABEL, ledger, performanceHistory: history, email, name, amount, investorId,
-          entryId: idempotencyKey, navSnapshot: pricingNav, secret,
-        }).entryResult
-      : calculateInvestorLedgerEntry({
-          agentId: PORTFOLIO_LABEL, ledger, performanceHistory: history, email, name, amount, isWithdrawal,
-          isSeedOwner, investorId, pricingNavPerUnit, entryId: idempotencyKey, secret,
-        });
+    result = calculateInvestorLedgerEntry({
+      agentId: PORTFOLIO_LABEL, ledger, performanceHistory: history, email, name, amount,
+      isSeedOwner, investorId, pricingNavPerUnit, entryId: idempotencyKey, secret,
+    });
     await appendInvestorLedgerEntry(sheets, spreadsheetId, sheetIds["Investors"], result.entry);
     await (await import("../lib/pg/dual-write.js")).shadowWriteCapitalEntry(result.entry);
   });
@@ -130,14 +135,12 @@ if (result.seeded) {
 }
 
 console.log(
-  `${isWithdrawal ? "Withdrew" : "Recorded"} investor ledger entry for ${name}. ` +
+  `Recorded investor ledger entry for ${name}. ` +
     `NAV date ${pricingNavDate ?? getTodayInNewYork()}, amount $${amount.toFixed(2)}, ` +
     `${result.entry.units.toFixed(4)} units, ownership ${result.ownershipPct.toFixed(2)}%.`
 );
 
-if (!isWithdrawal) {
-  console.log(
-    "Next: sync the updated Robinhood cash/buying power, then run `node scripts/sync-holdings-from-mcp.js --scan < positions.json` " +
-      "or `npm run research:scan` so all three agents can queue cash-capped proposals for approval."
-  );
-}
+console.log(
+  "Next: sync the updated Robinhood cash/buying power, then run `node scripts/sync-holdings-from-mcp.js --scan < positions.json` " +
+    "or `npm run research:scan` so all three agents can queue cash-capped proposals for approval."
+);

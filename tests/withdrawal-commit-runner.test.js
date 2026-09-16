@@ -47,7 +47,9 @@ function makeWorld() {
 
 /** Wraps a world as an io object, optionally throwing at one named boundary. */
 function makeIo(world, { failAt = null, hardFailAt = null, duplicateAt = null } = {}) {
+  world.writeOrder ??= [];
   const guard = async (name, effect) => {
+    world.writeOrder.push(name);
     // Three distinct real-world faults:
     //  hardFailAt  — the write genuinely did NOT land.
     //  failAt      — the write LANDS, then the call reports failure (lost response).
@@ -109,6 +111,23 @@ test("a clean commit writes the plan first, then trades, lots, and the investor 
   assert.equal(result.replayed, false);
   assert.equal(result.overdrawWarning, null);
   assertSettledExactlyOnce(world);
+
+  // Ordering IS the safety property, so assert the event sequence rather than
+  // only the end state: moving any money write ahead of plan persistence must
+  // fail here even though the final state would look identical.
+  assert.deepEqual(world.writeOrder, ["plan", "trades", "lots", "investors", "shadow"]);
+});
+
+test("the signed plan is persisted before any money state moves, at every boundary", async () => {
+  for (const boundary of ["trades", "lots", "investors"]) {
+    const world = makeWorld();
+    await assert.rejects(commit(makeIo(world, { hardFailAt: boundary })), /injected failure/);
+    assert.equal(world.writeOrder[0], "plan", `${boundary}: plan must be the first write`);
+    assert.equal(world.operations.length, 1, `${boundary}: the plan must survive the failure`);
+    // Whatever failed, the plan that describes it is already durable — that is
+    // what makes the retry a replay instead of a fresh FIFO computation.
+    assert.equal(JSON.parse(world.operations[0].planJson).operationId, KEY);
+  }
 });
 
 test("a failure at any write boundary is repaired by a same-key re-run, exactly once", async () => {

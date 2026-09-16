@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { evaluateObservationPreflight } from "../scripts/observation-preflight.js";
 
 const ENV = {
+  AUDIT_HMAC_SECRET: "audit",
+  INVESTOR_LEDGER_HMAC_SECRET: "investor",
   MCP_RECEIPT_HMAC_SECRET: "receipt",
   OPERATIONAL_LEDGER_HMAC_SECRET: "operational",
   SYSLOOP_DEPLOY_HMAC_SECRET: "deploy",
@@ -21,4 +23,26 @@ test("observation preflight fails closed for dirty/divergent source or missing r
   assert.match(result.failures.join(" "), /worktree is not clean/);
   assert.match(result.failures.join(" "), /does not equal/);
   assert.match(result.failures.join(" "), /MCP_RECEIPT_HMAC_SECRET is missing/);
+});
+
+test("observation preflight refuses an environment missing the approval-signature key", () => {
+  // AUDIT_HMAC_SECRET is what assertApprovedProposalSignature verifies against.
+  // Without it that check cannot run, so a preflight that passes here would
+  // certify a production environment with the execution boundary switched off.
+  const result = evaluateObservationPreflight({ status: "", head: "abc", remoteHead: "abc", env: { ...ENV, AUDIT_HMAC_SECRET: "" } });
+  assert.equal(result.ok, false);
+  assert.match(result.failures.join(" "), /AUDIT_HMAC_SECRET is missing/);
+});
+
+test("observation preflight refuses any signature escape hatch left switched on", () => {
+  for (const name of ["ALLOW_UNSIGNED_PROPOSALS", "ALLOW_UNSIGNED_INVESTOR_LEDGER", "ROBINHOOD_STORE_SESSION"]) {
+    const result = evaluateObservationPreflight({ status: "", head: "abc", remoteHead: "abc", env: { ...ENV, [name]: "true" } });
+    assert.equal(result.ok, false, `${name}=true must fail preflight`);
+    assert.match(result.failures.join(" "), new RegExp(`${name}=true disables a signature check`));
+  }
+  // Explicitly "false" — the documented production value — must still pass.
+  assert.equal(evaluateObservationPreflight({
+    status: "", head: "abc", remoteHead: "abc",
+    env: { ...ENV, ALLOW_UNSIGNED_PROPOSALS: "false", ROBINHOOD_STORE_SESSION: "false" },
+  }).ok, true);
 });
