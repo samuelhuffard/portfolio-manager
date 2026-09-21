@@ -51,9 +51,19 @@ actuals or an undated scalar.
 
 ## Q-003 — Entry quote and relative-volume freshness
 
-**Scope.** Applies only to an execution-ready proposal.  Research may continue
+**Scope.** Applies only to an execution-ready proposal. Research may continue
 outside regular hours, but it must state whether its market evidence is
 execution-ready.
+
+### Choose when execution readiness is judged
+
+| Option | Exact policy text | Trade-off |
+| --- | --- | --- |
+| A — approval-time, recheck before delayed order | A proposal may be created as `research_only`. Execution readiness is determined when Sam gives human approval. If an approved order is not submitted promptly, quote, relative-volume, and event checks are rerun immediately before submission; a failed recheck returns the proposal to `research_only`. | Separates research from a human-controlled order decision; prevents a stale creation-time price from becoming executable. |
+| B — proposal-creation time | A proposal is execution-ready only if all quote, relative-volume, and event checks pass when it is created. Approval does not itself refresh them. | Simpler receipt timeline, but a delayed human approval can rely on stale execution evidence. |
+
+**Recommended draft:** Option A. It matches the existing rule that Sam is the
+sole order approver, while preserving research generated outside market hours.
 
 ### Choose a regular-session quote limit
 
@@ -145,6 +155,7 @@ wires it into a scan.
 | Q-002 event rule |  | Sam + investing partner |  |
 | Q-002 consequence |  | Sam + investing partner |  |
 | Q-003 quote limit |  | Sam + investing partner |  |
+| Q-003 readiness time |  | Sam + investing partner |  |
 | Q-003 outside-hours |  | Sam + investing partner |  |
 | Q-003 re-review |  | Sam + investing partner |  |
 | Q-003 event rule |  | Sam + investing partner |  |
