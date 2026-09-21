@@ -1,9 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { getRedis } from "../lib/redis.js";
 import { openFindingsSummary, loadFindings, writeFixlist } from "../lib/sysloop/findings.js";
-import { acquireRateCap, runClaudeJson, etToday, isoWeek, gitLog, telegramSafe, truncate, REPO_ROOT, OPS, SYSLOOP_MODEL } from "./sysloop-shared.mjs";
+import { abandonRunLease, acquireRunLease, completeRunLease, runClaudeJson, etToday, isoWeek, gitLog, telegramSafe, truncate, REPO_ROOT, OPS, SYSLOOP_MODEL } from "./sysloop-shared.mjs";
 
 // Tier 2 — the Researcher + Skeptic (docs/SYSTEM-LOOP-PLAN.md §2). Sundays on
 // the Mac. Reasons over the week's snapshots + findings ledger + commit
@@ -19,10 +18,19 @@ const RESEARCH_BUDGET_CHARS = 48000; // ≈12k tokens
 const ALLOWED_KINDS = new Set(["test", "patch", "doc", "risk-register"]);
 const VAULT_DIR = (process.env.SYSLOOP_VAULT_DIR ?? path.join(os.homedir(), "Claude Memory")).trim();
 
-async function gatherWeek(redis) {
+export function resolveReportAsOf(argv = process.argv, fallback = new Date()) {
+  const raw = argv.find((arg) => arg.startsWith("--as-of="))?.slice("--as-of=".length);
+  if (!raw) return fallback;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) throw new Error("--as-of must be YYYY-MM-DD");
+  const parsed = new Date(`${raw}T16:00:00.000Z`);
+  if (!Number.isFinite(parsed.getTime()) || etToday(parsed) !== raw) throw new Error("--as-of is not a valid ET calendar date");
+  return parsed;
+}
+
+async function gatherWeek(redis, asOf) {
   const days = [];
   for (let back = 6; back >= 0; back--) {
-    const date = etToday(new Date(Date.now() - back * 86400000));
+    const date = etToday(new Date(asOf.getTime() - back * 86400000));
     const raw = await redis.get(`pm:sysloop:snapshot:${date}`).catch(() => null);
     if (raw) days.push(typeof raw === "string" ? JSON.parse(raw) : raw);
   }
@@ -50,16 +58,26 @@ function slugify(text) {
 
 async function main() {
   const force = process.argv.includes("--force");
-  const week = isoWeek();
+  const asOf = resolveReportAsOf();
+  const week = isoWeek(asOf);
 
-  if (!force && !(await acquireRateCap(`pm:sysloop:weekly:${week}`, 8 * 24 * 3600))) {
-    console.log("[Weekly] already ran this ISO week (or Redis down) — skipping");
+  const acquired = await acquireRunLease({
+    key: `pm:sysloop:weekly:${week}`,
+    successTtlSeconds: 8 * 24 * 3600,
+    lockTtlSeconds: 45 * 60,
+    maxAttempts: 2,
+    force,
+  });
+  if (!acquired.lease) {
+    console.log(`[Weekly] skipping: ${acquired.reason}`);
     return;
   }
-  const redis = getRedis();
-  if (!redis) throw new Error("Redis not configured");
+  const lease = acquired.lease;
+  let succeeded = false;
+  try {
+  const redis = lease.redis;
 
-  const days = await gatherWeek(redis);
+  const days = await gatherWeek(redis, asOf);
   const condensed = condenseWeek(days);
   const open = openFindingsSummary(OPS.findings, 40);
   const findingBodies = loadFindings(OPS.findings)
@@ -73,7 +91,11 @@ async function main() {
 
   if (days.length === 0 && open.length === 0) {
     console.log("[Weekly] no snapshots and no open findings — writing a minimal report, no LLM");
-    writeReport(week, `# Product health — ${week}\n\nNo sentinel snapshots this week and no open findings. Either the system was perfectly healthy and freshly deployed, or the sentinel is not running — verify \`pm:sysloop:last-run\`.\n`, [], []);
+    writeReport(week, `# Product health — ${week}\n\nNo sentinel snapshots this week and no open findings. Either the system was perfectly healthy and freshly deployed, or the sentinel is not running — verify \`pm:sysloop:last-run\`.\n`, [], [], asOf);
+    // A deliberately minimal report is still a completed Tier 2 run. Marking
+    // it successful releases the lock and prevents catch-up from burning its
+    // bounded retries by writing the same report repeatedly.
+    succeeded = true;
     return;
   }
 
@@ -168,32 +190,37 @@ ${JSON.stringify(proposals.map((p, index) => ({ index, ...p })), null, 1)}`,
     written.push({ ...p, file: path.relative(REPO_ROOT, file), verdict: v.verdict });
   }
 
-  writeReport(week, research.report_markdown, written, open);
+  writeReport(week, research.report_markdown, written, open, asOf);
   writeFixlist({ findingsDir: OPS.findings, proposalDirs: { test: OPS.proposedTests, patch: OPS.proposedPatches } });
-  appendToVault(week, research.report_markdown, written, open);
+  appendToVault(week, research.report_markdown, written, open, asOf);
 
   const summary = `Sysloop weekly ${week}: ${open.length} open findings, ${written.length}/${proposals.length} proposals passed skeptic. Report: ops/reports/${week}-product-health.md`;
   console.log(`[Weekly] ${summary}`);
   await telegramSafe(summary);
+  succeeded = true;
+  } finally {
+    if (succeeded) await completeRunLease(lease);
+    else await abandonRunLease(lease);
+  }
 }
 
-function writeReport(week, reportMarkdown, written, open) {
+function writeReport(week, reportMarkdown, written, open, asOf = new Date()) {
   const proposalIndex = written.length
     ? `\n\n## Proposals written this week\n\n${written.map((p) => `- **${p.kind}** [${p.verdict}] ${p.title} → \`${p.file}\``).join("\n")}\n`
     : "\n\n## Proposals written this week\n\n(none)\n";
-  const head = `<!-- generated by scripts/sysloop-weekly.mjs on ${new Date().toISOString()} — open findings: ${open.length} -->\n\n`;
+  const head = `<!-- generated by scripts/sysloop-weekly.mjs on ${new Date().toISOString()} for ${etToday(asOf)} — open findings: ${open.length} -->\n\n`;
   fs.mkdirSync(OPS.reports, { recursive: true });
   fs.writeFileSync(path.join(OPS.reports, `${week}-product-health.md`), head + reportMarkdown + proposalIndex);
   console.log(`[Weekly] wrote ops/reports/${week}-product-health.md`);
 }
 
-function appendToVault(week, reportMarkdown, written, open) {
+function appendToVault(week, reportMarkdown, written, open, asOf = new Date()) {
   try {
     if (!fs.existsSync(VAULT_DIR)) {
       console.error(`[Weekly] vault not found at ${VAULT_DIR} — skipping Obsidian update`);
       return;
     }
-    const summaryLine = `- ${etToday()} sysloop ${week}: ${open.length} open findings, ${written.length} proposals — see \`portfolio-manager/ops/reports/${week}-product-health.md\``;
+    const summaryLine = `- ${etToday(asOf)} sysloop ${week}: ${open.length} open findings, ${written.length} proposals — see \`portfolio-manager/ops/reports/${week}-product-health.md\``;
     const projectNote = path.join(VAULT_DIR, "Projects", "portfolio-manager.md");
     if (fs.existsSync(projectNote)) {
       let text = fs.readFileSync(projectNote, "utf8");
@@ -201,7 +228,7 @@ function appendToVault(week, reportMarkdown, written, open) {
       text += `${summaryLine}\n`;
       fs.writeFileSync(projectNote, text);
     }
-    const monthLog = path.join(VAULT_DIR, "Logs", `${etToday().slice(0, 7)}.md`);
+    const monthLog = path.join(VAULT_DIR, "Logs", `${etToday(asOf).slice(0, 7)}.md`);
     if (fs.existsSync(monthLog)) {
       fs.appendFileSync(monthLog, `\n${summaryLine}\n`);
     }
@@ -213,5 +240,5 @@ function appendToVault(week, reportMarkdown, written, open) {
 
 main().catch((e) => {
   console.error("[Weekly] crashed:", e);
-  process.exit(1);
+  process.exitCode = 1;
 });

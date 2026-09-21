@@ -10,6 +10,7 @@ import {
   checkCompanionHeartbeat, checkRedisQueue, checkProposalLifecycle, checkSheetsSchema,
   checkSheetsFreshness, checkLogClusters, checkDocPaths, runChecks, checkPhase0Throughput,
   checkReconciliationQueue, checkResearchDataHealth, checkTrackedFindings,
+  checkExitMonitorCoverage, checkPhase0ObservationContinuity,
 } from "../lib/sysloop/checks.js";
 
 test("checkReconciliationQueue is quiet when empty, P1 per open item, fail-closed on unreadable", () => {
@@ -277,6 +278,114 @@ test("cron freshness does not expect Mon-Thu research jobs on Friday", () => {
   lastRuns["weekly-review"] = { dateET: "2026-07-03", ok: true, ts: "2026-07-03T22:30:00Z" };
   const titles = checkJobFreshness({ lastRuns, nowET: friday, isTradingDay: true }).map((a) => a.title).join(" | ");
   assert.doesNotMatch(titles, /exit-monitor|research-scan/);
+});
+
+test("research-data receipt exposes a completed but not-configured workflow as a P2 finding", () => {
+  const nowET = { ...ET, hour: 20, minute: 10, weekday: "Mon" };
+  const out = checkJobFreshness({
+    nowET,
+    isTradingDay: true,
+    lastRuns: {
+      "research-data-refresh": {
+        dateET: nowET.date,
+        ok: true,
+        outcome: "not_configured",
+        outcomeReason: "baseline_provenance_invalid",
+      },
+    },
+  });
+  const finding = out.find((row) => row.check === "cron" && /research-data-refresh/.test(row.title));
+  assert.equal(finding?.severity, "P2");
+  assert.match(finding?.title ?? "", /not_configured/);
+});
+
+test("a classified partial research scan is P2 even though its process receipt is ok false", () => {
+  const nowET = { ...ET, hour: 18, minute: 15, weekday: "Mon" };
+  const out = checkJobFreshness({
+    nowET,
+    isTradingDay: true,
+    lastRuns: {
+      "research-scan": {
+        dateET: nowET.date,
+        ok: false,
+        outcome: "degraded",
+        outcomeReason: "partial_review_failures",
+        error: "Job failed; see logs.",
+      },
+    },
+  });
+  const finding = out.find((row) => row.check === "cron" && /research-scan/.test(row.title));
+  assert.equal(finding?.severity, "P2");
+  assert.match(finding?.title ?? "", /outcome degraded/);
+  assert.doesNotMatch(finding?.detail ?? "", /Job failed/);
+});
+
+test("prior trading-day observation continuity is a visible P2 without recoupling the next TRUST day to host availability", () => {
+  assert.deepEqual(checkPhase0ObservationContinuity({
+    observedDates: ["2026-09-17", "2026-09-16"], expectedPriorDate: "2026-09-17",
+  }), []);
+  const missing = checkPhase0ObservationContinuity({
+    observedDates: ["2026-09-17", "2026-09-16"], expectedPriorDate: "2026-09-18",
+  });
+  assert.equal(missing.length, 1);
+  assert.equal(missing[0].severity, "P2");
+  assert.match(missing[0].title, /2026-09-18/);
+  const unreadable = checkPhase0ObservationContinuity({ expectedPriorDate: "2026-09-18" });
+  assert.equal(unreadable[0].severity, "P2");
+});
+
+test("exit-monitor all-degraded coverage is a P1 even when its receipt completed", () => {
+  const nowET = { ...ET, hour: 18, minute: 15, weekday: "Mon" };
+  const allDegraded = {
+    "exit-monitor": {
+      dateET: nowET.date,
+      ok: true,
+      evidence: {
+        holdingMonitoring: {
+          schemaVersion: "holding-monitor-coverage-v1",
+          expected: 2,
+          monitored: 0,
+          degraded: 2,
+          failed: 0,
+          accounted: 2,
+          silentSkipped: 0,
+          overflow: 0,
+          reasonTotal: 2,
+          reasonAccountingComplete: true,
+          complete: true,
+          reasons: { mandate_holding_evidence_incomplete: 2 },
+        },
+      },
+    },
+  };
+  const out = checkExitMonitorCoverage({ lastRuns: allDegraded, nowET, isTradingDay: true });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].severity, "P1");
+  assert.match(out[0].title, /degraded every held position/);
+});
+
+test("exit-monitor partial degradation is P2 and Friday is not an exit-monitor day", () => {
+  const coverage = {
+    schemaVersion: "holding-monitor-coverage-v1",
+    expected: 2,
+    monitored: 1,
+    degraded: 1,
+    failed: 0,
+    accounted: 2,
+    silentSkipped: 0,
+    overflow: 0,
+    reasonTotal: 1,
+    reasonAccountingComplete: true,
+    complete: true,
+    reasons: { mandate_holding_evidence_incomplete: 1 },
+  };
+  const run = { "exit-monitor": { dateET: ET.date, evidence: { holdingMonitoring: coverage } } };
+  assert.equal(checkExitMonitorCoverage({ lastRuns: run, nowET: ET, isTradingDay: true })[0].severity, "P2");
+  assert.deepEqual(checkExitMonitorCoverage({
+    lastRuns: run,
+    nowET: { ...ET, weekday: "Fri" },
+    isTradingDay: true,
+  }), []);
 });
 
 test("dashboard: signed-out 200 on an auth route is P0", () => {

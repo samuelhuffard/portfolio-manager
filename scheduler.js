@@ -21,6 +21,7 @@ import { getRedis, getResearchScanStatus, setResearchScanStatus } from "./lib/re
 import { marketHolidayNameET } from "./lib/market-calendar.js";
 import { startServer } from "./server.js";
 import { appendJobInvocationHistory, jobInvocationId } from "./lib/job-invocation-history.js";
+import { buildJobRunRecord } from "./lib/job-receipt.js";
 
 startServer();
 
@@ -61,16 +62,21 @@ export function wrapJob(name, label, fn, { marketDayOnly = false, evidence = nul
     let ok = true;
     let error = null;
     let jobEvidence = null;
+    let result = null;
+    let caughtError = null;
     const holiday = marketDayOnly ? marketHolidayNameET() : null;
     if (holiday) {
       console.log(`[${label}] skipped — market holiday: ${holiday}`);
     } else {
       try {
-        const result = await fn(...args);
+        result = await fn(...args);
         if (evidence) jobEvidence = evidence(result);
       } catch (e) {
         ok = false;
-        error = e.message;
+        caughtError = e;
+        // Preserve diagnostic detail only in the process log. Receipts are read
+        // broadly by observers and must not become a private-error channel.
+        error = "Job failed; see logs.";
         console.error(`[${label}] error:`, e.message);
       }
     }
@@ -78,12 +84,20 @@ export function wrapJob(name, label, fn, { marketDayOnly = false, evidence = nul
       const redis = getRedis();
       if (redis) {
         const dateET = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
-        const runRecord = {
-          ts: new Date().toISOString(), dateET, ok, durationMs: Date.now() - started, error,
-          ...(holiday ? { skippedHoliday: holiday } : {}),
-          ...(jobEvidence ? { evidence: jobEvidence } : {}),
-          ...(invocationSlot ? { slotET: invocationSlot, invocationId: jobInvocationId(dateET, invocationSlot) } : {}),
-        };
+        const runRecord = buildJobRunRecord({
+          // Research scans attach their classified outcome to a thrown error
+          // when partial work succeeded. Retain that factual detail while the
+          // `ok:false` process signal stays visible to Phase 0.
+          result: result ?? caughtError,
+          ok,
+          holiday,
+          error,
+          evidence: jobEvidence,
+          invocation: invocationSlot ? { slotET: invocationSlot, invocationId: jobInvocationId(dateET, invocationSlot) } : null,
+          timestamp: new Date().toISOString(),
+          dateET,
+          durationMs: Date.now() - started,
+        });
         await redis.set(`pm:job:${name}:last-run`, JSON.stringify(runRecord));
         if (invocationSlot && !holiday) {
           await appendJobInvocationHistory(name, runRecord, { redis });

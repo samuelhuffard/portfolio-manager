@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { getRedis } from "../lib/redis.js";
 import { upsertFindings, loadFindings, openFindingsSummary, writeFixlist } from "../lib/sysloop/findings.js";
-import { acquireRateCap, runClaudeJson, etToday, truncate, OPS } from "./sysloop-shared.mjs";
+import { abandonRunLease, acquireRunLease, completeRunLease, runClaudeJson, etToday, truncate, OPS } from "./sysloop-shared.mjs";
 
 const PROPOSAL_DIRS = { test: OPS.proposedTests, patch: OPS.proposedPatches };
 
@@ -26,13 +26,21 @@ async function main() {
   const force = process.argv.includes("--force");
   const today = etToday();
 
-  if (!force && !(await acquireRateCap(`pm:sysloop:triage:${today}`, 26 * 3600))) {
-    console.log("[Triage] already ran today (or Redis down) — skipping");
+  const acquired = await acquireRunLease({
+    key: `pm:sysloop:triage:${today}`,
+    successTtlSeconds: 26 * 3600,
+    lockTtlSeconds: 10 * 60,
+    maxAttempts: 2,
+    force,
+  });
+  if (!acquired.lease) {
+    console.log(`[Triage] skipping: ${acquired.reason}`);
     return;
   }
-
-  const redis = getRedis();
-  if (!redis) throw new Error("Redis not configured — triage cannot read the snapshot");
+  const lease = acquired.lease;
+  let succeeded = false;
+  try {
+  const redis = lease.redis;
   const raw = await redis.get(`pm:sysloop:snapshot:${today}`);
   const snapshot = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : null;
   if (!snapshot) {
@@ -50,6 +58,7 @@ async function main() {
   const needsAnalysis = [...created, ...regressed];
   if (needsAnalysis.length === 0) {
     console.log("[Triage] nothing new or regressed — no LLM call today");
+    succeeded = true;
     return;
   }
 
@@ -121,9 +130,14 @@ ${JSON.stringify(context, null, 1)}`,
   }
   console.log(`[Triage] annotated ${applied}/${needsAnalysis.length} findings`);
   writeFixlist({ findingsDir: OPS.findings, proposalDirs: PROPOSAL_DIRS }); // pick up analyst next-steps
+  succeeded = true;
+  } finally {
+    if (succeeded) await completeRunLease(lease);
+    else await abandonRunLease(lease);
+  }
 }
 
 main().catch((e) => {
   console.error("[Triage] crashed:", e);
-  process.exit(1);
+  process.exitCode = 1;
 });
