@@ -6,6 +6,7 @@ import cron from "node-cron";
 import { getRedis, listAllProposals } from "../lib/redis.js";
 import { isTradingDate } from "../lib/market-calendar.js";
 import { telegramSafe } from "./sysloop-shared.mjs";
+import { sysloopCatchUpJobs } from "./sysloop-catchup.js";
 
 // Mac-side sysloop runner — PM2 process `portfolio-sysloop` (runs from this
 // working tree, same deploy model as portfolio-executor).
@@ -18,16 +19,26 @@ import { telegramSafe } from "./sysloop-shared.mjs";
 //  - Sun 10:00 ET: Tier 2 weekly Researcher + Skeptic
 //
 // Child scripts run as separate processes so a crash there never kills this
-// scheduler; each has its own Redis rate cap, so a double-fire is harmless.
+// scheduler; each has its own Redis lease, so a double-fire is harmless.
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const TZ = { timezone: "America/New_York" };
 
-function runScript(name) {
-  const child = spawn(process.execPath, [path.join(HERE, name)], { stdio: "inherit" });
+const launched = new Set();
+
+function runScript(name, { args = [], key = null } = {}) {
+  if (key && launched.has(key)) return false;
+  if (key) launched.add(key);
+  const child = spawn(process.execPath, [path.join(HERE, name), ...args], { stdio: "inherit" });
   child.on("close", (code) => {
+    if (key) launched.delete(key);
     if (code !== 0) console.error(`[SysloopMac] ${name} exited ${code}`);
   });
+  child.on("error", (error) => {
+    if (key) launched.delete(key);
+    console.error(`[SysloopMac] ${name} failed to start: ${error.message}`);
+  });
+  return true;
 }
 
 function etNow() {
@@ -86,12 +97,22 @@ async function crossWatch() {
   }
 }
 
+function recoverMissedJobs() {
+  for (const job of sysloopCatchUpJobs(etNow())) {
+    if (runScript(job.script, { args: job.args, key: job.key })) {
+      console.log(`[SysloopMac] catch-up launching ${job.script} (${job.key})`);
+    }
+  }
+}
+
 // Cross-watch only during the weekday interval where it can surface an
 // actionable condition. Running all night/weekend merely produces misleading
 // node-cron missed-execution noise while the Mac sleeps.
 cron.schedule("0,30 9-20 * * 1-5", () => crossWatch().catch((e) => console.error("[SysloopMac] cross-watch error:", e.message)), TZ);
-cron.schedule("35 18 * * 1-5", () => runScript("sysloop-triage.mjs"), TZ);
-cron.schedule("0 10 * * 0", () => runScript("sysloop-weekly.mjs"), TZ);
+cron.schedule("35 18 * * 1-5", () => recoverMissedJobs(), TZ);
+cron.schedule("0 10 * * 0", () => recoverMissedJobs(), TZ);
 
 console.log("[SysloopMac] started — cross-watch every 30 min | triage 6:35 PM Mon–Fri | weekly Sun 10 AM (ET)");
 crossWatch().catch((e) => console.error("[SysloopMac] startup cross-watch error:", e.message));
+recoverMissedJobs();
+setInterval(recoverMissedJobs, 5 * 60 * 1000).unref();
