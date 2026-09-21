@@ -84,6 +84,7 @@ import {
   assertOutcomeConservation,
   blankOutcomeCounts,
   classifyRecommendationOutcome,
+  classifyResearchRunOutcome,
   researchOutcomeCountsHaveFailures,
 } from "../lib/research-run-report.js";
 import { withWorkflowLock } from "../lib/workflow-lock.js";
@@ -1884,8 +1885,31 @@ async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = 
   const startedAt = new Date().toISOString();
   const agentSummaries = [];
   let terminalStatusPersisted = false;
+  // The scheduler receipt needs the run's outcome even when the scan throws —
+  // and a `degraded` run DOES throw, by design, so that `ok` stays false and
+  // Phase 0 cannot count a partially failed scan as green. A plain `return`
+  // therefore never reaches wrapJob in the case we most care about. Capture the
+  // classification here and surface it on both paths: returned on success,
+  // attached to the Error on the throw path.
+  let lastRunOutcome = { outcome: "failed", outcomeReason: "scan_outcome_unrecorded", outcomeDetail: null };
   const persistFinalStatus = async (status, error = null) => {
     const completedAt = new Date().toISOString();
+    // Additive truthfulness: `status` keeps its legacy two-value meaning for every
+    // existing consumer, while `outcome`/`outcomeReason` say whether the run was
+    // clean, partially degraded, or produced no usable research at all. This
+    // records the distinction; it does not decide what an observer may count.
+    //
+    // The aborted-before-classification path matters: this function is also called
+    // from the outer catch, where agentSummaries can be empty. An empty roster
+    // classifies as `ok`, which would be a lie on a run that threw — so a legacy
+    // `failed` status always wins over an `ok` classification.
+    const classified = classifyResearchRunOutcome(agentSummaries);
+    const abortedBeforeClassification = status === "failed" && classified.outcome === "ok";
+    lastRunOutcome = {
+      outcome: abortedBeforeClassification ? "failed" : classified.outcome,
+      outcomeReason: abortedBeforeClassification ? "scan_aborted_before_classification" : classified.reason,
+      outcomeDetail: classified.detail,
+    };
     const terminalStatus = {
       runId,
       source,
@@ -1917,6 +1941,7 @@ async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = 
         }
       ),
       classificationVersion: RESEARCH_OUTCOME_VERSION,
+      ...lastRunOutcome,
       error,
     };
     await setResearchScanStatus(terminalStatus);
@@ -2044,9 +2069,14 @@ async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = 
     if (status === "failed") {
       // Persisting a failed status alone is insufficient: the scheduler's own
       // invocation receipt must be failed so Phase 0 cannot count it green.
-      throw new Error("One or more research agents failed; see persisted per-agent status.");
+      // The outcome rides on the Error so the receipt can still distinguish a
+      // `degraded` run (some reviews succeeded) from a total `failed` one.
+      throw Object.assign(
+        new Error("One or more research agents failed; see persisted per-agent status."),
+        lastRunOutcome,
+      );
     }
-    return { status, agents: agentSummaries };
+    return { status, agents: agentSummaries, ...lastRunOutcome };
   } catch (err) {
     console.error("[Research] Scan failed before completion:", err.message);
     // A failed terminal status is intentionally followed by a throw so the
@@ -2055,6 +2085,11 @@ async function runResearchScanUnlocked({ agentIds = DEFAULT_AGENT_IDS, source = 
     if (!terminalStatusPersisted) {
       await persistFinalStatus("failed", err.message);
     }
+    // Carry the outcome on the rethrown error too. Only fill fields the error
+    // does not already have: an error thrown from the branch above already
+    // carries the correctly classified outcome, and overwriting it here with a
+    // later classification would lose the distinction.
+    if (err && typeof err === "object" && err.outcome === undefined) Object.assign(err, lastRunOutcome);
     throw err;
   }
 }

@@ -172,6 +172,17 @@ const listing = Array.from({ length: 1200 }, (_, i) => ({ ticker: `T${i}`, name:
 
 const universeArgs = (overrides = {}) => ({
   env: { PEER_METRICS_ENABLED: "1", UNIVERSE_ENRICH_PER_RUN: "2" },
+  // Inject the Redis-backed stores. Without these the job falls back to the
+  // module-level imports and a fully-stubbed unit test still READS and WRITES
+  // the live catalog whenever the process has a populated .env — which on
+  // 2026-09-21 replaced the real 4,487-name production catalog with this
+  // 1,200-name fixture. Never remove these; see tests/universe-refresh-isolation.test.js.
+  readCatalog: async () => ({}),
+  writeCatalog: async () => {},
+  writeStatus: async () => {},
+  readPeerMetrics: async () => ({}),
+  writePeerMetrics: async () => {},
+  readCoverageRequests: async () => ({}),
   getListing: async () => listing,
   getQuotes: async (chunk) => Object.fromEntries(chunk.map((t) => [t, { regularMarketPrice: 10, marketCap: 1e9 }])),
   getFundamentals: async (ticker) => fundamentals(ticker),

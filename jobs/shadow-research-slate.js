@@ -7,12 +7,15 @@ import { writeResearchSelectionRun } from "../lib/pg/research-events.js";
 import { setShadowSelectionStatus } from "../lib/redis.js";
 import { getPrivateResearchSlate } from "../lib/redis.js";
 import { TICKER_RE } from "../contracts/proposal.js";
+import { RESEARCH_SLATE_BUCKET_SET } from "../lib/research-status-contract.js";
 
 const CONFIG_URL = new URL("../config/research-selection.json", import.meta.url);
 const UNIVERSE_URL = new URL("../config/agents/agent-1/universe.json", import.meta.url);
 const BASELINE_POLICY = Object.freeze({ version: "live-review-baseline-v1", maxAgeMs: 36 * 60 * 60 * 1000 });
 const COMPARATOR_VERSION = "shadow-slate-comparator-v1";
-const BASELINE_BUCKETS = new Set(["holdings", "movers", "ranked", "exploration"]);
+// Single-sourced with the private-slate writer in lib/redis.js. Accepting fewer
+// buckets than the writer emits rejects the whole envelope, not the one item.
+const BASELINE_BUCKETS = RESEARCH_SLATE_BUCKET_SET;
 
 function selectionConfig(config = JSON.parse(readFileSync(CONFIG_URL, "utf8"))) {
   const { mode, policyVersion, canarySlots, explorationSlots, maxSectorShare } = config ?? {};

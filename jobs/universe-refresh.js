@@ -47,6 +47,18 @@ export async function runUniverseRefresh({
   getFundamentals = fetchFundamentals,
   getFirstTradeDate = fetchFirstTradeDate,
   getCompanyFacts = fetchCompanyFacts,
+  // The catalog store was the ONLY dependency here without a seam, so a unit
+  // test that stubbed every network call still read AND WROTE the live Redis
+  // catalog whenever a populated .env was present. On 2026-09-21 a test run did
+  // exactly that: the 1,200-name fixture listing replaced the real 4,487-name
+  // catalog and reset sectorEnriched 405 → 2. Tests must pass these; production
+  // callers keep the real defaults. See tests/universe-refresh-isolation.test.js.
+  readCatalog = getUniverseCatalog,
+  writeCatalog = setUniverseCatalog,
+  writeStatus = setUniverseStatus,
+  readPeerMetrics = getPeerMetrics,
+  writePeerMetrics = setPeerMetrics,
+  readCoverageRequests = getPeerCoverageRequests,
 } = {}) {
   // Mandate v2.1 Phase A/W2: cache each enriched name's peer-scoring metric vector
   // (off by default). PEER_METRICS_EDGAR additionally fetches SEC companyfacts per
@@ -55,7 +67,7 @@ export async function runUniverseRefresh({
   const peerMetricsEdgar = env.PEER_METRICS_EDGAR?.trim() === "1";
   const enrichPerRun = Math.max(1, Number(env.UNIVERSE_ENRICH_PER_RUN?.trim()) || 250);
   try {
-    const existing = (await getUniverseCatalog()) ?? {};
+    const existing = (await readCatalog()) ?? {};
     const listing = await getListing();
     if (listing.length < 1000) {
       // A plausible full US listing is thousands of names — a tiny result means a
@@ -96,8 +108,8 @@ export async function runUniverseRefresh({
       await sleep(250);
     }
 
-    const coverageRequests = peerMetricsEnabled ? await getPeerCoverageRequests() : {};
-    const existingPeer = peerMetricsEnabled ? await getPeerMetrics() : {};
+    const coverageRequests = peerMetricsEnabled ? await readCoverageRequests() : {};
+    const existingPeer = peerMetricsEnabled ? await readPeerMetrics() : {};
     const priorityTickers = peerMetricsEnabled
       ? selectPeerCoverageRefreshTargets(catalog, coverageRequests, existingPeer).targets
       : [];
@@ -149,13 +161,13 @@ export async function runUniverseRefresh({
       await sleep(250);
     }
 
-    await setUniverseCatalog(catalog);
+    await writeCatalog(catalog);
 
     // Merge this run's peer-metric vectors into the accumulating store. Isolated:
     // a peer-metrics failure is logged but never fails the catalog refresh.
     if (peerMetricsEnabled && Object.keys(peerRows).length) {
       try {
-        await setPeerMetrics({ ...existingPeer, ...peerRows });
+        await writePeerMetrics({ ...existingPeer, ...peerRows });
         console.log(`[Universe] Peer metrics: cached ${Object.keys(peerRows).length} vectors this run.`);
       } catch (peerErr) {
         console.error("[Universe] Peer-metrics cache failed (catalog refresh unaffected):", peerErr.message);
@@ -194,14 +206,14 @@ export async function runUniverseRefresh({
       firstTradeDateCovered: Object.values(catalog).filter((entry) => Number.isFinite(entry.ftd)).length,
       error: null,
     };
-    await setUniverseStatus(status);
+    await writeStatus(status);
     console.log(
       `[Universe] Refresh done: ${total} cataloged, ${sectorEnriched} sector-enriched (${Math.round((sectorEnriched / total) * 100)}%), +${enriched} tonight, first-trade-date fetches ${firstTradeDatesObserved}/${firstTradeDateTargets.length}, ${status.firstTradeDateCovered} covered${priorityTickers.length ? `, ${priorityTickers.length} coverage-priority ticker(s)` : ""}${collectConsensus ? `, consensus stored ${consensusStored}/${consensusRows.length}` : ""}.`
     );
     return status;
   } catch (err) {
     console.error("[Universe] Refresh failed:", err.message);
-    await setUniverseStatus({ state: "error", error: err.message });
+    await writeStatus({ state: "error", error: err.message });
     try {
       await sendTelegram(`⚠️ Universe refresh failed: ${err.message} — research scans will use the last good catalog (or seed watchlists).`);
     } catch (tgErr) {
