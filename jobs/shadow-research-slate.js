@@ -1,17 +1,21 @@
 import { readFileSync } from "node:fs";
 import { selectEvidenceSlate } from "../lib/evidence-slate.js";
 import { compareShadowSlate } from "../lib/shadow-slate.js";
+import { summarizeActionableCandidateDossiers } from "../lib/actionable-candidate-dossier.js";
 import { contentHash, mandateMetadataFor } from "../lib/research-version.js";
 import { writeResearchSelectionRun } from "../lib/pg/research-events.js";
 import { setShadowSelectionStatus } from "../lib/redis.js";
 import { getPrivateResearchSlate } from "../lib/redis.js";
 import { TICKER_RE } from "../contracts/proposal.js";
+import { RESEARCH_SLATE_BUCKET_SET } from "../lib/research-status-contract.js";
 
 const CONFIG_URL = new URL("../config/research-selection.json", import.meta.url);
 const UNIVERSE_URL = new URL("../config/agents/agent-1/universe.json", import.meta.url);
 const BASELINE_POLICY = Object.freeze({ version: "live-review-baseline-v1", maxAgeMs: 36 * 60 * 60 * 1000 });
 const COMPARATOR_VERSION = "shadow-slate-comparator-v1";
-const BASELINE_BUCKETS = new Set(["holdings", "movers", "ranked", "exploration"]);
+// Single-sourced with the private-slate writer in lib/redis.js. Accepting fewer
+// buckets than the writer emits rejects the whole envelope, not the one item.
+const BASELINE_BUCKETS = RESEARCH_SLATE_BUCKET_SET;
 
 function selectionConfig(config = JSON.parse(readFileSync(CONFIG_URL, "utf8"))) {
   const { mode, policyVersion, canarySlots, explorationSlots, maxSectorShare } = config ?? {};
@@ -255,6 +259,15 @@ export async function runShadowResearchSlate({
     now: completedAt,
   });
   const comparatorSummary = aggregateComparatorSummary(comparison);
+  // The peer-relative score selects attention. This adjacent, deterministic
+  // shadow record tells us whether selected names have enough fresh mandate
+  // evidence to justify a future full dossier investigation. It never changes
+  // the live slate, calls a model, or creates a proposal.
+  // Holdings and mandatory re-underwrites are protected maintenance work, not
+  // competing candidates. Keep them out of the dossier-readiness denominator.
+  const candidateDossierReadiness = summarizeActionableCandidateDossiers(
+    slate.items.filter((item) => item.budgetExempt !== true), observations,
+  );
   const selectionRunId = `research-selection:${contentHash({
     sourceRunId,
     policyVersion: policy.policyVersion,
@@ -275,6 +288,7 @@ export async function runShadowResearchSlate({
       baselineSourceRunId: baseline.sourceRunId,
       baselineCapturedAt: baseline.capturedAt,
       comparator: comparatorSummary,
+      candidateDossierReadiness,
     },
     mode: policy.mode, candidateCount, selectedCount: slate.items.length,
     displacedCount: items.filter((item) => !item.selected).length,

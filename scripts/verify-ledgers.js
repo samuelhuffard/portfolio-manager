@@ -1,8 +1,8 @@
 import "dotenv/config";
-import { getServiceAccountClients, resolveSharedSpreadsheetId, readAllLots, readInvestorLedger, readPerformanceHistory, readTradeLedger } from "../lib/sheets.js";
+import { getServiceAccountClients, resolveSharedSpreadsheetId, readAllLots, readInvestorLedger, readPerformanceHistory, readTradeLedger, readWithdrawalOperations } from "../lib/sheets.js";
 import { getInvestorLedgerSecret } from "../lib/investor-ledger.js";
 import { verifyInvestorLedger, verifyAuditRows, computeAuditRowHmac, verifyOperationalLedgerEntries } from "../lib/ledger-verify.js";
-import { assertPerformanceSourceRequestEntries, getOperationalLedgerSecret } from "../lib/operational-ledger.js";
+import { assertPerformanceSourceInvocationEntries, assertPerformanceSourceRequestEntries, getOperationalLedgerSecret } from "../lib/operational-ledger.js";
 import { getRedis } from "../lib/redis.js";
 import { sendMessage } from "../lib/telegram.js";
 
@@ -75,10 +75,18 @@ export async function runLedgerVerification() {
       ["Performance", "performance", await readPerformanceHistory(sheets, spreadsheetId, { verify: false })],
       ["Trade Ledger", "trade", await readTradeLedger(sheets, spreadsheetId, { verify: false })],
       ["Lots", "lot", await readAllLots(sheets, spreadsheetId, { verify: false })],
+      // The withdrawal recovery plan is the authority a retry replays. A
+      // tampered plan already fails closed when a retry reads it, but that is
+      // only discovered during an incident — the routine integrity job should
+      // surface it first.
+      ["Withdrawal Operations", "withdrawal_operation", await readWithdrawalOperations(sheets, spreadsheetId, { verify: false })],
     ];
     for (const [label, kind, entries] of ledgers) {
       const result = verifyOperationalLedgerEntries(kind, entries, secret);
-      if (kind === "performance") assertPerformanceSourceRequestEntries(entries, secret);
+      if (kind === "performance") {
+        assertPerformanceSourceRequestEntries(entries, secret);
+        assertPerformanceSourceInvocationEntries(entries, secret);
+      }
       console.log(`[Verify] ${label}: ${result.verified}/${result.total} verified, ${result.unsigned.length} unsigned, ${result.mismatched.length} MISMATCHED.`);
       if (result.unsigned.length) problems.push(`${label}: ${result.unsigned.length} unsigned row(s); run ledgers:backfill-operational before normal operation.`);
       if (result.mismatched.length) problems.push(`${label} TAMPER: ${result.mismatched.length} row(s) fail signature verification.`);

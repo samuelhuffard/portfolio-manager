@@ -26,12 +26,13 @@ The companion regexes JSON out of `claude -p` stdout; a hallucinated `{"ok":true
 
 Tavily article text, Robinhood scan descriptions, and extracted agent memories flow into the proposal-generating prompt. A poisoned article can bias proposals (can't execute anything — human gate + risk engine hold — but can flood the queue with attacker-chosen tickers and pollute memory over time).
 **Done 2026-07-02:** `lib/evidence.js` — deterministic instruction-pattern scan redacts suspicious news/scan text before any model sees it (Telegram on flag); remaining text is fenced in per-run `UNTRUSTED-*` boundary tokens the system prompt declares data-only; the generator reports `suspect_evidence`; the independent evaluator (`lib/evaluator.js`) re-checks for parroted instruction-like content and leans REJECT.
-**Still open:** agent memories extracted from chat are injected unfenced (they originate from Sam, lower risk); pattern list is best-effort by nature — periodic human review of `pm:agent-memory:*` still applies; no ticker allowlist for proposals.
+**Further hardening completed locally:** prior model-generated research is inspected for instruction-shaped text, excluded when suspicious, and otherwise fenced as `UNTRUSTED-PRIOR-RESEARCH` at prompt assembly. Durable agent memory is likewise boundary-fenced.
+**Still open:** pattern detection is best-effort by nature, so periodic human review of `pm:agent-memory:*` remains appropriate; no ticker allowlist for proposals.
 
 ## 6. Google Sheets concurrency + human editability — MEDIUM severity, MEDIUM likelihood
 
 Two writers full-rewrite Holdings (`clear`+`update` — a read landing in between sees an empty portfolio → weights computed as 0); lot updates write by row index captured at read time (a human sorting the Sheet corrupts lots); Performance gets 5+ rows/day making "today's NAV" ambiguous; the Sheet is simultaneously database and human-editable artifact.
-**Mitigate:** short-term — never hand investors edit access; single-writer windows (companion sync vs scheduled sync already rarely collide); prefer 4:30 PM row for NAV. Long-term (the real fix): Postgres/Supabase as system of record, Sheets demoted to one-way export.
+**Mitigate:** short-term — never hand investors edit access; single-writer windows (companion sync vs scheduled sync already rarely collide); for post-ledger contributions select only the latest *prior-date*, signed 4:30 PM ET Performance snapshot and fail closed otherwise. Long-term (the real fix): Postgres/Supabase as system of record, Sheets demoted to one-way export.
 
 ## 7. Legacy Python Robinhood sync fragility — MEDIUM severity, HIGH likelihood
 
@@ -60,5 +61,5 @@ Local Mac, Jetson, Vercel, and the companion's cascading env loading each hold o
 
 ## 12. Agent One v5 mandate gaps — LOW severity (documented), LOW likelihood of surprise
 
-Known-unimplemented: macro regime gate (QQQ/IGV/SOX/10Y), semi cycle gate, exact ATR ladder, NRR ingestion/staged exits, consecutive missing-data counter, portfolio drawdown circuit breakers (8/12/15/20%), margin/guidance credibility-event automation. Also: config keys referenced nowhere (`rebalanceFlagPct`, `prohibitLossToHold`, `maxCashReservePct`), agents 2/3 lack `blockOnStaleData`/`prohibitAveragingDown`, memo says ≥2 kill criteria but code accepts 1.
+Known-unimplemented: broader macro regime inputs (QQQ/IGV/SOX/10Y), semi cycle gate, exact ATR ladder, NRR ingestion/staged exits, consecutive missing-data counter, and margin/guidance credibility-event automation. The shared 8/12/15/20% drawdown breaker and dual-red SPY/rate gate are implemented. The locally hardened scan also applies a strictly downgrade-only Tier-2 ceiling when one macro condition is known red (Agent 1 10%, Agent 2 8%), including when the other feed is unavailable, after risk/conviction and evaluator revision; it is not deployed or live-proven yet. Also: config keys referenced nowhere (`rebalanceFlagPct`, `prohibitLossToHold`, `maxCashReservePct`), agents 2/3 lack `blockOnStaleData`/`prohibitAveragingDown`, memo says ≥2 kill criteria but code accepts 1.
 **Mitigate:** keep the gap list in `config/agents/agent-1/AGENT-ONE-PLAN.md` current; when implementing any v5 item, add its config key AND the code that reads it in one commit; give agents 2/3 the same risk-limit keys before they ever run real money.

@@ -198,9 +198,9 @@ export const MandateScoreObservationSchema = z.object({
     addIssue(["thinPeerSet"], "blended_50_50 and absolute fallback methods require thinPeerSet=true.");
   }
 
-  const freshCriticalInputs = observation.metrics
-    .filter((metric) => metric.thesisCritical)
-    .every((metric) => metric.freshnessState === "fresh");
+  const thesisCriticalMetrics = observation.metrics.filter((metric) => metric.thesisCritical);
+  const freshCriticalInputs = thesisCriticalMetrics.length > 0
+    && thesisCriticalMetrics.every((metric) => metric.freshnessState === "fresh");
   if (observation.actionable) {
     if (!observation.eligible) addIssue(["actionable"], "actionable observations must be eligible.");
     if (observation.coverageMask.length === 0) addIssue(["actionable"], "actionable observations require nonempty coverage.");

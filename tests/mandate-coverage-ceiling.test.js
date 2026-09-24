@@ -99,13 +99,11 @@ test("dropping 13F leaves 85 available — degraded, still actionable, never zer
   assert.ok(result.total < result.uncappedTotal);
 });
 
-test("KNOWN GAP: agent 2's persistence inputs are still not derived anywhere", () => {
-  // Agent 2 reaches 100 above only because the fixture hands it multi-quarter beat
-  // history and growth/EPS persistence counts. lib/mandate-evidence.js explicitly sets
-  // those to null — it will not infer four-quarter persistence from one scalar — and
-  // nothing else derives them, so in production Agent 2's revBeat (8), revGrowth (17)
-  // and epsTrajectory (16) go missing on any name strong enough to reach their top
-  // bands. This test pins that gap so it cannot be mistaken for solved.
+test("Agent 2 remains fail-closed when a persisted bundle lacks its required histories", () => {
+  // A legacy/partial bundle with no EDGAR quarter series still cannot be treated as
+  // evidence. The Agent 2 adapter now derives only sourced revenue YoY continuity;
+  // consensus-dependent three-quarter beats and adjusted-EPS persistence remain
+  // deliberately unbound until their separate policy/source requirements are met.
   const asProduced = {
     ...fullEvidence["agent-2"],
     revBeat: { latestBeatPct: 6 },

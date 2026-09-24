@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { McpReadRequestSchema } from "../contracts/mcp-read-job.js";
-import { enqueueMcpReadRequest, mcpReadInvocationKey, mcpReadQueueKey, mcpReadRequestKey } from "../jobs/mcp-read-requests.js";
+import { assertMcpReadRequestProvenance, enqueueMcpReadRequest, mcpReadInvocationKey, mcpReadQueueKey, mcpReadRequestKey } from "../jobs/mcp-read-requests.js";
 
 test("MCP read requests are typed, scoped, and queued once per invocation", async () => {
   const calls = [];
@@ -56,4 +56,30 @@ test("different holdings slots remain distinct while an earlier request is pendi
   await enqueueMcpReadRequest("holdings-sync", { redis, now: new Date("2026-07-13T15:00:00Z"), invocationId: "2026-07-13/11:00" });
   assert.deepEqual(retained.map((request) => request.invocationId), ["2026-07-13/09:30", "2026-07-13/11:00"]);
   assert.notEqual(retained[0].id, retained[1].id);
+});
+
+test("provenance-bound snapshot writes require the exact durable scheduled request", async () => {
+  const request = {
+    id: "00000000-0000-4000-8000-000000000001",
+    kind: "holdings-sync",
+    requestedAt: "2026-07-13T20:30:00.000Z",
+    requestedForET: "2026-07-13",
+    invocationId: "2026-07-13/16:30",
+  };
+  const redis = { get: async () => JSON.stringify(request) };
+  await assert.doesNotReject(() => assertMcpReadRequestProvenance({
+    kind: "holdings-sync", requestId: request.id, invocationId: request.invocationId, redis,
+  }));
+  await assert.rejects(() => assertMcpReadRequestProvenance({
+    kind: "holdings-sync", requestId: "00000000-0000-4000-8000-000000000002", invocationId: request.invocationId, redis,
+  }), /does not match/);
+  await assert.rejects(() => assertMcpReadRequestProvenance({
+    kind: "order-reconciliation", requestId: request.id, invocationId: request.invocationId, redis,
+  }), /does not match/);
+  await assert.rejects(() => assertMcpReadRequestProvenance({
+    kind: "holdings-sync", requestId: request.id, invocationId: "2026-07-14/16:30", redis,
+  }), /does not match/);
+  await assert.rejects(() => assertMcpReadRequestProvenance({
+    kind: "holdings-sync", requestId: request.id, invocationId: request.invocationId, redis: { get: async () => null },
+  }), /missing or expired/);
 });

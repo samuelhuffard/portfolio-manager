@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
@@ -32,20 +33,113 @@ export function isoWeek(now = new Date()) {
   return `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
 }
 
-/**
- * One-shot rate cap backed by Redis SET NX — returns true exactly once per
- * key+TTL window. Fails CLOSED: if Redis is unreachable we do NOT run the LLM
- * tier (better a skipped triage than an uncounted one).
- */
-export async function acquireRateCap(key, ttlSeconds) {
-  if (!key.startsWith("pm:sysloop:")) throw new Error(`sysloop rate-cap key outside namespace: ${key}`);
-  const redis = getRedis();
-  if (!redis) {
-    console.error("[Sysloop] Redis not configured — refusing to run LLM tier without a rate cap");
+/** A durable marker represents completed work, never merely an attempt. */
+export function isSuccessfulRunMarker(value) {
+  if (!value) return false;
+  try {
+    const marker = typeof value === "string" ? JSON.parse(value) : value;
+    return marker?.state === "success" && typeof marker.completedAt === "string";
+  } catch {
+    // Legacy timestamp-only keys are unproven attempts. Permit a bounded retry
+    // rather than treating an old crash as a successful weekly run.
     return false;
   }
-  const res = await redis.set(key, new Date().toISOString(), { nx: true, ex: ttlSeconds });
-  return res !== null;
+}
+
+// Lock ownership must be checked and changed atomically: an expired lock can
+// be acquired by a new runner between a client-side GET and DEL/SET. Both
+// scripts return 1 only when the exact token still owns the in-flight lock.
+const RELEASE_LEASE_IF_OWNER = `-- PM_SYSLOOP_RELEASE_IF_OWNER
+local marker = redis.call("GET", KEYS[1])
+if not marker then return 0 end
+local ok, parsed = pcall(cjson.decode, marker)
+if not ok or parsed.token ~= ARGV[1] then return 0 end
+return redis.call("DEL", KEYS[1])`;
+
+const COMPLETE_LEASE_IF_OWNER = `-- PM_SYSLOOP_COMPLETE_IF_OWNER
+local marker = redis.call("GET", KEYS[1])
+if not marker then return 0 end
+local ok, parsed = pcall(cjson.decode, marker)
+if not ok or parsed.token ~= ARGV[1] then return 0 end
+redis.call("SET", KEYS[2], ARGV[2], "EX", ARGV[3])
+redis.call("DEL", KEYS[1])
+return 1`;
+
+// INCR creates a key without a TTL. Keep the increment and first-expiry write
+// in one Redis script so an interrupted client cannot leave a period's attempt
+// counter permanent and falsely cap that period forever.
+const INCREMENT_ATTEMPT_WITH_TTL = `-- PM_SYSLOOP_INCREMENT_ATTEMPT_WITH_TTL
+local attempts = redis.call("INCR", KEYS[1])
+if attempts == 1 then redis.call("EXPIRE", KEYS[1], ARGV[1]) end
+return attempts`;
+
+async function releaseLeaseLock({ redis, lockKey, token }) {
+  return (await redis.eval(RELEASE_LEASE_IF_OWNER, [lockKey], [token])) === 1;
+}
+
+/**
+ * Acquire a short in-flight lock for one run. A durable success marker is
+ * written only by completeRunLease(), so a crash releases/retries rather than
+ * consuming the full daily/weekly success window.
+ */
+export async function acquireRunLease({
+  key,
+  successTtlSeconds,
+  lockTtlSeconds,
+  maxAttempts,
+  force = false,
+  redis = getRedis(),
+} = {}) {
+  if (!key?.startsWith("pm:sysloop:")) throw new Error(`sysloop run key outside namespace: ${key}`);
+  if (!redis) {
+    console.error("[Sysloop] Redis not configured — refusing to run LLM tier without a lease");
+    return { lease: null, reason: "redis_unavailable" };
+  }
+  if (!force && isSuccessfulRunMarker(await redis.get(key))) return { lease: null, reason: "already_succeeded", redis };
+
+  const lockKey = `${key}:inflight`;
+  const token = randomUUID();
+  const acquired = await redis.set(lockKey, JSON.stringify({ token, startedAt: new Date().toISOString() }), {
+    nx: true,
+    ex: lockTtlSeconds,
+  });
+  if (acquired === null) return { lease: null, reason: "inflight", redis };
+
+  const attemptsKey = `${key}:attempts`;
+  try {
+    const priorAttempts = Number(await redis.get(attemptsKey) ?? 0);
+    if (!force && Number.isInteger(maxAttempts) && maxAttempts > 0 && priorAttempts >= maxAttempts) {
+      await releaseLeaseLock({ redis, lockKey, token });
+      return { lease: null, reason: "attempt_cap", attempts: priorAttempts, redis };
+    }
+    const attempts = Number(await redis.eval(
+      INCREMENT_ATTEMPT_WITH_TTL,
+      [attemptsKey],
+      [String(successTtlSeconds)],
+    ));
+    return {
+      lease: { redis, key, lockKey, token, successTtlSeconds },
+      reason: null,
+      attempts,
+    };
+  } catch (error) {
+    await releaseLeaseLock({ redis, lockKey, token });
+    throw error;
+  }
+}
+
+export async function completeRunLease(lease) {
+  if (!lease) return false;
+  const marker = JSON.stringify({ state: "success", completedAt: new Date().toISOString() });
+  return (await lease.redis.eval(
+    COMPLETE_LEASE_IF_OWNER,
+    [lease.lockKey, lease.key],
+    [lease.token, marker, String(lease.successTtlSeconds)],
+  )) === 1;
+}
+
+export async function abandonRunLease(lease) {
+  if (lease) await releaseLeaseLock(lease);
 }
 
 const CLAUDE_TIMEOUT_MS = { triage: 5 * 60 * 1000, weekly: 15 * 60 * 1000 };

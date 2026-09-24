@@ -39,6 +39,7 @@ const refreshArgs = (overrides = {}) => ({
   getMetrics: async () => ({}),
   saveMetrics: async () => {},
   getFundamentals: async (ticker) => fundamentals(ticker),
+  getFirstTradeDate: async () => null,
   getCompanyFacts: async () => null,
   getConsensusTrend: async (ticker) => trend(ticker),
   consensusStore: () => true,
@@ -171,9 +172,21 @@ const listing = Array.from({ length: 1200 }, (_, i) => ({ ticker: `T${i}`, name:
 
 const universeArgs = (overrides = {}) => ({
   env: { PEER_METRICS_ENABLED: "1", UNIVERSE_ENRICH_PER_RUN: "2" },
+  // Inject the Redis-backed stores. Without these the job falls back to the
+  // module-level imports and a fully-stubbed unit test still READS and WRITES
+  // the live catalog whenever the process has a populated .env — which on
+  // 2026-09-21 replaced the real 4,487-name production catalog with this
+  // 1,200-name fixture. Never remove these; see tests/universe-refresh-isolation.test.js.
+  readCatalog: async () => ({}),
+  writeCatalog: async () => {},
+  writeStatus: async () => {},
+  readPeerMetrics: async () => ({}),
+  writePeerMetrics: async () => {},
+  readCoverageRequests: async () => ({}),
   getListing: async () => listing,
   getQuotes: async (chunk) => Object.fromEntries(chunk.map((t) => [t, { regularMarketPrice: 10, marketCap: 1e9 }])),
   getFundamentals: async (ticker) => fundamentals(ticker),
+  getFirstTradeDate: async () => null,
   getCompanyFacts: async () => null,
   getConsensusTrend: async (ticker) => trend(ticker),
   consensusStore: () => true,
@@ -192,6 +205,30 @@ test("the nightly universe batch accumulates consensus for the same names it enr
     "every enriched name contributes a consensus observation");
   assert.equal(status.consensusStored, status.consensusObserved);
   assert.equal(written[0].retrievedAt, "2026-08-14T12:00:00.000Z");
+});
+
+test("the nightly universe batch records chart-proven first-trade-date coverage separately from bulk quotes", async () => {
+  const observed = [];
+  const status = await runUniverseRefresh(universeArgs({
+    getFirstTradeDate: async (ticker) => {
+      observed.push(ticker);
+      return 946684800000;
+    },
+  }));
+  assert.equal(status.firstTradeDateTargets, 2);
+  assert.equal(status.firstTradeDatesObserved, 2);
+  assert.equal(status.firstTradeDateCovered, 2);
+  assert.equal(observed.length, 2);
+});
+
+test("a failed first-trade-date lookup is recorded as a retryable gap without aborting the nightly refresh", async () => {
+  const status = await runUniverseRefresh(universeArgs({
+    getFirstTradeDate: async () => { throw new Error("provider unavailable"); },
+  }));
+  assert.equal(status.state, "ok");
+  assert.equal(status.firstTradeDateTargets, 2);
+  assert.equal(status.firstTradeDatesObserved, 0);
+  assert.equal(status.firstTradeDateCovered, 0);
 });
 
 test("a consensus outage in the nightly batch never blocks the catalog refresh", async () => {

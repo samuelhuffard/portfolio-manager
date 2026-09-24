@@ -156,22 +156,25 @@ This register prevents executor models from inventing rules. Accepted decisions 
   reason stays legible. Requires the catalog's new `ftd` (first trade date) field.
 - **Effect:** Agent 3 max available points move 10 → 100.
 
-### Q-009 — Agent 2 multi-quarter persistence inputs (OPEN)
+### Q-009 — Agent 2 multi-quarter persistence inputs (OPEN — partially derived locally)
 
 - Agent 2's rule tables read `beatsInLatestThree`, `minimumBeatPct`,
   `missesInLatestThree`, `positiveQuartersInLatestFour`,
   `positiveMultiQuarterPersistence`, `consecutiveMaterialDecelerations`,
-  `consecutiveQualifyingQuarters`, `consecutiveDeterioratingQuarters`. **Nothing derives
-  any of them.** `lib/mandate-evidence.js` sets them null by design — it will not infer
-  four-quarter persistence from one scalar.
+  `consecutiveQualifyingQuarters`, `consecutiveDeterioratingQuarters`. The local EDGAR
+  adapter now derives only contiguous, sourced revenue YoY observations
+  (`positiveQuartersInLatestFour` and `nonDecelerating`). Consensus beats, materiality,
+  adjusted-EPS persistence, and deterioration remain deliberately null rather than
+  being inferred from GAAP or a single scalar.
 - Because `evaluateCondition` short-circuits `all` on `false` but returns `null` on a
   missing input, this bites hardest on the *strongest* names: a company growing >20%
   reaches the top band, hits the null, and reports missing, while a mediocre one scores.
 - **Effect:** Agent 2 caps at **59** available points — below the 80-point actionability
   bar — so it cannot produce an actionable candidate at all. Pinned by
   `tests/mandate-coverage-ceiling.test.js`.
-- **Blocks:** Agent 2 actionability entirely. Needs a multi-quarter beat/persistence
-  derivation pass over the same EDGAR quarterly series Agent 3 now uses.
+- **Blocks:** Agent 2 actionability entirely. It still needs an approved point-in-time
+  consensus/adjusted-EPS history source and explicit materiality semantics before its
+  remaining persistence inputs can be derived.
 
 ### Q-005 — Score-event materiality thresholds
 

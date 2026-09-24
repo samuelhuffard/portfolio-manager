@@ -56,3 +56,34 @@ export async function enqueueMcpReadRequest(kind, { redis = getRedis(), now = ne
 
 export const requestMcpHoldingsSync = (options) => enqueueMcpReadRequest("holdings-sync", options);
 export const requestMcpOrderReconciliation = (options) => enqueueMcpReadRequest("order-reconciliation", options);
+
+/**
+ * Bind a downstream accounting write to the exact durable request emitted by
+ * the scheduler. Shape-valid CLI flags are not scheduler provenance.
+ */
+export async function assertMcpReadRequestProvenance({ kind, requestId, invocationId, redis = getRedis() } = {}) {
+  const parsedKind = McpReadJobKindSchema.parse(kind);
+  const parsedRequestId = McpReadRequestSchema.shape.id.parse(requestId);
+  const parsedInvocationId = McpReadRequestSchema.shape.invocationId.parse(invocationId);
+  if (!parsedInvocationId) throw new Error("A scheduled MCP invocation ID is required for provenance verification.");
+  if (!redis) throw new Error("Redis is required to verify scheduled MCP request provenance.");
+
+  const raw = await redis.get(mcpReadInvocationKey(parsedKind, parsedInvocationId));
+  if (!raw) throw new Error("Scheduled MCP request provenance is missing or expired; refusing to write a provenance-bound snapshot.");
+  let request;
+  try {
+    request = McpReadRequestSchema.parse(typeof raw === "string" ? JSON.parse(raw) : raw);
+  } catch {
+    throw new Error("Scheduled MCP request provenance is malformed; refusing to write a provenance-bound snapshot.");
+  }
+  const [requestedForET] = parsedInvocationId.split("/");
+  if (
+    request.id !== parsedRequestId
+    || request.kind !== parsedKind
+    || request.invocationId !== parsedInvocationId
+    || request.requestedForET !== requestedForET
+  ) {
+    throw new Error("Scheduled MCP request provenance does not match the snapshot; refusing to write it.");
+  }
+  return request;
+}

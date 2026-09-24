@@ -58,6 +58,12 @@ test("Agent Three requires supported liquidity but does not invent a hard market
   assert.equal(rejected[0].reasonCode, "avg_dollar_volume_unavailable");
 });
 
+test("Agent Three accepts a verified pre-1970 public record", () => {
+  const preEpoch = Date.parse("1962-01-02T00:00:00Z");
+  const result = screenCatalogForAgent("agent-3", [candidate({ ticker: "LEGACY", firstTradeDate: preEpoch })]);
+  assert.equal(result.passed.length, 1);
+});
+
 test("missing critical catalog facts fail closed with stable reason codes", () => {
   assert.equal(
     screenCatalogForAgent("agent-1", [candidate({ marketCap: null })]).rejected[0].reasonCode,

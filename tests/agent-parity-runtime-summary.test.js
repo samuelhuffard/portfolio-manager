@@ -43,6 +43,14 @@ function agent(agentId, overrides = {}) {
       counts: { holdings: 1, movers: 1, ranked: 15, exploration: 3 },
       ticker: "PRIVATE",
     },
+    researchFunnel: {
+      reviewBudget: 12,
+      priorityCandidates: 12,
+      peerReadyCandidates: 9,
+      deferredPriorityCandidates: 4,
+      peerReadyBackfillCandidates: 1,
+      proposalResearchEligibleCandidates: 1,
+    },
     modelCalls: {
       generator: { attempted: 2, succeeded: 2, failed: 0 },
       evaluator: { attempted: 1, succeeded: 1, failed: 0 },
@@ -81,6 +89,15 @@ test("scheduled runtime summary is aggregate-safe and explicitly not organic pro
   assert.equal(summary.agents.every((row) => row.present), true);
   assert.equal(summary.agents.every((row) => row.outcomes.conservationValid), true);
   assert.equal(summary.agents.every((row) => row.modelCalls.generator.conservationValid), true);
+  assert.deepEqual(summary.agents[0].funnel.researchReadiness, {
+    reviewBudget: 12,
+    priorityCandidates: 12,
+    exemptHoldingCandidates: 0,
+    peerReadyCandidates: 9,
+    deferredPriorityCandidates: 4,
+    peerReadyBackfillCandidates: 1,
+    proposalResearchEligibleCandidates: 1,
+  });
   const encoded = JSON.stringify(summary);
   for (const forbidden of ["PRIVATE", "private thesis", "private failure text", "\"ticker\"", "\"rationale\"", "\"error\""]) {
     assert.equal(encoded.includes(forbidden), false, forbidden);

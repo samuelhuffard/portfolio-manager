@@ -2,9 +2,10 @@
 
 **Authority:** canonical portfolio-wide sequence, gates, and current-status index
 
-**Status date:** 2026-07-15 ET
+**Status date:** 2026-09-14 ET
 
-**Human task:** Codex task **HUMAN NEEDED** (`019f625a-3f04-7813-ae8b-0b1b63d5b3a6`)
+**Current release:** Jetson backend `mandate-v3@399693e`; runtime health and the
+scheduled research path were rechecked on 2026-09-14 ET.
 
 This is the one document that answers: what happens next, in what order, whether
 the work proves **TRUST** or **SKILL**, what evidence is required, and what causes
@@ -64,8 +65,9 @@ review updates it.
 1. Agents 1–3 may research and propose; they never execute or approve themselves.
 2. A BUY creates strategy-owned lots. Only the owning specialist may propose a
    SELL or reduction against those lots.
-3. Agent 4 may accept or reject the specialist's exact proposal. It cannot invent
-   a trade, change side/ticker/size, or force a sale.
+3. In the target architecture, Agent 4 may accept or reject the specialist's exact
+   proposal. It cannot invent a trade, change side/ticker/size, or force a sale.
+   **Current authority is shadow-only:** Agent 4 has no live approval authority.
 4. Deterministic controls may block, shrink, expire, or demote. They may never
    upgrade HOLD to BUY, bypass ownership, or manufacture a replacement order.
 5. Only a signed, immutable, current proposal may reach the deterministic
@@ -79,23 +81,44 @@ review updates it.
 The following is a conservative synthesis of repository and recorded production
 evidence. “Verified locally” is not “deployed,” and “deployed” is not “gate passed.”
 
-| Area | Label | Status supported on 2026-07-14 | Evidence / unresolved fact |
+| Area | Label | Status supported on 2026-09-14 | Evidence / unresolved fact |
 | --- | --- | --- | --- |
-| Live authority | TRUST | Human-supervised. Agent 4 is shadow-only. Agents 2/3 are supervised and static-watchlist-bound; they are not catalog-enabled. | [Decision D-003](RESEARCH-DECISION-REGISTER.md) and commit history supersede older “paper-only” wording. |
-| Live release | BOTH | Backend `mandate-v3` runtime is loaded at `e746bd5`: the gate-closing release, signed PM2 deploy-attestation control, and observer identity pinned to the code actually loaded by PM2. Migration `0007_position_quote_provenance.sql` is applied; PM2 is online and `/health` is 200. Dashboard companion contract `bbb5a5c` is loaded by local `portfolio-executor`, which is online with a fresh heartbeat. | Production proof on 2026-07-14. Sam approved the final repository alignment; `origin/mandate-v3` and `origin/main` now share the same current documentation/evidence head. The later documentation-only commits do not change the PM2-pinned runtime identity. |
-| Phase 0 safety window | TRUST | **0/5 clean trading days.** No start may be inferred from service uptime or cleanup completion. | [Observation record](PHASE-0-OBSERVATION.md#exit-evidence-summary). Day 1 remains gated on the final gate-closing release and a clean next-trading-day observation. |
-| Historical production artifacts | TRUST | **Resolved.** Both smoke reconciliation artifacts have signed resolutions; the historic unsigned NVDA approval is rejected/closed. Live Redis has zero open reconciliation records and zero unsigned approved proposals. | Current live verification. Historical rows remain preserved rather than deleted. |
-| Restart investigation | TRUST | **Resolved for the observed count and automated going forward.** The first 40 restarts are manually attributable to controlled deploy/config changes; the immutable July 14 observer correctly retained the missing-marker failure. Restarts 41 and 42 were performed by the reviewed wrapper and accepted through dedicated-key signed exact `40→41` and `41→42` edges. PM2 remains `unstable_restarts=0`, `exit_code=0`, online, timestamped, and saved. | The sentinel atomically consumed each marker while advancing its baseline and then reported no PM2 anomaly. Any unsigned, forged, stale, incomplete, unstable, reset, or non-zero-exit edge remains P1. |
-| Current gate-closing state | BOTH | Transactional parity is an exact production `MATCH`; valuation remains honestly `NON_COMPARABLE` until a content-bound quote snapshot arrives. Restore, observer, cost controls, `$10` protected pool, companion restart, runtime release, and repository alignment are verified. The first scheduled signed observer record exists and correctly marks July 14 `FAIL_BOTH`, safety-day false, research-sample retained. | Phase 0 remains 0/5; the next ordinary trading day is the first candidate Day 1. No immediate repository-hygiene approval remains open. |
-| Research throughput | SKILL | A fresh 2026-07-14 scheduled run conserves all 36 outcomes (35 investment HOLD, 1 stale-data block, zero failures), but still produced zero genuine actionable proposals and zero evaluator approvals. | Outcome accounting is now proven; throughput/edge remains unproven. |
-| Research evidence spine | SKILL | Reviewed evidence-spine code and additive migrations are recorded as deployed at backend `79c778a` and dashboard `76d92b8`; promotion flags remain shadow/measurement-only. | [Jul 14 deployment record](PHASE-0-OBSERVATION.md#2026-07-14-et-reviewed-evidence-spine-deployment). |
-| Research packet implementation | SKILL | Several E1–E4 and E7 pieces are described as verified locally. Their runtime, evidence, and promotion gates remain separate. | [Execution ledger](RESEARCH-ROADMAP-EXECUTION-GUIDE.md#31-verified-local-implementation-ledger). |
+| Live authority | TRUST | Human-supervised. Sam remains the sole live order approver; Agents 1–3 may research and propose, and Agent 4/Kairos is shadow-only. | No proposal, evaluator, signature, broker, ledger, or execution safeguard was broadened by the current research canary. |
+| Live release | BOTH | Backend `mandate-v3@399693e` is loaded by PM2 and `/health` is healthy. The catalog contains 4,493 names; live slates use catalog discovery for all three research agents, not static Agent 2/3 watchlists. | This supersedes the July release/static-watchlist snapshot. The July evidence remains historical evidence, not a claim about today's loaded revision. |
+| Phase 0 safety window | TRUST | The latest retained counted observations ending 2026-09-11 show two consecutive safety-pass days (Sep 10–11); earlier Sep 9 failed. The Sep 14 research-policy release must have its R1/S1 classification and clock effect recorded before any count is carried forward. | Do not claim a 5-day exit or a continuous post-canary safety count until the observer record and release classification support it. |
+| Historical production artifacts and restart controls | TRUST | Previously resolved evidence remains append-only. No new safety, signature, ledger, broker, or reconciliation failure was established by the Sep 14 read-only verification. | Continue daily observer, parity, and reconciliation checks; historical resolution is not a permanent exemption. |
+| Research throughput | SKILL | The latest nine retained scheduled scan receipts contain 97 attempted research decisions: all were `investment_hold`, with zero proposal attempts, evaluator rejects, data-gate blocks, errors, or budget blocks recorded. | This is valid abstention evidence, not a sign that the system is ready to trade. The dominant observed constraint is upstream candidate/data/selection readiness, not a downstream evaluator or broker veto. |
+| Research actionability canary | SKILL | `PEER_FUNDAMENTAL_PROPOSAL_CANARY_SLOTS=1` permits at most one peer-screened research candidate per agent scheduled scan to enter the normal proposal-research path. The first observed run still held all eight candidates. | The canary does not bypass human approval or any downstream safeguard. Its relationship to D-005's partial-score policy needs an explicit decision-register clarification before expansion. |
+| Research readiness and data | SKILL | Latest health evidence reports 324 scored names but zero fully complete mandate records. Local code derives only contiguous Agent 2 EDGAR revenue-YoY continuity; its consensus/adjusted-EPS/materiality inputs stay fail-closed, so the demonstrated partial bundle still maxes at 59 available points. | Data completeness, point-in-time consensus/estimate history, and the remaining Agent 2 persistence semantics are the near-term blockers to a well-evidenced positive proposal. |
+| Local reviewed hardening | BOTH | Aggregate research-funnel reporting, peer-slate persistence, prompt-history fencing, bounded Agent 2 source evidence, macro sizing, and contribution-NAV provenance are implemented locally. Two independent review passes found and resolved P1 gaps; the full backend suite passes 1,050/1,050. Nothing is committed or deployed. | See [research solidification plan](../RESEARCH-SOLIDIFICATION-PLAN.md). This does not create runtime evidence or change authority: release verification needs the normal record, a scheduled request-bound 16:30 snapshot, and clean new funnel receipts. |
+| Research evidence spine | SKILL | Evidence-pack and packet work remains useful only to the extent runtime evidence confirms it; historical local-verification entries do not grant authority. | [Execution ledger](RESEARCH-ROADMAP-EXECUTION-GUIDE.md#31-verified-local-implementation-ledger). |
 | Athena research integration | SKILL | Production consumption remains disabled. Source review of `Cubanso24/stock-llm@483a68b` shows Athena is a broad research and accountability platform, while Portfolio Manager's existing adapter consumes only a small conclusion-first partner dossier and truncates it further for the generator prompt. | [Athena integration and agent-parity plan](ATHENA-INTEGRATION-AND-AGENT-PARITY-PLAN.md). This is a future planning direction, not runtime proof or activation authority. |
 | Financial Postgres | TRUST | Neon is accepted and shadow/dual-write plumbing exists. Sheets/Redis remain canonical for money reads; no cutover gate has passed. | [ADR 0001](adr/0001-postgres-canonical-store.md) and autonomy Phase 2. |
 | Outside capital | TRUST | Software support for investor accounting does **not** establish legal permission to pool or manage outside money. Sam has explicitly chosen to accept interim manual legal risk while continuing to seek counsel; that choice is not a compliance finding. | The legal/tax warning and autonomy restrictions in section 8 remain active. |
 
 Do not promote a status merely because a code path, migration, test, or dashboard
 exists. Promotion requires the phase's listed runtime evidence.
+
+### 4.1 Current sequence and evidence boundary
+
+Historical phase descriptions below remain the intended architecture; this section
+is the current operational index. The next work is deliberately narrow:
+
+1. Decide whether to commit the independently reviewed local hardening set as one
+   reviewable release; do not deploy it from an unrelated dirty worktree.
+2. If released, record the safety/research classification, then verify one scheduled
+   request-bound 16:30 holdings snapshot and the aggregate funnel report on fresh logs.
+3. Record the current one-slot canary's release class and resolve the D-005/D-009
+   policy wording so partial peer-screened research is never mistaken for a weaker
+   evidence standard.
+4. Collect five stable scheduled receipts under that declared policy, then diagnose
+   the funnel from aggregate evidence rather than from individual anecdotes.
+5. Repair the first measured upstream constraint—expected to be mandate-complete
+   data or Agent 2's multi-quarter persistence input—without changing approval,
+   execution, ledger, or evaluator controls.
+6. Prove one naturally occurring end-to-end positive path: evidence-backed
+   specialist proposal, evaluator decision, Kairos shadow record, and Sam's signed
+   disposition. A HOLD remains correct when no candidate clears the evidence bar.
 
 ## 5. Two independent evidence clocks
 
@@ -248,7 +271,7 @@ does not create a new master phase. It refines existing SKILL work as follows:
 | **2 — Durable truth** | Store full Athena evidence packages point-in-time in shadow with fingerprints, provenance, freshness, conflicts, completeness, and restore proof. |
 | **3 — Coverage/score meaning** | Validate Athena's sources and analytical outputs across a golden company set; add paid data only for measured gaps; prove equal catalog/evidence coverage for all specialists. |
 | **4 — Attention/Agent 4 shadow** | Compare current, compact-Athena, and full-package research in shadow/canary; use one shared candidate bus with mandate-specific ranking. |
-| **5 — Compiler/financial truth** | Bind the accepted Athena package fingerprint into the canonical proposal lineage and expand Agents 2/3 beyond static watchlists only through the existing reviewed canary. |
+| **5 — Compiler/financial truth** | Bind the accepted Athena package fingerprint into the canonical proposal lineage and broaden catalog attention only through a separately reviewed canary. |
 | **6–8 — Skill/autonomy evidence** | Grade each mandate separately at its correct horizon while holding all three to the same process, evidence, evaluator, lineage, and authority standards. |
 
 Athena remains a read-only research dependency. Portfolio Manager retains mandate,
@@ -258,7 +281,9 @@ agent-specific skill samples, or the master plan's promotion gates.
 
 ### Phase 0 — Prove the supervised baseline
 
-**Label: BOTH · Status: active at 0/5; G0 complete**
+**Label: BOTH · Status: active; G0 historical gates complete, but the current
+post-canary safety-clock treatment must be recorded before a consecutive count is
+claimed.**
 
 1. **[TRUST]** Freeze S1/S2 behavior after the gate-closing release.
 2. **[TRUST]** Run the daily checklist for five consecutive trading days.
@@ -288,7 +313,8 @@ changed.
 
 **Label: BOTH · Owner: Sam/investing partner for policy; primary reviewer for contracts**
 
-1. **[SKILL]** Resolve Q-001–Q-004 and turn Agent 1/2/3 v3 mandates into exact,
+1. **[SKILL]** Finalize Q-001–Q-003 and Q-009 (Q-004 is resolved), then turn Agent
+   1/2/3 v3 mandates into exact,
    machine-readable policies without inventing missing investing rules.
 2. **[BOTH]** Complete and version Agent 4's objective, accept/reject boundaries, virtual
    strategy-budget bounds, conflict treatment, regime inputs, explanations, and
@@ -338,12 +364,12 @@ cutover and returns financial state to the last proven source.
 
 ### Phase 3 — Converge coverage and validate score meaning
 
-**Label: SKILL · Owner: research/data team; policy inputs from HUMAN NEEDED**
+**Label: SKILL · Owner: research/data team; policy inputs from the decision register**
 
 1. **[SKILL]** Classify at least 95% of the eligible catalog and give at least 90% a fresh
    score or a stable explicit reason it cannot be scored.
 2. **[SKILL]** Implement special-sector economics and Agent 1/2/3 evidence adapters only from
-   accepted Q-001–Q-004 definitions.
+   accepted Q-001–Q-004 and Q-009 definitions.
 3. **[SKILL]** Separate true economic changes from coverage, peer-set, restatement, retry, and
    version changes.
 4. **[SKILL]** Resolve Q-005 before positive-canary materiality is enabled.
@@ -398,7 +424,8 @@ new research cohort.
    expiry, and owned SELL-lot references for every actionable proposal.
 4. **[TRUST]** Mirror canonical contracts mechanically to dashboard and companion; prove drift
    guards and reject every bypass path.
-5. **[BOTH]** Expand Agents 2/3 from static watchlists only through a reviewed catalog canary.
+5. **[BOTH]** Broaden catalog attention only through a separately reviewed canary;
+   the current one-slot peer-screened canary is evidence, not authority to expand.
 6. **[TRUST]** Cut canonical money reads to Postgres only after Phase 2's 30-day parity and
    restore/crash gates; Sheets becomes reporting-only after cutover proof.
 
@@ -442,7 +469,7 @@ Poor Agent 4 alignment returns it to shadow even if infrastructure remains healt
 
 ### Phase 7 — Cash challenger and durable edge program
 
-**Label: SKILL · Owner: research lead; Q-006/Q-007 from HUMAN NEEDED**
+**Label: SKILL · Owner: research lead; Q-006/Q-007 from the decision register**
 
 1. **[SKILL]** After Q-006, challenge prolonged cash with evidence-backed alternatives and
    explicit rejection reasons; never force a BUY.
@@ -486,29 +513,30 @@ authority leakage and retains immediate deterministic demotion.
 authority immediately; skill decay reduces capital/attention or returns affected
 strategies to shadow pending new evidence.
 
-## 8. HUMAN NEEDED and outside-capital gates
+## 8. Human decisions and outside-capital gates
 
-The visible Codex task **HUMAN NEEDED** owns the human follow-up. Its durable
-questionnaires are [RESEARCH-POLICY-QUESTIONNAIRE.md](human-inputs/RESEARCH-POLICY-QUESTIONNAIRE.md)
+The durable questionnaires are [RESEARCH-POLICY-QUESTIONNAIRE.md](human-inputs/RESEARCH-POLICY-QUESTIONNAIRE.md)
 and [SAM-SYSTEM-OWNER-QUESTIONNAIRE.md](human-inputs/SAM-SYSTEM-OWNER-QUESTIONNAIRE.md).
 Accepted answers belong in the [decision register](RESEARCH-DECISION-REGISTER.md),
-not only in chat.
+not only in chat. A task identifier is not a source of truth for whether a
+decision remains open.
 
 | ID | Label | Human owner | Decision | Blocks |
 | --- | --- | --- | --- | --- |
-| [Q-001](RESEARCH-DECISION-REGISTER.md) | SKILL | Sam + investing partner | Agent 1 balance-sheet definitions and fallbacks | Actionable Agent 1 balance-sheet scoring |
+| [Q-001](RESEARCH-DECISION-REGISTER.md) | SKILL | Sam + investing partner | Agent 1 balance-sheet definitions and fallbacks | Provisionally accepted; partner review remains needed before final mandate freeze. |
 | [Q-002](RESEARCH-DECISION-REGISTER.md) | SKILL | Sam + investing partner | Current-estimate maximum age | Estimate actionability |
 | [Q-003](RESEARCH-DECISION-REGISTER.md) | BOTH | Sam + investing partner | Entry quote/relative-volume age and session policy | Exact entry actionability |
-| [Q-004](RESEARCH-DECISION-REGISTER.md) | SKILL | Sam + investing partner | Optional vs thesis-critical consensus/13F evidence | Agent evidence completeness |
+| [Q-004](RESEARCH-DECISION-REGISTER.md) | SKILL | Resolved 2026-08-02 | Optional vs thesis-critical consensus/13F evidence | Resolved: 13F/ownership contributes to full coverage but is not a hard veto. |
 | [Q-005](RESEARCH-DECISION-REGISTER.md) | SKILL | Sam + investing partner after shadow calibration | Per-agent score/rank/metric materiality | Positive canary selection |
+| [Q-009](RESEARCH-DECISION-REGISTER.md) | SKILL | Sam + investing partner | Agent 2 multi-quarter persistence derivation and fallback | Agent 2 cannot reach its normal actionability threshold without it. |
 | [Q-006](RESEARCH-DECISION-REGISTER.md) | SKILL | Sam + investing partner | Cash measure, duration, regimes, cooldown, horizon | Cash challenger |
 | [Q-007](RESEARCH-DECISION-REGISTER.md) | SKILL | Sam + investing partner/accounting input | Base/stressed spread, slippage, tax scope | Net historical results and edge claims |
 
 During Phase 0, Sam owns scheduling one focused session with the investing partner
-for Q-001–Q-004 and mandate ambiguities. The accepted answers must be recorded in
-the decision register before Phase 1 can exit; no meeting or no recorded answer
-means the affected capability remains blocked rather than receiving an inferred
-default. The HUMAN NEEDED task is the visible inbox for arranging and closing it.
+for Q-001–Q-003, Q-005, Q-009, and mandate ambiguities. The accepted answers must
+be recorded in the decision register before the affected Phase 1 work can exit; no
+meeting or no recorded answer means the affected capability remains blocked rather
+than receiving an inferred default.
 
 ### Legal/tax/outside-capital warning and autonomy gate — active now
 
@@ -586,7 +614,8 @@ Do not during the freeze:
   reconciliation, critical schedules, observer pass semantics, or authority flags;
 - tune live mandate/prompts/thresholds without declaring an R1 release and opening a
   new research cohort;
-- activate positive canary/live selection, Agent 4 authority, or outside-capital work.
+- broaden the current one-slot peer-screened research canary, grant Agent 4
+  authority, or activate outside-capital work.
 
 ## 12. Standing demotion and release protocol
 
@@ -624,6 +653,8 @@ Do not during the freeze:
 | [INVARIANTS.md](INVARIANTS.md) | Non-negotiable implementation safety rules. |
 | [CHANGE_MAP.md](CHANGE_MAP.md) | Code ownership/copy map, not roadmap status. |
 
-The next action is the first eligible Phase 0 trading-day observation. The next
-promotion is Phase 0 exit. Later-phase code
+The next action is Sam's local commit decision for the independently reviewed
+hardening set. Only after a normal release record may the team verify the
+request-bound 16:30 snapshot and collect stable funnel receipts under the declared
+one-slot canary policy. The next promotion remains Phase 0 exit; later phase code
 may exist or be prepared, but it does not change that ordering.

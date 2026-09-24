@@ -36,17 +36,18 @@ import { writePortfolioSnapshot } from "../lib/portfolio-snapshot.js";
 import { getServiceAccountClients, getSheetIds, resolveSharedSpreadsheetId } from "../lib/sheets.js";
 import { runResearchScan } from "../jobs/research-scan.js";
 import { withWorkflowLock } from "../lib/workflow-lock.js";
-import { McpReadRequestSchema } from "../contracts/mcp-read-job.js";
+import { assertMcpReadRequestProvenance } from "../jobs/mcp-read-requests.js";
 import { buildMcpHoldingsQuoteSnapshot, parseMcpHoldingsInput } from "../lib/mcp-holdings-input.js";
+import { parseMcpSnapshotProvenanceArgs } from "../lib/mcp-snapshot-provenance.js";
 
 const shouldRunScan = process.argv.includes("--scan");
-const requestIdFlag = process.argv.indexOf("--request-id");
-const sourceRequestId = requestIdFlag >= 0 ? process.argv[requestIdFlag + 1] : null;
-if (requestIdFlag >= 0 && !sourceRequestId) {
-  console.error("--request-id requires a request UUID.");
+let sourceRequestId, sourceInvocationId;
+try {
+  ({ sourceRequestId, sourceInvocationId } = parseMcpSnapshotProvenanceArgs(process.argv.slice(2)));
+} catch (error) {
+  console.error(error instanceof Error ? error.message : error);
   process.exit(1);
 }
-if (sourceRequestId) McpReadRequestSchema.shape.id.parse(sourceRequestId);
 
 const raw = await new Promise((resolve, reject) => {
   let buf = "";
@@ -79,6 +80,13 @@ try {
 const timestamp = new Date().toISOString();
 
 const snapshot = await withWorkflowLock("holdings-sync", async () => {
+  if (sourceRequestId) {
+    await assertMcpReadRequestProvenance({
+      kind: "holdings-sync",
+      requestId: sourceRequestId,
+      invocationId: sourceInvocationId,
+    });
+  }
   const { sheets, drive } = getServiceAccountClients();
   const spreadsheetId = await resolveSharedSpreadsheetId(sheets, drive);
   const sheetIds = await getSheetIds(sheets, spreadsheetId);
@@ -95,6 +103,7 @@ const snapshot = await withWorkflowLock("holdings-sync", async () => {
     holdingsNote: "Synced via Robinhood Agentic MCP",
     quoteSnapshot: buildMcpHoldingsQuoteSnapshot(timestamp),
     sourceRequestId,
+    sourceInvocationId,
   });
 }, { ttlSeconds: 5 * 60 });
 
@@ -103,6 +112,6 @@ holdings.forEach((h) => console.log(`  ${h.ticker}: ${h.shares} shares @ $${h.av
 
 if (shouldRunScan) {
   console.log("Starting all-agent research scan against the updated cash balance...");
-  await runResearchScan();
+  await runResearchScan({ source: "manual" });
   console.log("All-agent research scan complete. BUY proposals were capped by available idle cash.");
 }

@@ -7,6 +7,8 @@ import {
   applyQuotes,
   dropJunk,
   selectEnrichmentBatch,
+  selectFirstTradeDateRefreshBatch,
+  buildCatalogCensus,
   toScreenerCandidates,
 } from "../lib/universe.js";
 
@@ -96,6 +98,18 @@ test("selectEnrichmentBatch prioritizes never-enriched (largest first), then sta
   assert.deepEqual(selectEnrichmentBatch(catalog, { perRun: 3, now }), ["BIGN", "SMLN", "STAL"]);
 });
 
+test("first-trade-date refresh prioritizes never-attempted liquid catalog names, then stale attempts", () => {
+  const now = new Date("2026-07-05T00:00:00Z");
+  const catalog = {
+    BIG: { t: "BIG", mc: 100e9 },
+    SMALL: { t: "SMALL", mc: 1e9 },
+    STALE: { t: "STALE", mc: 50e9, fda: "2026-05-01" },
+    RESOLVED: { t: "RESOLVED", mc: 200e9, ftd: 946684800000, fda: "2026-05-01" },
+    FRESH: { t: "FRESH", mc: 50e9, fda: "2026-07-01", ftd: 1 },
+  };
+  assert.deepEqual(selectFirstTradeDateRefreshBatch(catalog, { perRun: 3, now }), ["BIG", "SMALL", "STALE"]);
+});
+
 test("toScreenerCandidates exposes one shared fact row per listing without requiring sector enrichment", () => {
   const catalog = {
     GOOD: { t: "GOOD", n: "Good", s: "Technology", i: "Software - Application", v: "Software/SaaS", mc: 2e9, advd: 5e6, p: 10, c52: 42, ea: "2026-07-01" },
@@ -109,4 +123,13 @@ test("toScreenerCandidates exposes one shared fact row per listing without requi
   assert.equal(candidates[0].fiftyTwoWeekChangePct, 42);
   assert.equal(candidates[1].ticker, "UNKW");
   assert.equal(candidates[1].marketCap, null);
+});
+
+test("catalog census reports only verifiable first-trade-date coverage", () => {
+  const census = buildCatalogCensus({
+    GOOD: { t: "GOOD", ftd: 946684800000 },
+    MISSING: { t: "MISSING", ftd: null },
+    MALFORMED: { t: "MALFORMED", ftd: "2000-01-01" },
+  });
+  assert.equal(census.firstTradeDateCovered, 1);
 });

@@ -4,16 +4,16 @@ Personal follow-up list for Sam. Not a system-loop artifact (see `ops/FIXLIST.md
 for those) — just things to come back to.
 
 
-- [ ] **AGENT 2 CANNOT PRODUCE AN ACTIONABLE CANDIDATE (Q-009).** Its rule tables read
-      eight multi-quarter beat/persistence inputs that nothing derives —
-      `lib/mandate-evidence.js` sets them null by design rather than infer four-quarter
-      persistence from one scalar. Agent 2 therefore caps at **59** available points,
+- [ ] **AGENT 2 CANNOT PRODUCE AN ACTIONABLE CANDIDATE (Q-009).** The local EDGAR
+      adapter now derives only contiguous revenue-YoY history, while consensus beats,
+      adjusted-EPS persistence, and mandate materiality stay null rather than being
+      guessed from incompatible sources. Agent 2 therefore still caps at **59** available points,
       below the 80-point bar. Worse, `evaluateCondition` short-circuits `all` on `false`
       but returns `null` on a missing input, so this bites the *strongest* names: a
       company growing >20% reaches the top band, hits the null and scores missing, while
       a mediocre one scores fine. Pinned by `tests/mandate-coverage-ceiling.test.js`.
-      Fix is a multi-quarter persistence pass over the same EDGAR series
-      `lib/agent3-history.js` already walks.
+      Remaining fix is an approved point-in-time consensus/adjusted-EPS history source
+      plus explicit persistence/materiality semantics; do not substitute GAAP EPS.
 
 - [ ] **VERIFY THE TWO EXTERNAL HOSTS FROM THE JETSON.** Neither could be reached from
       the sandbox this work was written in, so both paths are unexercised:
@@ -73,15 +73,10 @@ for those) — just things to come back to.
       mandate goals — rather than switching from process-only to performance-
       weighted purely on a calendar trigger.
 
-- [ ] **Wire a real Tier-2 size cap for the single-red macro condition.** As of
-      `jobs/research-scan.js`'s deterministic dual-red gate, a single red macro
-      condition (SPY below 200-day OR rate pressure, not both) is flagged with a
-      mandatory override note but doesn't actually cap position size at Tier 2 —
-      Agent 1 has a live conviction/tier clamp (`lib/conviction.js`,
-      `assessConviction`) that could enforce this; Agent 2 has no equivalent
-      live tier-cap mechanism yet, only the shadow one in
-      `config/agents/mandate-policy.js`'s `score.tiers`. Needs that clamp built
-      for Agent 2 (and decide whether Agent 3, which treats macro as
-      informational only, should be involved at all) before this can be a real
-      enforced cap instead of just a flagged note. See the commit that added
-      `lib/macro-regime.js` for full context.
+- [x] **Wire a real Tier-2 size cap for the single-red macro condition.** The
+      scheduled research path now applies `applySingleRedMacroTierCap()` after
+      risk/conviction handling and on evaluator revisions. It uses each
+      agent's `config/agents/mandate-policy.js` Tier-2 upper bound: Agent 1
+      10%, Agent 2 8%; Agent 3 remains macro-informational. Unknown macro data,
+      dual-red conditions, HOLDs, and SELLs are unchanged. See
+      `lib/macro-regime.js` for the pure downgrade-only implementation.

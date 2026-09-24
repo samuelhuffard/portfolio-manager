@@ -2,12 +2,26 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { runShadowResearchSlate } from "../jobs/shadow-research-slate.js";
+import { buildPrivateResearchSlateItems } from "../jobs/research-scan.js";
 import { getPrivateResearchSlate, setPrivateResearchSlate, setResearchDataStatus, setShadowSelectionStatus } from "../lib/redis.js";
 
 const NOW = "2026-07-13T20:00:00.000Z";
 const CONFIG = { mode: "shadow", policyVersion: "research-selection-v1", canarySlots: 0, explorationSlots: 1, maxSectorShare: 1 };
 const UNIVERSE = { aiReviewBudget: 3, researchCooldownDays: 14 };
-const observation = (ticker, agentId = "agent-1") => ({ id: `observation-${agentId}-${ticker}`, ticker, agentId, observedAt: NOW, score: 80 });
+const observation = (ticker, agentId = "agent-1") => ({
+  id: `observation-${agentId}-${ticker}`, runId: "run-fixture", observedAt: NOW, agentId,
+  mandateId: "agent_one", mandateVersion: "3.0", mandateUniverseVersion: "eligible-us-operating-common-equities-v3",
+  productionUniversePolicyVersion: "catalog-technology-subverticals-v1", scoringConfigVersion: "fixture-score-v1",
+  codeRevision: "fixture-revision", ticker, universeSnapshotId: "universe-fixture", eligible: true,
+  eligibilityReasonCodes: [], score: 80, uncappedScore: 80, rawPoints: 80, maxAvailablePoints: 100,
+  complete: true, actionable: true, coverageMask: ["earnings_quality", "growth"], missingMetrics: [],
+  criticalMissingMetrics: [], fallbackMethod: "peer_relative", thinPeerSet: false, peerSetId: "peer-fixture",
+  peerSetLevel: "industry", peerCount: 12, specialSectorKey: null, scoreCause: "filing",
+  inputSnapshotId: "evidence-fixture", metrics: [
+    { metricId: "earnings_quality", value: 0.8, unit: "decimal_ratio", points: 40, maxPoints: 50, source: "fixture", sourceDocumentId: "fixture-document", sourceFiledAt: NOW, sourceAsOf: NOW, retrievedAt: NOW, freshnessState: "fresh", peerCount: 12, calculationMethod: "fixture", thesisCritical: true, missingReason: null },
+    { metricId: "growth", value: 0.8, unit: "decimal_ratio", points: 40, maxPoints: 50, source: "fixture", sourceDocumentId: "fixture-document", sourceFiledAt: NOW, sourceAsOf: NOW, retrievedAt: NOW, freshnessState: "fresh", peerCount: 12, calculationMethod: "fixture", thesisCritical: true, missingReason: null },
+  ],
+});
 const BASELINE_PROVENANCE = { agentId: "agent-1", sourceRunId: "research-scan-1", capturedAt: NOW };
 
 test("missing private baseline is explicit, status-only, and writes no empty selection", async () => {
@@ -51,6 +65,17 @@ test("private baseline drives a real advisory comparison while preserving the li
   assert.equal(persisted.run.selectionPolicy.comparator.overlap.nonHoldingCount, 2);
   assert.equal(JSON.stringify(persisted.run.selectionPolicy.comparator).includes("HELD"), false);
   assert.equal(JSON.stringify(persisted.run.selectionPolicy.comparator).includes("NEW"), false);
+  assert.deepEqual(persisted.run.selectionPolicy.candidateDossierReadiness, {
+    version: "actionable-candidate-dossier-shadow-v2",
+    mode: "shadow_only",
+    evaluatedCount: 3,
+    readyForDeepResearchCount: 3,
+    blockedCount: 0,
+    invalidObservationCount: 0,
+    observationsInputInvalid: false,
+    assessmentUnavailableCount: 0,
+    reasonCodeCounts: {},
+  });
 });
 
 test("stable and exploration paths retain agent-scoped observation lineage and count rejected candidates", async () => {
@@ -103,11 +128,46 @@ test("health never reads the private baseline, and the live scan never imports e
   const scan = readFileSync(new URL("../jobs/research-scan.js", import.meta.url), "utf8");
   assert.doesNotMatch(health, /getPrivateResearchSlate|pm:research-slate:private/);
   assert.doesNotMatch(scan, /shadow-research-slate|selectEvidenceSlate|research-selection\.json/);
-  assert.match(scan, /setPrivateResearchSlate\(agent\.id, \[\.\.\.toReview\.keys\(\)\]/);
-  assert.ok(scan.indexOf("await applyResearchRecords(agent.id, researchRecords)") < scan.indexOf("await setPrivateResearchSlate(agent.id"));
+  assert.match(scan, /buildPrivateResearchSlateItems\(peerScoredToReview, reviewBuckets\)/);
+  assert.ok(scan.indexOf("await applyResearchRecords(agent.id, researchRecords)") < scan.indexOf("await setPrivateResearchSlate("));
   assert.doesNotMatch(scan.slice(0, scan.indexOf("const toReview = new Map()")), /setPrivateResearchSlate\(agent\.id/);
   assert.match(health, /researchStoreConfigured\(\)/);
   assert.match(health, /resolveResearchCodeRevision/);
+});
+
+test("private research baseline contains only peer-scored candidates actually reviewed", () => {
+  const prePeerSelection = new Map([
+    ["DEFERRED", { ticker: "DEFERRED" }],
+    ["REVIEWED", { ticker: "REVIEWED" }],
+  ]);
+  const peerScoredSelection = new Map([["REVIEWED", { ticker: "REVIEWED" }]]);
+  const buckets = new Map([["DEFERRED", "ranked"], ["REVIEWED", "exploration"]]);
+  assert.deepEqual(buildPrivateResearchSlateItems(peerScoredSelection, buckets), [{ ticker: "REVIEWED", bucket: "exploration" }]);
+  assert.notDeepEqual(buildPrivateResearchSlateItems(peerScoredSelection, buckets), [...prePeerSelection.keys()].map((ticker) => ({
+    ticker,
+    bucket: buckets.get(ticker),
+  })));
+  assert.throws(() => buildPrivateResearchSlateItems([], buckets), /must be Maps/);
+});
+
+test("peer-ready backfills retain valid private-slate provenance instead of an undefined original bucket", async () => {
+  const reviewed = new Map([
+    ["PRIORITY", { ticker: "PRIORITY" }],
+    ["BACKFILL", { ticker: "BACKFILL" }],
+  ]);
+  const buckets = new Map([["PRIORITY", "ranked"]]);
+  const items = buildPrivateResearchSlateItems(reviewed, buckets);
+  assert.deepEqual(items, [
+    { ticker: "PRIORITY", bucket: "ranked" },
+    { ticker: "BACKFILL", bucket: "peer_ready_backfill" },
+  ]);
+
+  const values = new Map();
+  const redis = { async set(key, value) { values.set(key, value); } };
+  const persisted = await setPrivateResearchSlate("agent-1", items, {
+    sourceRunId: "scan-backfill", redis, now: () => new Date(NOW),
+  });
+  assert.equal(persisted.items[1].bucket, "peer_ready_backfill");
 });
 
 test("stale, future, and incomplete baseline provenance fail closed without a durable selection", async () => {
