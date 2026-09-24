@@ -1,6 +1,6 @@
 # Agent One Pitch Lab — Working Plan
 
-**Status:** DRAFT, 2026-09-24. **Reference, not binding.** This is a direction
+**Status:** DRAFT, 2026-09-24 (decisions updated same day). **Reference, not binding.** This is a direction
 to think against, not a gate. Steps can be reordered, skipped, or dropped as we
 learn. It does not override `docs/INVARIANTS.md` or the hard rules in
 `CLAUDE.md`, and it grants no trading authority.
@@ -16,10 +16,11 @@ data, lots, history, and mandates stay where they are.
 ## 1. The shift in one paragraph
 
 Stop trying to make Agent One produce one perfect, fully evidenced proposal.
-Instead, have it pitch **many stocks, in small units**, record every part of
+Instead, have it make **many small, buy-only paper pitches** on stocks of any
+size, record every part of
 every pitch in a structured form, let the market grade the pitches, and then
 use statistics, AI review, and our own judgment to find which parts of the
-pitch actually predict results. The mandate becomes a hypothesis we test and
+pitch actually predict gains over Agent One's short-term holding window. The mandate becomes a hypothesis we test and
 revise, not a fixed rulebook.
 
 ## 2. What we keep, what we simplify, where the gaps are
@@ -71,8 +72,8 @@ afterwards.
 
 - **Identity:** pitch id, ticker, timestamp, mandate version, prompt version,
   model id, data snapshot versions.
-- **Call:** direction (long / avoid / short if we allow it), conviction (1–5),
-  intended holding period, entry reference price and its timestamp.
+- **Call:** BUY (the only direction), conviction (1–5), intended holding
+  period, entry reference price and its timestamp.
 - **Features, each with its value, whether it was missing, and its "as of" date:**
   every mandate metric (revenue beat, revenue growth, EPS trajectory, estimate
   revisions, margin trend, peer valuation, balance sheet, institutional
@@ -86,8 +87,9 @@ afterwards.
 
 ## 4. How pitches get graded
 
-- Fixed horizons, decided in advance: for example 5, 10, and 20 trading days,
-  matching Agent One's days-to-weeks mandate.
+- Fixed horizons, decided in advance and never changed after a pitch is made.
+  **The horizon is still open (decision D-1 below).** Agent One's mandate is
+  days-to-weeks, so candidates are something like 5, 10, and 20 trading days.
 - Return **relative to a benchmark** (sector ETF or SPY) after assumed costs,
   so a rising market does not make every pitch look good.
 - Also record the result if the mandate's own exit rules had been followed (ATR
@@ -130,7 +132,7 @@ A regular cycle, perhaps every two weeks:
 1. **Isolate Agent One.** Done: Agents Two and Three frozen.
 2. **Define the pitch record** (section 3) as a contract in `contracts/` and a
    Postgres table. Add it on top of existing tables; do not replace them.
-3. **Pitch loop.** Agent One pitches N stocks per day as paper pitches. Features
+3. **Pitch loop.** Agent One makes N buy-only paper pitches per day. Features
    are logged whether or not the old gates would have passed.
 4. **Grading job.** Mature pitches at each horizon; write graded outcomes.
 5. **Website hookup.** The new site reads pitches, outcomes, and analysis
@@ -150,22 +152,35 @@ A regular cycle, perhaps every two weeks:
 - Pitch and outcome records are append-only.
 - Missing data is recorded as missing, never invented.
 
-## 8. Open questions
+## 8. Decisions
 
-1. **Paper or real?** This plan assumes pitches are paper (tracked, not
-   traded) until we choose otherwise. Is that right?
-2. **"Micro level":** many small pitches, or a focus on small- and micro-cap
-   companies, or both? Agent One's mandate currently has a $300M micro-cap
-   tier with a lower liquidity bar.
-3. **Volume:** roughly how many pitches per day, and what model spend per
-   month is acceptable?
-4. **Pitch direction:** long only, or also "avoid" / short calls? Negative
-   calls double what we learn from each stock reviewed.
-5. **Website:** which stack, where will it live (new repo, or this repo's
-   companion dashboard), and does it only read data or can it also write
-   (for example, our manual grades or notes on a pitch)?
-6. **Who reflects:** is the human review Sam plus the investing partner, and
-   how often?
-7. **Master-plan authority:** `CLAUDE.md` calls the master plan the single
-   north star. Should it get a short note pointing here while this experiment
-   runs?
+### Made (2026-09-24)
+
+- **Paper money.** Pitches are tracked, never traded, and never enter the
+  proposal queue.
+- **Many small pitches, any company size.** "Micro" means small units of
+  learning, not micro-cap stocks. The universe is not limited by market cap
+  beyond the mandate's existing liquidity rules.
+- **Buy only.** No avoid or short calls. To still learn about the stocks that
+  were not pitched, keep a small random exploration slice (section 5) and
+  grade it the same way.
+- **Short-term mindset.** Agent One's existing days-to-weeks style stays the
+  frame. Gains are measured over a fixed short window (D-1).
+
+### Still to answer
+
+- **D-1: Grading time frame.** Over what window do we measure a pitch's gain?
+  One horizon or several (for example 5, 10, 20 trading days)? Is the result
+  the raw return at a fixed date, or the return had the mandate's exit rules
+  (ATR stop, dead-trade timer) been followed? Which benchmark (SPY, sector
+  ETF)? This must be fixed before the first pitch is graded.
+- **D-2: Volume and spend.** Roughly how many pitches per day, and what monthly
+  model spend is acceptable? This sets how fast we reach the hundreds of
+  graded pitches the statistics need.
+- **D-3: Website.** Which stack, where it will live, and whether it only reads
+  data or can also write (our own grades or notes on a pitch).
+- **D-4: Review cadence.** Who does the human review (Sam and the investing
+  partner?), and how often?
+- **D-5: Master-plan authority.** `CLAUDE.md` calls the master plan the single
+  north star. Should it get a short note pointing here while this experiment
+  runs?
